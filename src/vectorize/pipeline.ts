@@ -215,7 +215,7 @@ export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
   const traced = traceLabels(map, o.trace)
   let { svg } = traced
   const { paths, shapes } = traced
-  if (text?.layers.length) svg = layersToSvg([...traced.layers, ...text.layers], map.w, map.h)
+  if (text?.layers.length) svg = layersToSvg([...(knockout ? punchLetters(traced.layers, text.holes) : traced.layers), ...text.layers], map.w, map.h)
   return {
     svg,
     inks: q.inks,
@@ -232,13 +232,13 @@ export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
 
 /**
  * Swaps traced letters for font outlines. Each word's letter color is the color under the
- * placed letters, and its background the color around the word. Stacked output erases the
- * traced letters (their pixels take the background) and draws the outlines on top. Knockout
- * output (print plates, cut files) can't overlap, so the outlines' exact coverage is written into
- * the color map instead and traced like everything else.
+ * placed letters, and its background the color around the word. The traced letters are erased
+ * (their pixels take the background) and the outlines are drawn on top; knockout output (print
+ * plates, cut files) also gets the letters cut out of the background shape (punchLetters).
  */
-function applyText(map: LabelMap, text: TextOptions, knockout: boolean): { map: LabelMap; layers: TracedLayer[]; words: number } {
+function applyText(map: LabelMap, text: TextOptions, knockout: boolean): { map: LabelMap; layers: TracedLayer[]; words: number; holes: { color: number; box: [number, number, number, number]; d: string }[] } {
   const { w, h } = map
+  const holes: { color: number; box: [number, number, number, number]; d: string }[] = []
   const labels = map.labels.slice()
   const second = map.second.slice()
   const cov = map.cov.slice()
@@ -303,22 +303,51 @@ function applyText(map: LabelMap, text: TextOptions, knockout: boolean): { map: 
       for (let x = x0; x < x1; x++) {
         const p = y * w + x
         const a = text.coverage[p] / 255
-        if (!knockout) {
-          // Erase the traced letters; the outlines are drawn on top.
-          if (traced(x, y)) [labels[p], second[p], cov[p]] = [bg, 255, 1]
-          else if (map.second[p] === ink && a > 0) [second[p], cov[p]] = [255, 1]
-          continue
-        }
-        // Knockout: write the outlines' exact coverage into the map instead.
-        if (a > 0) {
-          if (a >= 0.5) [labels[p], second[p], cov[p]] = [ink, bg, a]
-          else [labels[p], second[p], cov[p]] = [bg, ink, 1 - a]
-        } else if (traced(x, y)) [labels[p], second[p], cov[p]] = [bg, 255, 1]
+        // Erase the traced letters; the outlines are drawn on top.
+        if (traced(x, y)) [labels[p], second[p], cov[p]] = [bg, 255, 1]
+        else if (map.second[p] === ink && a > 0) [second[p], cov[p]] = [255, 1]
       }
-    if (!knockout) layers.push({ color: map.colors[ink], d: word.letters.map((l) => l.d).join(''), shapes: word.letters.map((l) => l.d), text: { word: word.text, font: word.font, letters: word.letters.map((l) => l.char) } })
+    layers.push({ color: map.colors[ink], d: word.letters.map((l) => l.d).join(''), shapes: word.letters.map((l) => l.d), text: { word: word.text, font: word.font, letters: word.letters.map((l) => l.char) } })
+    if (knockout) holes.push({ color: map.colors[bg], box: word.box, d: word.letters.map((l) => l.d).join('') })
     words++
   }
-  return { map: { ...map, labels, second, cov }, layers, words }
+  return { map: { ...map, labels, second, cov }, layers, words, holes }
+}
+
+/**
+ * Knockout output can't overlap, so each word's letters are cut out of the shape behind them,
+ * exactly (even-odd: the letters become holes, their own counters stay filled). The shape is the
+ * smallest one of the background color that encloses the word.
+ */
+function punchLetters(layers: TracedLayer[], holes: { color: number; box: [number, number, number, number]; d: string }[]): TracedLayer[] {
+  const bounds = (d: string) => {
+    const n = (d.match(/-?\d*\.?\d+/g) ?? []).map(Number)
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (let i = 0; i + 1 < n.length; i += 2) {
+      x0 = Math.min(x0, n[i]); x1 = Math.max(x1, n[i]); y0 = Math.min(y0, n[i + 1]); y1 = Math.max(y1, n[i + 1])
+    }
+    return [x0, y0, x1, y1]
+  }
+  const out = layers.map((l) => ({ ...l, shapes: l.shapes ? [...l.shapes] : undefined }))
+  for (const hole of holes) {
+    const [wx0, wy0, wx1, wy1] = hole.box
+    let best: { layer: number; shape: number; area: number } | null = null
+    out.forEach((l, li) => {
+      if (l.text || l.color !== hole.color) return
+      ;(l.shapes ?? [l.d]).forEach((d, si) => {
+        const [x0, y0, x1, y1] = bounds(d)
+        if (x0 > wx0 || y0 > wy0 || x1 < wx1 || y1 < wy1) return
+        const area = (x1 - x0) * (y1 - y0)
+        if (!best || area < best.area) best = { layer: li, shape: si, area }
+      })
+    })
+    if (!best) continue
+    const { layer, shape } = best as { layer: number; shape: number }
+    const l = out[layer]
+    if (l.shapes) l.shapes[shape] += hole.d
+    l.d += hole.d
+  }
+  return out
 }
 
 export interface TraceResult {

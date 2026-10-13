@@ -58,12 +58,13 @@ export default function App() {
   const [importedPalette, setImportedPalette] = useState<Palette | null>(loadSavedPalette)
   const palette = importedPalette ?? DEMO_PALETTE
 
-  const tracers = useRef<{ vtracer: Tracer; flat: FlatTracer }>(null)
+  const tracers = useRef<{ vtracer: Tracer; flat: FlatTracer; plates: FlatTracer }>(null)
   useEffect(() => {
-    tracers.current = { vtracer: new Tracer(), flat: new FlatTracer() }
+    tracers.current = { vtracer: new Tracer(), flat: new FlatTracer(), plates: new FlatTracer() }
     return () => {
       tracers.current?.vtracer.dispose()
       tracers.current?.flat.dispose()
+      tracers.current?.plates.dispose()
     }
   }, [])
   const enhancer = useRef<Enhancer>(null)
@@ -168,26 +169,30 @@ export default function App() {
 
   // ---------- Tracing ----------
   const kind = detection ? (client.style === 'auto' ? detection.kind : client.style) : 'flat'
-  // Only flat art changes shape with the purpose; photos and pixel art trace the same for all.
-  const knockout = client.purpose !== 'web' && purposeAffectsTrace(kind, inks.enabled)
+  // Print plates and cut files need shapes that don't overlap (knockout), but where two such shapes
+  // meet, screens show a hairline seam. So the preview (and SVG) always stacks shapes, and the
+  // knockout version is traced only when a print PDF or cut file is made.
+  const plates = client.purpose !== 'web' && purposeAffectsTrace(kind, inks.enabled)
   const { detail, corners, maxColors, keepBlends, exactShapes, gradients } = client
-  const job = useMemo(() => {
+  const buildJob = useMemo(() => {
     if (!input || !source) return null
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
-    return buildTraceJob(input, source.width, {
-      trace: traceParamsFor(kind, c),
-      prep: prepFor(kind, c),
-      spot: { settings: inks, palette },
-      removeColors: removed,
-      transparent,
-      knockout,
-      keepBlends,
-      exactShapes,
-      gradients,
-      brand,
-      lettering: letteringWords,
-    })
-  }, [input, source, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, knockout, brand, letteringWords])
+    return (knockout: boolean) =>
+      buildTraceJob(input, source.width, {
+        trace: traceParamsFor(kind, c),
+        prep: prepFor(kind, c),
+        spot: { settings: inks, palette },
+        removeColors: removed,
+        transparent,
+        knockout,
+        keepBlends,
+        exactShapes,
+        gradients,
+        brand,
+        lettering: letteringWords,
+      })
+  }, [input, source, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
+  const job = useMemo(() => buildJob?.(false) ?? null, [buildJob])
 
   // Recent results, so going back to a previous setting (e.g. Print → Website → Print) is instant.
   const cache = useRef(new Map<string, TraceResult>())
@@ -245,6 +250,11 @@ export default function App() {
     const baseName = source.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-') || 'vector'
     return downloadsFor(client.purpose, {
       svg: result.svg,
+      plateSvg: plates && buildJob ? async () => {
+            // Its own worker, so making a file never interrupts the preview.
+            const t = tracers.current!
+            return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true), source, inks.enabled)).svg
+          } : undefined,
       width: result.width,
       height: result.height,
       baseName,
@@ -252,7 +262,7 @@ export default function App() {
       spotNames: inks.enabled ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name])) : null,
       flat: !!chips && chips.length <= 16,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips])
+  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob])
 
   const download = async (d: Download) => {
     try {

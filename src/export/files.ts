@@ -13,6 +13,8 @@ export interface Download {
 
 export interface DownloadInput {
   svg: string
+  /** The same artwork with non-overlapping (knockout) shapes, for print plates and cut files. */
+  plateSvg?: () => Promise<string>
   /** Coordinate space of the SVG paths. */
   width: number
   height: number
@@ -37,7 +39,7 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
       detail: input.flat ? 'Each color on its own plate, named for your printer' : 'Full-color vector PDF',
       filename: `${baseName}-print.pdf`,
       make: async () => {
-        const all = shapesFromSvg(input.svg)
+        const all = shapesFromSvg((await input.plateSvg?.()) ?? input.svg)
         // Flat art uses knockout shapes, so merging per color is safe; photos stack and must keep order.
         const shapes = input.flat ? mergeByColor(all) : all
         const inks = shapes.map((shape) => ({
@@ -57,7 +59,7 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
       detail: 'Outlines for laser cutters and plotters, one layer per color',
       filename: `${baseName}-cut.dxf`,
       make: async () => {
-        const all = shapesFromSvg(input.svg)
+        const all = shapesFromSvg((await input.plateSvg?.()) ?? input.svg)
         const shapes = input.flat ? mergeByColor(all) : all
         let g = 0
         // A gradient is cut from one material, so it's one layer.

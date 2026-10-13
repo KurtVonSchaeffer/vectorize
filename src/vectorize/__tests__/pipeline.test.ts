@@ -137,12 +137,16 @@ describe('runFlat', () => {
     expect(r.palette.map((p) => colorName(p.color))).toEqual(['Cream', 'Navy'])
   })
 
-  it('writes font letters into print plates instead of overlapping them', () => {
+  it('keeps font letters as outlines in print plates, cut exactly out of the background', () => {
     const r = runFlat(lettered(), opts({ text: textFor(), trace: { ...opts().trace, mode: 'knockout' } }))
     expect(r.lettered).toBe(1)
-    expect(r.svg).not.toMatch(/Text_/)
+    expect(r.svg).toMatch(/<path id="Text_I_1_I" d="M20 10L30 10L30 50L20 50Z"/)
+    // The cream background has the letter's exact outline as a hole, so plates don't overlap.
+    const cream = r.svg.match(/<g data-color="#FFF8E7">([\s\S]*?)<\/g>/)?.[1] ?? ''
+    expect(cream).toContain('M20 10L30 10L30 50L20 50Z')
+    // The period is still traced; the traced "I" is gone.
     const navy = r.svg.match(/<g data-color="#2B2D42">([\s\S]*?)<\/g>/)?.[1] ?? ''
-    expect((navy.match(/<path/g) ?? []).length).toBe(2) // the rebuilt "I" and the period
+    expect((navy.match(/<path/g) ?? []).length).toBe(1)
   })
 
   it('finds exactly the three real colors and the background', () => {
