@@ -98,6 +98,9 @@ export type TraceJob =
   | { kind: 'vtracer'; image: ImageData; params: TraceParams; scale: number; background: number | null }
   | { kind: 'flat'; image: ImageData; options: FlatOptions; scale: number }
 
+/** Outlines smaller than this (px²) are dropped by the flat tracer. */
+const TRACE_MIN_AREA = 2
+
 export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSettings): TraceJob {
   const { trace, prep, spot } = s
   const spotOn = !!spot?.settings.enabled
@@ -145,7 +148,10 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       },
       trace: {
         smoothing: trace.smoothing,
-        minArea: speckArea,
+        // Noise is removed from the colour map (which keeps real small detail); the tracer only
+        // drops near-empty outlines left by smoothing.
+        minArea: Math.min(speckArea, TRACE_MIN_AREA),
+        detailArea: speckArea,
         error: trace.curveTolerance,
         cornerAngle: trace.cornerThreshold,
         precision: trace.pathPrecision,

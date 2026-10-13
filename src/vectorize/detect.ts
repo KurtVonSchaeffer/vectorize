@@ -1,3 +1,4 @@
+import { rgbToLab } from '../palette/color'
 import { findGradients } from '../palette/gradients'
 
 export type ArtKind = 'flat' | 'photo' | 'lineart' | 'pixel'
@@ -10,6 +11,11 @@ export interface Detection {
   background: number | null
   /** Smooth gradients found (flat art); they can be kept as SVG gradients. */
   gradients: number
+  /**
+   * How much of the artwork is fine strokes (0–1): the share of its ink that a 1 px erosion
+   * removes. Hairlines and small text are near 1; large shapes only lose their rim.
+   */
+  fine: number
 }
 
 const SAMPLE = 200
@@ -17,7 +23,8 @@ const SAMPLE = 200
 /**
  * Guesses what kind of artwork an image is, so clients never have to pick a preset:
  * - pixel: small, with hard edges (almost every pixel is one of a few exact colors);
- * - lineart: gray ink on paper (two tones, little color);
+ * - lineart: gray or black ink of varying tone on light paper (scans, sketches); flat digital
+ *   artwork in one ink colour stays flat, which keeps that exact colour;
  * - photo: colors spread over many shades (photos, painterly art);
  * - flat: everything else (logos, illustrations, badges), including flat art with smooth
  *   gradients: those spread over many shades too, but each is explained by one gradient.
@@ -57,7 +64,7 @@ export function detectArt(img: ImageData): Detection {
 
   const hasAlpha = transparent > 0
   const background = edgeBackground(img)
-  if (!total) return { kind: 'flat', hasAlpha, background, gradients: 0 }
+  if (!total) return { kind: 'flat', hasAlpha, background, gradients: 0, fine: 0 }
 
   const topShare = (m: Map<number, number>, k: number) =>
     [...m.values()].sort((a, b) => b - a).slice(0, k).reduce((s, v) => s + v, 0) / total
@@ -66,7 +73,13 @@ export function detectArt(img: ImageData): Detection {
   // Pixel art: small, with hard edges, so pixels on a boundary are one color or the other,
   // never a mix. A small anti-aliased logo has mixed edge pixels and stays flat (smooth curves).
   if (Math.max(w, h) <= 256 && softEdgeShare(img) < 0.15) kind = 'pixel'
-  else if (gray / total >= 0.95 && extremes / total >= 0.85 && dark / total > 0.005 && dark / total < 0.6) kind = 'lineart'
+  else if (gray / total >= 0.8 && extremes / total >= 0.85 && dark / total > 0.005 && dark / total < 0.6) {
+    // Judge the ink, not the whole image: the paper dominates most pictures, so a small coloured
+    // accent or a tinted dark colour would otherwise be lost to black ink.
+    const ink = inkStats(img, step, hasAlpha ? null : (background ?? dominant(exact)))
+    // Uniform ink is flat digital art; it's only drawn as black line art when it's black already.
+    if (ink.neutral >= 0.9 && (ink.uniform < 0.7 || ink.lightness <= BLACK_INK)) kind = 'lineart'
+  }
   let gradients = 0
   if (kind === 'flat') {
     const sample = sampled(img, step)
@@ -77,7 +90,88 @@ export function detectArt(img: ImageData): Detection {
       gradients = 0
     }
   }
-  return { kind, hasAlpha, background, gradients }
+  return { kind, hasAlpha, background, gradients, fine: fineShare(img, hasAlpha ? null : (background ?? dominant(exact))) }
+}
+
+/**
+ * The share of ink (pixels clearly unlike the paper, or opaque on transparent art) that has a
+ * non-ink pixel among its 8 neighbours. Large images are read every `step` pixels, which only
+ * happens when their features are large anyway.
+ */
+function fineShare(img: ImageData, paper: number | null): number {
+  const step = Math.max(1, Math.ceil(Math.max(img.width, img.height) / 1600))
+  const w = Math.ceil(img.width / step)
+  const h = Math.ceil(img.height / step)
+  const d = img.data
+  const pr = paper === null ? 0 : (paper >> 16) & 255
+  const pg = paper === null ? 0 : (paper >> 8) & 255
+  const pb = paper === null ? 0 : paper & 255
+  const ink = new Uint8Array(w * h)
+  let count = 0
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = (y * step * img.width + x * step) * 4
+      if (d[i + 3] < 128) continue
+      if (paper !== null && Math.max(Math.abs(d[i] - pr), Math.abs(d[i + 1] - pg), Math.abs(d[i + 2] - pb)) <= 40) continue
+      ink[y * w + x] = 1
+      count++
+    }
+  if (count < w * h * 0.002) return 0
+  let edge = 0
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      if (!ink[y * w + x]) continue
+      let rim = x === 0 || y === 0 || x === w - 1 || y === h - 1
+      for (let dy = -1; dy <= 1 && !rim; dy++) for (let dx = -1; dx <= 1 && !rim; dx++) if (!ink[(y + dy) * w + x + dx]) rim = true
+      if (rim) edge++
+    }
+  return edge / count
+}
+
+/** The most common exact colour among the samples. */
+function dominant(exact: Map<number, number>): number {
+  let best = 0
+  let n = -1
+  for (const [k, v] of exact) if (v > n) [best, n] = [k, v]
+  return best
+}
+
+/** Lab chroma below this is neutral (gray/black) ink. Black is 0; a dark navy like #2b2d42 is 14. */
+const NEUTRAL_CHROMA = 10
+/** Ink at most this light (L*, about #303030) is near-black, as scanned or printed black ink is. */
+const BLACK_INK = 20
+
+/**
+ * The ink: sampled pixels clearly unlike the paper (or, on transparent art, all opaque pixels).
+ * `neutral` is the share of ink with little colour. `uniform` is the share of solid ink (far from
+ * the paper) within a small distance of its median colour: flat digital art is close to 1,
+ * scanned or drawn ink, whose tone varies, is lower. `lightness` is the solid ink's median L*.
+ */
+function inkStats(img: ImageData, step: number, paper: number | null): { neutral: number; uniform: number; lightness: number } {
+  const { width: w, height: h, data: d } = img
+  const pr = paper === null ? 0 : (paper >> 16) & 255
+  const pg = paper === null ? 0 : (paper >> 8) & 255
+  const pb = paper === null ? 0 : paper & 255
+  let ink = 0
+  let neutral = 0
+  const solid: number[] = []
+  for (let y = 0; y < h; y += step)
+    for (let x = 0; x < w; x += step) {
+      const i = (y * w + x) * 4
+      if (d[i + 3] < 128) continue
+      const r = d[i], g = d[i + 1], b = d[i + 2]
+      const diff = paper === null ? 255 : Math.max(Math.abs(r - pr), Math.abs(g - pg), Math.abs(b - pb))
+      if (diff <= 48) continue
+      ink++
+      const [, A, B] = rgbToLab([r, g, b])
+      if (Math.hypot(A, B) < NEUTRAL_CHROMA) neutral++
+      if (diff > 96) solid.push((r << 16) | (g << 8) | b)
+    }
+  if (!ink) return { neutral: 0, uniform: 1, lightness: 100 }
+  const median = (shift: number) => solid.map((c) => (c >> shift) & 255).sort((a, b) => a - b)[solid.length >> 1] ?? 0
+  const [mr, mg, mb] = [median(16), median(8), median(0)]
+  const near = solid.filter((c) => Math.max(Math.abs(((c >> 16) & 255) - mr), Math.abs(((c >> 8) & 255) - mg), Math.abs((c & 255) - mb)) <= 16).length
+  return { neutral: neutral / ink, uniform: solid.length ? near / solid.length : 1, lightness: rgbToLab([mr, mg, mb])[0] }
 }
 
 /** Every `step`-th pixel, as a small image. */

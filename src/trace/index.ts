@@ -40,6 +40,13 @@ export interface TraceOptions {
   spread?: number
   /** Replace outlines that are circles, ellipses, stars or polygons with exact geometry. */
   exactShapes?: boolean
+  /**
+   * Shapes and holes smaller than this (but at least `minArea`) are kept only when they contain
+   * a pixel that really is their colour (or, for a hole, really isn't): real detail such as a
+   * letter counter or a full stop does, while slivers left by edge blending where colours meet
+   * don't. Defaults to `minArea`.
+   */
+  detailArea?: number
 }
 
 /** Exact shapes made, plus how many merged outlines were split into overlapping shapes. */
@@ -208,8 +215,10 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
       if (inLayer(r2)) m += 1 - cov[p]
       field[p] = m
     }
-    const smooth = blur(field, w, h, opts.smoothing)
-    const loops = contours(smooth, w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
+    const smooth = keepThin(blur(field, w, h, opts.smoothing), w, h, level, opts.smoothing)
+    const all = contours(smooth, w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
+    const isOwn = (p: number) => labels[p] < 254 && inLayer(rank[labels[p]])
+    const loops = all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
     if (!loops.length) continue
     const label = order[layer]
     // Drop fragments of this color that a split shape below already draws in full.
@@ -413,6 +422,95 @@ function toPath(curves: Cubic[], fmt: (v: number) => number): string {
   for (const c of curves) d += `C${p(c[1])} ${p(c[2])} ${p(c[3])}`
   return d + 'Z'
 }
+
+/**
+ * Whether a small outline holds real pixels: an island must contain a pixel whose own colour is
+ * in this layer, a hole (inside an odd number of the layer's other outlines) one whose isn't.
+ */
+function realDetail(loop: Point[], all: Point[][], w: number, h: number, isOwn: (p: number) => boolean): boolean {
+  let depth = 0
+  for (const other of all) if (other !== loop && insideLoop(loop[0], other)) depth++
+  const hole = depth % 2 === 1
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const [x, y] of loop) {
+    if (x < x0) x0 = x
+    if (y < y0) y0 = y
+    if (x > x1) x1 = x
+    if (y > y1) y1 = y
+  }
+  // Pixel (x, y) has its centre at (x + 0.5, y + 0.5).
+  for (let y = Math.max(0, Math.ceil(y0 - 0.5)); y <= Math.min(h - 1, Math.floor(y1 - 0.5)); y++)
+    for (let x = Math.max(0, Math.ceil(x0 - 0.5)); x <= Math.min(w - 1, Math.floor(x1 - 0.5)); x++)
+      if (insideLoop([x + 0.5, y + 0.5], loop) && isOwn(y * w + x) !== hole) return true
+  return false
+}
+
+/** Even-odd point-in-polygon test. */
+function insideLoop([px, py]: Point, poly: Point[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+/**
+ * Smoothing lowers features narrower than the blur: a 1 px stroke peaks below 0.5 and would
+ * vanish at the usual contour level. For a stroke of width a, blurred to a peak P, the level that
+ * outlines it at width a is ½·erf(2·erfinv(P)), whatever the blur. So near a thin ridge (local
+ * peak P < 1) the field is shifted to put that level where `level` is; thin gaps (local minimum
+ * above 0) get the mirror-image shift. Wide shapes have P ≈ 1 and stay exactly as they were.
+ * Ridges weaker than THIN_MIN are left alone, so faint smudges don't become lines, and so are
+ * ridges without clean ground around them (within THIN_GROUND of 0, or of 1 for gaps).
+ */
+function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: number): Float32Array {
+  const r = Math.max(2, Math.round(2 * sigma + 0.5))
+  const out = new Float32Array(s)
+  const scale = level / 0.5
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      // Contours only pass where the field is between its extremes; elsewhere nothing changes.
+      if (s[p] <= 0.02 || s[p] >= 0.98) continue
+      let P = 0
+      let low = 1
+      for (let j = Math.max(0, y - r); j <= Math.min(h - 1, y + r); j++)
+        for (let i = Math.max(0, x - r); i <= Math.min(w - 1, x + r); i++) {
+          const v = s[j * w + i]
+          if (v > P) P = v
+          if (v < low) low = v
+        }
+      const V = 1 - low
+      // A real stroke stands on clean ground on both sides (a gap between solid areas); a low,
+      // wide plateau of partial coverage, as JPEG noise between similar colours leaves, doesn't.
+      if (P >= THIN_MIN && P < THIN_MAX && low <= THIN_GROUND) out[p] = s[p] + level - scale * widthLevel(P)
+      else if (V >= THIN_MIN && V < THIN_MAX && P >= 1 - THIN_GROUND) out[p] = s[p] + scale * widthLevel(V) - level
+    }
+  return out
+}
+
+const THIN_MIN = 0.25
+const THIN_MAX = 0.97
+const THIN_GROUND = 0.05
+
+/** ½·erf(2·erfinv(P)), tabulated: the contour level that keeps a blurred stroke's true width. */
+const WIDTH_LEVEL = (() => {
+  const erf = (x: number) => {
+    // Abramowitz & Stegun 7.1.26 (|error| < 1.5e-7).
+    const t = 1 / (1 + 0.3275911 * Math.abs(x))
+    const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x)
+    return x < 0 ? -y : y
+  }
+  const erfinv = (v: number) => {
+    let x = 0
+    for (let i = 0; i < 40; i++) x -= (erf(x) - v) / ((2 / Math.sqrt(Math.PI)) * Math.exp(-x * x))
+    return x
+  }
+  return Float32Array.from({ length: 1001 }, (_, i) => (i === 1000 ? 0.5 : 0.5 * erf(2 * erfinv(i / 1000))))
+})()
+const widthLevel = (P: number) => WIDTH_LEVEL[Math.round(Math.min(1, Math.max(0, P)) * 1000)]
 
 /** Separable Gaussian blur; edges clamp. sigma ≤ 0 returns the input. */
 export function blur(src: Float32Array, w: number, h: number, sigma: number): Float32Array {

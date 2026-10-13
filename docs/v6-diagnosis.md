@@ -18,7 +18,7 @@ Reproduce:
 | One setting changed at a time | `/bench/diagnose.html?style=flat&ablate=1` |
 | Heavy JPEG (quality 40) | add `&q=0.4` |
 
-Unit-level reproductions are in `src/vectorize/__tests__/known-issues.test.ts`. They're marked `it.fails`, so they fail loudly once fixed.
+Unit-level reproductions were in `src/vectorize/__tests__/known-issues.test.ts` (as `it.fails`). Each became a regular regression test when its fix landed. See [v6-results.md](v6-results.md) for what was fixed and the measured results.
 
 ## Findings, by impact
 

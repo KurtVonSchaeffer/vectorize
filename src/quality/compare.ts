@@ -1,3 +1,5 @@
+import { deltaE2000, rgbToLab } from '../palette/color'
+
 /**
  * Measures how closely a candidate raster (e.g. a rendered SVG) matches a reference (the
  * original artwork). Pure and deterministic; both images must be aligned RGBA of the same size.
@@ -261,4 +263,75 @@ function regions(mask: Uint8Array, w: number, h: number, minArea: number): Regio
     if (area >= minArea) out.push({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, area })
   }
   return out.sort((p, q) => q.area - p.area)
+}
+
+export interface ColourMatch {
+  /** A reference colour and the colour the candidate shows where it is, as #RRGGBB. */
+  reference: string
+  candidate: string
+  /** CIEDE2000 difference between the two. */
+  deltaE: number
+  /** Share of the image's solid pixels in this colour. */
+  share: number
+}
+
+export interface ColourFidelity {
+  colours: ColourMatch[]
+  /** Area-weighted mean and the largest ΔE over the reference colours. */
+  meanDeltaE: number
+  maxDeltaE: number
+  /** Pairs of noticeably different reference colours (ΔE ≥ 2) shown as one colour (ΔE < 1). */
+  merged: number
+}
+
+/**
+ * How faithfully the candidate keeps the reference's flat colours. Each exact reference colour
+ * covering at least `minShare` of the solid pixels (opaque, with all 8 neighbours the same
+ * colour, so anti-aliasing is ignored) is compared, in ΔE2000, with the candidate's mean colour
+ * over those same pixels. Meant for references with exact flat colours (rendered artwork); a
+ * JPEG reference has few exactly repeated colours, so few or none are reported.
+ */
+export function colourFidelity(reference: ArrayLike<number>, candidate: ArrayLike<number>, width: number, height: number, minShare = 0.002): ColourFidelity {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new RangeError(`Image size must be positive whole numbers, not ${width}×${height}`)
+  const n = width * height
+  if (reference.length !== n * 4 || candidate.length !== n * 4) throw new RangeError(`Expected ${n * 4} RGBA values for ${width}×${height}`)
+  const key = (d: ArrayLike<number>, p: number) => (d[p * 4 + 3] < 255 ? -1 : (d[p * 4] << 16) | (d[p * 4 + 1] << 8) | d[p * 4 + 2])
+  const sums = new Map<number, [number, number, number, number]>()
+  let solid = 0
+  for (let y = 1; y < height - 1; y++)
+    for (let x = 1; x < width - 1; x++) {
+      const p = y * width + x
+      const k = key(reference, p)
+      if (k < 0 || candidate[p * 4 + 3] < 255) continue
+      let same = true
+      for (let dy = -1; dy <= 1 && same; dy++) for (let dx = -1; dx <= 1 && same; dx++) if (key(reference, p + dy * width + dx) !== k) same = false
+      if (!same) continue
+      solid++
+      const s = sums.get(k) ?? [0, 0, 0, 0]
+      s[0] += candidate[p * 4]
+      s[1] += candidate[p * 4 + 1]
+      s[2] += candidate[p * 4 + 2]
+      s[3]++
+      sums.set(k, s)
+    }
+  const hex = (r: number, g: number, b: number) => '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase()
+  const found = [...sums]
+    .filter(([, s]) => s[3] >= solid * minShare)
+    .map(([k, s]) => {
+      const ref: [number, number, number] = [(k >> 16) & 255, (k >> 8) & 255, k & 255]
+      const out: [number, number, number] = [s[0] / s[3], s[1] / s[3], s[2] / s[3]]
+      return { ref, out, match: { reference: hex(...ref), candidate: hex(...out), deltaE: deltaE2000(rgbToLab(ref), rgbToLab(out)), share: s[3] / Math.max(1, solid) } }
+    })
+    .sort((a, b) => b.match.share - a.match.share)
+  let merged = 0
+  for (let i = 0; i < found.length; i++)
+    for (let j = i + 1; j < found.length; j++)
+      if (deltaE2000(rgbToLab(found[i].ref), rgbToLab(found[j].ref)) >= 2 && deltaE2000(rgbToLab(found[i].out), rgbToLab(found[j].out)) < 1) merged++
+  const total = found.reduce((s, f) => s + f.match.share, 0)
+  return {
+    colours: found.map((f) => f.match),
+    meanDeltaE: total ? found.reduce((s, f) => s + f.match.deltaE * f.match.share, 0) / total : 0,
+    maxDeltaE: found.reduce((m, f) => Math.max(m, f.match.deltaE), 0),
+    merged,
+  }
 }

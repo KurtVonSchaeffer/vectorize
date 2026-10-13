@@ -15,7 +15,7 @@ import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
-import { DEFAULT_CLIENT, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
+import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
@@ -179,7 +179,7 @@ export default function App() {
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
     return (knockout: boolean) =>
       buildTraceJob(input, source.width, {
-        trace: traceParamsFor(kind, c),
+        trace: traceParamsFor(kind, c, detection ? detailBoost(detection, source.width, source.height) : undefined),
         prep: prepFor(kind, c),
         spot: { settings: inks, palette },
         removeColors: removed,
@@ -191,7 +191,7 @@ export default function App() {
         brand,
         lettering: letteringWords,
       })
-  }, [input, source, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
+  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
   const job = useMemo(() => buildJob?.(false) ?? null, [buildJob])
 
   // Recent results, so going back to a previous setting (e.g. Print → Website → Print) is instant.

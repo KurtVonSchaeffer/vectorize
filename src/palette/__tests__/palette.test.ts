@@ -184,7 +184,7 @@ describe('quantizeToPalette', () => {
     expect(q.inks.map((i) => i.swatch.name).sort()).toEqual(['Ink Blue', 'Ink Green', 'Ink Red'])
   })
 
-  it('removes specks below minArea but keeps a thin line', () => {
+  it('removes noise specks below minArea but keeps small solid detail and a thin line', () => {
     const w = 60
     const h = 40
     const d = new Uint8ClampedArray(w * h * 4)
@@ -192,12 +192,14 @@ describe('quantizeToPalette', () => {
       for (let x = 0; x < w; x++) {
         let c = [220, 30, 40]
         if (y === 20) c = [20, 60, 200] // 1px line across the whole image
-        if (x >= 10 && x < 12 && y >= 5 && y < 7) c = [20, 60, 200] // 2×2 speck
+        if (x >= 10 && x < 12 && y >= 5 && y < 7) c = [99, 46, 128] // 2×2 smudge: a half-blend, nearer blue
+        if (x >= 30 && x < 32 && y >= 5 && y < 7) c = [20, 60, 200] // 2×2 solid blue dot: real detail
         d.set([...c, 255], (y * w + x) * 4)
       }
     const q = quantizeToPalette(new ImageData(d, w, h), palette, { ...DEFAULT_INKS, enabled: true, maxInks: 2 }, 9)
     const blueAt = (x: number, y: number) => q.image.data[(y * w + x) * 4 + 2] === 200
     expect(blueAt(10, 5)).toBe(false)
+    expect(blueAt(30, 5)).toBe(true)
     expect(Array.from({ length: w }, (_, x) => blueAt(x, 20)).every(Boolean)).toBe(true)
   })
 

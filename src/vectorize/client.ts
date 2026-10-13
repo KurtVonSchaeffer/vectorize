@@ -1,4 +1,4 @@
-import type { ArtKind } from './detect'
+import type { ArtKind, Detection } from './detect'
 import { DEFAULT_PREP, PRESETS, type PrepParams, type TraceParams } from './params'
 
 export type Purpose = 'print' | 'web' | 'cut'
@@ -25,15 +25,40 @@ export interface ClientSettings {
 
 export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true }
 
+/**
+ * Per-image additions to the Detail slider, from what the image is like. Measured on the
+ * diagnostic set: artwork made mostly of fine strokes (hairlines, small text) keeps more of its
+ * detail with tighter curve fitting, and tiny images with a smaller speck size; neither gains
+ * from lower colour merging, which only lets JPEG noise in as extra colours, so that stays with
+ * the slider. The slider still moves every setting; these are added on top.
+ */
+export interface DetailBoost {
+  curves: number
+  specks: number
+}
+export const NO_BOOST: DetailBoost = { curves: 0, specks: 0 }
+
+export function detailBoost(det: Detection, width: number, height: number): DetailBoost {
+  return { curves: det.fine >= FINE_ART ? 0.25 : 0, specks: Math.max(width, height) <= TINY_IMAGE ? 0.25 : 0 }
+}
+
+/** Fine-stroke share (see Detection.fine) from which artwork counts as fine. */
+const FINE_ART = 0.85
+/** Longest side (px) up to which an image counts as tiny. */
+const TINY_IMAGE = 160
+
 const preset = (id: string) => PRESETS.find((p) => p.id === id)!.trace
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
 /** Engine parameters for an artwork kind and the client's two sliders. */
-export function traceParamsFor(kind: ArtKind, s: ClientSettings): TraceParams {
-  const d = Math.min(1, Math.max(0, s.detail))
-  const c = Math.min(1, Math.max(0, s.corners))
+export function traceParamsFor(kind: ArtKind, s: ClientSettings, boost: DetailBoost = NO_BOOST): TraceParams {
+  const clamp = (v: number) => Math.min(1, Math.max(0, v))
+  const d = clamp(s.detail)
+  const dc = clamp(s.detail + boost.curves)
+  const ds = clamp(s.detail + boost.specks)
+  const c = clamp(s.corners)
   const curves = {
-    curveTolerance: Math.max(0.2, lerp(0.9, 0.1, d)),
+    curveTolerance: Math.max(0.2, lerp(0.9, 0.1, dc)),
     cornerThreshold: Math.round(lerp(135, 35, c)),
     smoothing: +lerp(1.3, 0.5, c).toFixed(2),
   }
@@ -42,13 +67,13 @@ export function traceParamsFor(kind: ArtKind, s: ClientSettings): TraceParams {
       return {
         ...preset('detailed'),
         layerDifference: Math.round(lerp(16, 2, d)),
-        filterSpeckle: Math.round(lerp(6, 1, d)),
+        filterSpeckle: Math.round(lerp(6, 1, ds)),
         cornerThreshold: curves.cornerThreshold,
       }
     case 'pixel':
       return preset('pixel')
     case 'lineart':
-      return { ...preset('lineart'), ...curves, filterSpeckle: Math.round(lerp(5, 1, d)) }
+      return { ...preset('lineart'), ...curves, filterSpeckle: Math.round(lerp(5, 1, ds)) }
     case 'flat':
     default:
       return {
@@ -56,7 +81,7 @@ export function traceParamsFor(kind: ArtKind, s: ClientSettings): TraceParams {
         ...curves,
         colors: s.maxColors ?? 12,
         colorMerge: Math.round(lerp(16, 4, d)),
-        filterSpeckle: Math.round(lerp(6, 1, d)),
+        filterSpeckle: Math.round(lerp(6, 1, ds)),
       }
   }
 }

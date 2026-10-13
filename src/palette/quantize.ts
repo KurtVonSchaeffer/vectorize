@@ -119,7 +119,8 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   const clustered = labs.length ? kmeans(labs, weights, k) : { centers: [], assign: new Int32Array(0) }
   const interior = interiorShare(src, bins, clustered.assign, clustered.centers.length, paper)
   const pruned = opts.keepBlends ? clustered : dropBlendClusters(clustered.centers, clustered.assign, labs, weights, opts.whiteIsPaper, interior)
-  const merged = mergeSimilar(pruned.centers, labs, weights, opts.mergeDelta, opts.maxColors)
+  const apart = separateRegions(src, bins, pruned.assign, pruned.centers, paper, opts.mergeDelta, fixed)
+  const merged = mergeSimilar(pruned.centers, labs, weights, opts.mergeDelta, opts.maxColors, apart)
   const centers = pureCenters(merged.centers, merged.assign, bins, sum, count)
   // Final assignment by nearest color in RGB, consistent with how edges blend.
   const assign = nearestRgb(centers, bins, sum, count)
@@ -213,7 +214,7 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
     }
   }
   let clean = majorityFilter(majorityFilter(labels, w, h), w, h)
-  if (opts.minArea > 1) removeSpecks(clean, w, h, opts.minArea)
+  if (opts.minArea > 1) removeSpecks(clean, w, h, opts.minArea, (members, label, around) => isDetail(members, label, around, d, labelRgb))
   // Pixels relabeled by cleanup no longer carry meaningful blend information.
   for (let p = 0; p < clean.length; p++) {
     if (clean[p] !== labels[p]) {
@@ -409,8 +410,10 @@ function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Fl
  * Merges the closest pair of clusters (CIEDE2000) while they're closer than `delta` or there
  * are more than `maxCount`, then reassigns every color to its nearest center.
  */
-function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: number, maxCount: number): { centers: Lab[]; assign: Int32Array } {
+function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: number, maxCount: number, apart?: (i: number, j: number) => boolean): { centers: Lab[]; assign: Int32Array } {
   let cs = centers.map((c) => [...c] as Lab)
+  // The original clusters each current one stands for, to ask `apart` about.
+  let groups = centers.map((_, i) => [i])
   const nearest = () => {
     const assign = new Int32Array(points.length)
     points.forEach((p, i) => {
@@ -433,9 +436,12 @@ function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: n
       let bi = -1
       let bj = -1
       let bd = cs.length > maxCount ? Infinity : delta
+      const over = cs.length > maxCount
       for (let i = 0; i < cs.length; i++)
         for (let j = i + 1; j < cs.length; j++) {
           const dd = deltaE2000(cs[i], cs[j])
+          // Distinct colours side by side stay apart, unless there are more than allowed.
+          if (!over && apart && groups[i].some((a) => groups[j].some((b) => apart(a, b)))) continue
           if (dd < bd) {
             bd = dd
             bi = i
@@ -453,6 +459,8 @@ function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: n
       const t = wi + wj ? wj / (wi + wj) : 0.5
       cs[bi] = [cs[bi][0] + (cs[bj][0] - cs[bi][0]) * t, cs[bi][1] + (cs[bj][1] - cs[bi][1]) * t, cs[bi][2] + (cs[bj][2] - cs[bi][2]) * t]
       cs = cs.filter((_, k) => k !== bj)
+      groups[bi] = [...groups[bi], ...groups[bj]]
+      groups = groups.filter((_, k) => k !== bj)
       assign = nearest()
     }
   }
@@ -466,6 +474,123 @@ function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: n
   })
   cs = cs.map((c, i) => (acc[i][3] ? [acc[i][0] / acc[i][3], acc[i][1] / acc[i][3], acc[i][2] / acc[i][3]] : c))
   return { centers: cs, assign }
+}
+
+/**
+ * Colours at least this far apart (CIEDE2000) may be distinct: 2 can be told apart by eye, for
+ * exact (lossless) colours; JPEG shifts colours by up to about 3–4 on its own (small shapes lose
+ * chroma), so lossy colours must differ by more.
+ */
+const DISTINCT_DE = 2
+const DISTINCT_DE_LOSSY = 5
+/** A cluster is exact when at least this share of its pixels is one exact colour. */
+const EXACT_SHARE = 0.5
+/** Regions are separate when their shared boundary is under this share of the smaller one. */
+const SEPARATE_CONTACT = 0.25
+/**
+ * …and the step across it is in proportion to the colour difference: at least SHARP_STEP of it
+ * (not a gradual shade), at most STEP_MAX (a bigger jump means something else lies between them,
+ * as where pieces of one gradient meet across a thin line).
+ */
+const SHARP_STEP = 0.35
+const STEP_MAX = 1.6
+/** …and each covers at least this share of the colour pixels. */
+const DISTINCT_MIN_SHARE = 0.002
+/** …and is solid: at least this share of its pixels have all 4 neighbours in it (not a fringe). */
+const DISTINCT_SOLID = 0.5
+
+/**
+ * Which pairs of clusters are distinct colours side by side, as similar brand tints are, rather
+ * than one colour split by JPEG noise or shading. Each must be a region of its own (noise
+ * splits a colour into pixels mixed all through one area, so the two touch everywhere), the
+ * step across their shared boundary must be sharp (shading changes gradually), and both must
+ * be solid areas of meaningful size (edge fringes are only a pixel or two wide).
+ * JPEG colours are trusted only for larger differences (see DISTINCT_DE_LOSSY).
+ */
+function separateRegions(src: ImageData, bins: number[], assign: Int32Array, centers: Lab[], paper: Uint8Array, mergeDelta: number, fixed?: FixedLabels): (i: number, j: number) => boolean {
+  const { width: w, height: h, data: d } = src
+  const k = centers.length
+  // Only pairs close enough to be merged at all need judging; usually there are none.
+  const de = new Float64Array(k * k)
+  let candidates = false
+  for (let a = 0; a < k; a++)
+    for (let b = a + 1; b < k; b++) {
+      de[a * k + b] = deltaE2000(centers[a], centers[b])
+      if (de[a * k + b] >= DISTINCT_DE && de[a * k + b] < mergeDelta) candidates = true
+    }
+  if (!candidates) return () => false
+  const point = new Int32Array(BINS).fill(-1)
+  bins.forEach((b, i) => (point[b] = i))
+  const cluster = new Int16Array(w * h).fill(-1)
+  const size = new Float64Array(k)
+  for (let p = 0, i = 0; p < w * h; p++, i += 4) {
+    if (d[i + 3] === 0 || (fixed && fixed.labels[p] >= 0)) continue
+    const b = binOf(d[i], d[i + 1], d[i + 2])
+    if (paper[b] || point[b] < 0) continue
+    cluster[p] = assign[point[b]]
+    size[cluster[p]]++
+  }
+  const inner = new Float64Array(k)
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x
+      const c = cluster[p]
+      if (c >= 0 && cluster[p - 1] === c && cluster[p + 1] === c && cluster[p - w] === c && cluster[p + w] === c) inner[c]++
+    }
+  const contact = new Float64Array(k * k)
+  const step = new Float64Array(k * k)
+  const pair = (p: number, q: number) => {
+    const a = cluster[p]
+    const b = cluster[q]
+    if (a < 0 || b < 0 || a === b) return
+    const lo = Math.min(a, b) * k + Math.max(a, b)
+    contact[lo]++
+    step[lo] += Math.hypot(d[p * 4] - d[q * 4], d[p * 4 + 1] - d[q * 4 + 1], d[p * 4 + 2] - d[q * 4 + 2])
+  }
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      if (x + 1 < w) pair(p, p + 1)
+      if (y + 1 < h) pair(p, p + w)
+    }
+  const total = size.reduce((s, v) => s + v, 0)
+  const rgb = centers.map((c) => labToRgb(c))
+  const result = new Uint8Array(k * k)
+  // Exact (lossless) colour: most of the cluster's pixels are one RGB value. Counted only when a
+  // pair's difference is in the range where it matters.
+  const losslessCache = new Map<number, boolean>()
+  const lossless = (c: number) => {
+    let v = losslessCache.get(c)
+    if (v === undefined) {
+      const counts = new Map<number, number>()
+      for (let p = 0; p < w * h; p++) {
+        if (cluster[p] !== c) continue
+        const key = (d[p * 4] << 16) | (d[p * 4 + 1] << 8) | d[p * 4 + 2]
+        counts.set(key, (counts.get(key) ?? 0) + 1)
+      }
+      let top = 0
+      for (const n of counts.values()) if (n > top) top = n
+      v = top >= size[c] * EXACT_SHARE
+      losslessCache.set(c, v)
+    }
+    return v
+  }
+  for (let a = 0; a < k; a++)
+    for (let b = a + 1; b < k; b++) {
+      const lo = a * k + b
+      const small = Math.min(size[a], size[b])
+      if (small < total * DISTINCT_MIN_SHARE || inner[a] < size[a] * DISTINCT_SOLID || inner[b] < size[b] * DISTINCT_SOLID) continue
+      const d0 = de[lo]
+      if (d0 < DISTINCT_DE || d0 >= mergeDelta) continue
+      // Without a shared boundary there's no telling two tints from two pieces of one gradient.
+      if (!contact[lo] || contact[lo] / small >= SEPARATE_CONTACT) continue
+      const gap = Math.hypot(rgb[a][0] - rgb[b][0], rgb[a][1] - rgb[b][1], rgb[a][2] - rgb[b][2])
+      const across = step[lo] / contact[lo]
+      if (across < SHARP_STEP * gap || across > STEP_MAX * gap) continue
+      if (d0 < DISTINCT_DE_LOSSY && !(lossless(a) && lossless(b))) continue
+      result[lo] = 1
+    }
+  return (i, j) => result[Math.min(i, j) * k + Math.max(i, j)] === 1
 }
 
 /** Max Lab distance from the line between two colors for a pixel to count as their blend. */
@@ -514,9 +639,10 @@ function majorityFilter(src: Uint8Array, w: number, h: number): Uint8Array {
 
 /**
  * Merges connected regions smaller than `minArea` pixels into the label that surrounds them
- * most. Small but long features (thin lines) have a large area and are kept.
+ * most. Small but long features (thin lines) have a large area and are kept, and so are
+ * regions `keep` accepts (real detail, such as letter counters and full stops).
  */
-function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number) {
+function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number, keep?: (members: number[], label: number, around: number[]) => boolean) {
   const n = w * h
   const comp = new Int32Array(n).fill(-1)
   const stack = new Int32Array(n)
@@ -550,7 +676,7 @@ function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number)
       // Stop counting once it's clearly not a speck.
       if (members.length >= minArea) break
     }
-    if (members.length < minArea && touched.length) {
+    if (members.length < minArea && touched.length && !keep?.(members, label, touched)) {
       let best = touched[0]
       for (const l of touched) if (border[l] > border[best]) best = l
       for (const p of members) labels[p] = best
@@ -571,6 +697,35 @@ function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number)
     touched = []
     id++
   }
+}
+
+/** A small region's colour must differ from the one around it by at least this (sRGB distance). */
+const DETAIL_CONTRAST = 64
+/** …and at least one of its pixels must be this far from the surrounding colour towards its own. */
+const DETAIL_SOLID = 0.7
+
+/**
+ * Whether a region below the speck size is real detail rather than compression noise: it's
+ * enclosed by a single colour (a letter counter inside its letter, a full stop or dot on the
+ * background; noise usually sits on a boundary between colours), it contrasts clearly with
+ * that colour, and it's solid somewhere (a real dot has a solid centre; a smudge is a half-blend
+ * that happened to land nearer one colour).
+ */
+function isDetail(members: number[], label: number, around: number[], d: Uint8ClampedArray, labelRgb: number[]): boolean {
+  if (around.length !== 1 || label >= labelRgb.length || around[0] >= labelRgb.length) return false
+  const own = labelRgb[label]
+  const out = labelRgb[around[0]]
+  const L = [(own >> 16) & 255, (own >> 8) & 255, own & 255]
+  const E = [(out >> 16) & 255, (out >> 8) & 255, out & 255]
+  const v = [L[0] - E[0], L[1] - E[1], L[2] - E[2]]
+  const len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+  if (len2 < DETAIL_CONTRAST * DETAIL_CONTRAST) return false
+  let best = 0
+  for (const p of members) {
+    const t = ((d[p * 4] - E[0]) * v[0] + (d[p * 4 + 1] - E[1]) * v[1] + (d[p * 4 + 2] - E[2]) * v[2]) / len2
+    if (t > best) best = t
+  }
+  return best >= DETAIL_SOLID
 }
 
 /** Clusters smaller than this share of the inked area are candidates for being blend fringe. */

@@ -91,6 +91,7 @@ VTracer's own color clustering turns every anti-aliased edge into extra shapes (
 - `npm test`: unit tests for color math, parsers, quantizer, tracer, detection, the pipeline and the PDF/DXF writers.
 - `/bench/conditions.html`: 20 kinds of input, run through the app's own functions, with every download validated.
 - `/bench/index.html`: quality benchmark (below).
+- `/bench/diagnose.html`: where detail is lost, stage by stage (input, colour map, vector) for small text, thin lines, dots, corners, similar colours, gradients, transparency and low resolution. See [docs/v6-diagnosis.md](docs/v6-diagnosis.md) and [docs/v6-results.md](docs/v6-results.md).
 
 ### Online font search (WhatFontIs)
 

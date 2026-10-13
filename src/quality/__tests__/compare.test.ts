@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareRasters } from '../compare'
+import { colourFidelity, compareRasters } from '../compare'
 
 type RGBA = [number, number, number, number]
 const W = 32
@@ -101,5 +101,38 @@ describe('compareRasters', () => {
     expect(r.artefacts[0]).toMatchObject({ x: 9, y: 7, w: 10, h: 10 })
     // One pixel thinner is within tolerance.
     expect(compareRasters(square(), square(0, 1), W, H).missingDetails).toEqual([])
+  })
+})
+
+describe('colourFidelity', () => {
+  const BLUE: RGBA = [28, 126, 214, 255]
+  const BLUE2: RGBA = [42, 134, 217, 255] // a tint ΔE 2.9 from BLUE
+  const twoBlues = draw((x) => (x < 16 ? BLUE : BLUE2))
+
+  it('scores exact colours as exact', () => {
+    const f = colourFidelity(twoBlues, twoBlues.slice(), W, H)
+    expect(f.colours).toHaveLength(2)
+    expect(f.meanDeltaE).toBe(0)
+    expect(f.merged).toBe(0)
+  })
+
+  it('detects two distinct tints merged into one', () => {
+    const merged = draw(() => BLUE)
+    const f = colourFidelity(twoBlues, merged, W, H)
+    expect(f.merged).toBe(1)
+    expect(f.maxDeltaE).toBeGreaterThan(2.5)
+  })
+
+  it('ignores anti-aliased edge pixels and tiny colours', () => {
+    // A 1 px blend column between the halves isn't a colour of its own.
+    const soft = draw((x) => (x < 15 ? BLUE : x === 15 ? [35, 130, 215, 255] : BLUE2))
+    expect(colourFidelity(soft, soft, W, H).colours).toHaveLength(2)
+  })
+
+  it('reports a colour shift', () => {
+    const f = colourFidelity(square(), draw((x, y) => (x >= 8 && x < 20 && y >= 6 && y < 18 ? [0, 0, 0, 255] : WHITE)), W, H)
+    const navy = f.colours.find((c) => c.reference === '#141E5A')!
+    expect(navy.candidate).toBe('#000000')
+    expect(navy.deltaE).toBeGreaterThan(10)
   })
 })

@@ -92,3 +92,29 @@ describe('quantize: colours', () => {
     expect(map.labels[0]).not.toBe(g)
   })
 })
+
+describe('quantize: similar brand tints', () => {
+  const BLUE = [28, 126, 214]
+  const BLUE2 = [42, 134, 217] // ΔE 2.9 from BLUE
+  const opts = { ...OPTS, minArea: 9 }
+  const colours = (src: ImageData) => {
+    const { map } = quantize(src, opts)
+    return new Set([...map.labels].filter((l) => l < 254).map((l) => map.colors[l])).size
+  }
+
+  it('keeps two exact tints side by side apart, however close', () => {
+    const src = image(120, 60, (x, y) => (x < 10 || x >= 110 || y < 10 || y >= 50 ? [255, 255, 255, 255] : [...(x < 60 ? BLUE : BLUE2), 255] as [number, number, number, number]))
+    expect(colours(src)).toBe(3)
+  })
+
+  it('merges one colour split into two shades by noise', () => {
+    // The two shades mixed pixel by pixel all through one area, as noise leaves them.
+    const src = image(120, 60, (x, y) => (x < 10 || x >= 110 || y < 10 || y >= 50 ? [255, 255, 255, 255] : [...((x * 7 + y * 13) % 3 ? BLUE : BLUE2), 255] as [number, number, number, number]))
+    expect(colours(src)).toBe(2)
+  })
+
+  it('merges a gradual shade into one colour, not two bands', () => {
+    const src = image(120, 60, (x, y) => (x < 10 || x >= 110 || y < 10 || y >= 50 ? [255, 255, 255, 255] : [...mix(BLUE, BLUE2, (x - 10) / 100), 255] as [number, number, number, number]))
+    expect(colours(src)).toBe(2)
+  })
+})
