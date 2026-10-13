@@ -1,0 +1,3 @@
+# The app calls this function directly (no Supabase sign-in); access is limited by ALLOWED_ORIGINS.
+[functions.identify-font]
+verify_jwt = false

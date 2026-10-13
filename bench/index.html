@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorizer benchmark</title>
+    <style>body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111} img{width:300px;border:1px solid #ccc;margin:4px;background:#fff} table{border-collapse:collapse} td,th{padding:3px 10px;border-bottom:1px solid #ddd;text-align:right} td:first-child,th:first-child{text-align:left}</style>
+  </head>
+  <body>
+    <h1>Vectorizer quality benchmark</h1>
+    <p id="status">Running…</p>
+    <table id="table"><tr><th>case</th><th>mean error</th><th>wrong px %</th><th>paths</th><th>segments</th><th>KB</th><th>ms</th></tr></table>
+    <div id="images"></div>
+    <script type="module" src="./run.ts"></script>
+  </body>
+</html>
