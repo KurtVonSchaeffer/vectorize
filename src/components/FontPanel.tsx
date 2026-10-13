@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { canListInstalledFonts, installedFonts } from '../fonts/candidates'
+import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candidates'
+import { loadIndex } from '../fonts/catalog'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate } from '../fonts/match'
@@ -31,6 +32,12 @@ const STEP: Record<FontProgress['step'], string> = {
   reading: 'Reading the text',
   loading: 'Loading fonts to compare',
   comparing: 'Comparing letter shapes',
+}
+
+const SOURCE_LABEL: Record<FontCandidate['source'], string> = {
+  google: 'Free font',
+  system: 'On this computer',
+  installed: 'Installed',
 }
 
 type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { status: 'error'; message: string }
@@ -143,7 +150,7 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
                       </span>
                       <span className="font-name">
                         {m.label}
-                        <em className={`font-src ${m.source}`}>{m.source === 'installed' ? 'Installed' : 'Free · Google Fonts'}</em>
+                        <em className={`font-src ${m.source}`}>{SOURCE_LABEL[m.source]}</em>
                       </span>
                       <span className="font-score">{Math.round(m.score * 100)}%</span>
                       {canRebuild &&
@@ -164,7 +171,17 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
                     </li>
                   ))}
                 </ol>
-                {canOnline && <OnlineResults line={line} result={online[i]} onSearch={() => searchOnline(state.report, line, i)} />}
+                {canOnline && (
+                  <OnlineResults
+                    line={line}
+                    result={online[i]}
+                    onSearch={() => searchOnline(state.report, line, i)}
+                    canRebuild={canRebuild}
+                    inUse={lettering[i]?.font}
+                    placing={placing}
+                    onUse={(m) => useFont(state.report, i, m)}
+                  />
+                )}
               </div>
             ))}
           <div className="brand-actions">
@@ -181,8 +198,8 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
           </div>
           <small>
             {canInstalled
-              ? 'Compares about 130 free font families. Installed fonts cover commercial fonts you own, such as Helvetica or Futura; the browser asks first.'
-              : 'Compares about 130 free font families. To include commercial fonts installed on this computer, open Vectorize in Chrome or Edge.'}
+              ? 'Compares over 2,000 free font families and the common fonts that come with this computer (such as Arial, Helvetica and Futura). Your other installed fonts can be added too; the browser asks first.'
+              : 'Compares over 2,000 free font families and the common fonts that come with this computer (such as Arial, Helvetica and Futura).'}
           </small>
         </>
       )}
@@ -190,7 +207,57 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
   )
 }
 
-function OnlineResults({ line, result, onSearch }: { line: TextLine; result: Online | undefined; onSearch: () => void }) {
+/** Free online matches that are in the open catalog, as candidates whose files can be loaded. */
+function useCatalogMatch(fonts: OnlineFont[] | null): Map<string, FontCandidate> {
+  const [found, setFound] = useState(new Map<string, FontCandidate>())
+  useEffect(() => {
+    if (!fonts?.some((f) => f.type === 'free')) return
+    let live = true
+    loadIndex('').then(({ meta }) => {
+      const byId = new Map<string, number[]>()
+      for (const [id, , weight] of meta.fonts) byId.set(id, [...(byId.get(id) ?? []), weight])
+      const out = new Map<string, FontCandidate>()
+      for (const f of fonts) {
+        if (f.type !== 'free') continue
+        // "Archivo Black Regular" → archivo-black-regular, archivo-black, archivo …
+        const words = f.name.replace(/\s*\(.*?\)/g, '').split(/\s+/)
+        for (let k = words.length; k > 0; k--) {
+          const id = words.slice(0, k).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '')
+          const weights = byId.get(id)
+          if (!weights) continue
+          const want = weightOf(words.slice(k).join(' ') || 'Regular')
+          const weight = weights.reduce((b, w) => (Math.abs(w - want) < Math.abs(b - want) ? w : b), weights[0])
+          out.set(f.name, { family: '', label: f.name, ref: id, weight, style: 'normal', source: 'google' })
+          break
+        }
+      }
+      if (live) setFound(out)
+    }).catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [fonts])
+  return found
+}
+
+function OnlineResults({
+  line,
+  result,
+  onSearch,
+  canRebuild,
+  inUse,
+  placing,
+  onUse,
+}: {
+  line: TextLine
+  result: Online | undefined
+  onSearch: () => void
+  canRebuild: boolean
+  inUse: string | undefined
+  placing: string | null
+  onUse: (m: FontCandidate) => void
+}) {
+  const usable = useCatalogMatch(result?.status === 'done' ? result.fonts : null)
   if (!result || result.status === 'error')
     return (
       <div className="font-online">
@@ -232,6 +299,11 @@ function OnlineResults({ line, result, onSearch }: { line: TextLine; result: Onl
                 )}
                 <em className={`font-src ${f.type}`}>{f.type === 'commercial' ? 'Commercial' : f.type === 'free' ? 'Free' : 'Online'}</em>
               </span>
+              {canRebuild && usable.has(f.name) && (
+                <button className={`btn small font-use${inUse === f.name ? ' active' : ''}`} disabled={placing !== null || inUse === f.name} onClick={() => onUse(usable.get(f.name)!)}>
+                  {inUse === f.name ? '✓ Lettering rebuilt' : placing?.endsWith(`|${f.name}`) ? 'Rebuilding…' : 'Use for lettering'}
+                </button>
+              )}
             </li>
           ))}
         </ol>

@@ -1,5 +1,8 @@
 import type { Box, OcrWord } from './ocr'
 
+/** Head start for fonts that ship with computers (or are installed), in score points (0–1). */
+const COMMON_FONT_PRIOR = 0.01
+
 /** Letter shapes are compared at this size (px per side). */
 const CELL = 32
 
@@ -31,7 +34,12 @@ export interface FontCandidate {
   ref: string
   weight: number
   style: 'normal' | 'italic'
-  source: 'installed' | 'google'
+  /**
+   * 'google': a free font from the open catalog. 'system': a common font that ships with the
+   * computer (drawn by name, no permission needed). 'installed': listed with the Local Font
+   * Access API (Chrome/Edge), which also gives its file.
+   */
+  source: 'installed' | 'google' | 'system'
 }
 
 export interface FontMatch extends FontCandidate {
@@ -257,7 +265,10 @@ export async function rankFonts(words: WordShapes[], candidates: FontCandidate[]
     }
   }
   const finalists = first.sort((a, b) => b.score - a.score).slice(0, 40)
-  const ranked = finalists.map((f) => ({ ...f, score: scoreFont(f, words) })).sort((a, b) => b.score - a.score)
+  // When fonts explain the letters equally well, the widely used one is the likelier choice:
+  // standard fonts get a small head start (1 point).
+  const prior = (f: FontCandidate) => (f.source === 'google' ? 0 : COMMON_FONT_PRIOR)
+  const ranked = finalists.map((f) => ({ ...f, score: Math.min(1, scoreFont(f, words) + prior(f)) })).sort((a, b) => b.score - a.score)
   onProgress?.(candidates.length, candidates.length)
   // One entry per family+style, best first.
   const seen = new Set<string>()

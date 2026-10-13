@@ -252,7 +252,7 @@ details.more[open] > summary { border-bottom: 1px solid var(--line); }
 .font-score { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .font-name { grid-column: 1; grid-row: 2; font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .font-src { font-style: normal; font-size: 11px; color: var(--ink-2); }
-.font-src.installed { color: var(--accent); font-weight: 600; }
+.font-src.installed, .font-src.system { color: var(--accent); font-weight: 600; }
 .font-online { display: grid; gap: 6px; justify-items: start; }
 .font-online .font-matches { justify-self: stretch; }
 .font-sample img { display: block; max-width: 100%; height: 28px; object-fit: contain; object-position: left; filter: var(--sample-filter, none); }
