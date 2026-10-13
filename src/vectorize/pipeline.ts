@@ -174,7 +174,8 @@ function textOptions(words: PlacedWord[], scale: number, w: number, h: number): 
 }
 
 /** The flat-color pipeline: quantize, apply the client's color choices, trace. Pure. */
-export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
+/** `inspect` receives the final colour map just before tracing (diagnostics; see bench/diagnose.ts). */
+export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelMap) => void): FlatResult {
   const src = o.lineArt ? grayscale(image) : image
   const regions = o.gradients && !o.lineArt ? findGradients(src) : []
   const apply = o.gradients === 'apply' && regions.length > 0
@@ -212,6 +213,7 @@ export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
   const knockout = o.trace.mode === 'knockout'
   const text = o.text ? applyText(map, o.text, knockout) : null
   if (text) map = text.map
+  inspect?.(map)
   const traced = traceLabels(map, o.trace)
   let { svg } = traced
   const { paths, shapes } = traced
