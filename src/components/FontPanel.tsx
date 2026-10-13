@@ -15,9 +15,17 @@ interface Props {
   lettering: Record<number, LineLettering>
   /** Whether lettering can be rebuilt for this kind of artwork. */
   canRebuild: boolean
-  onUseFont: (report: FontReport, line: number, match: FontCandidate) => Promise<void>
+  /** `quiet`: chosen automatically, so a font that doesn't line up is skipped silently. */
+  onUseFont: (report: FontReport, line: number, match: FontCandidate, quiet?: boolean) => Promise<void>
   onClearFont: (line: number) => void
+  /** Find the fonts and rebuild confident matches as soon as the artwork is traced. */
+  auto: boolean
+  /** Reports whether the automatic lettering match is running. */
+  onAutoBusy?: (busy: boolean) => void
 }
+
+/** Automatically rebuilt only when the best free match is at least this close. */
+const AUTO_MIN_SCORE = 0.8
 
 const STEP: Record<FontProgress['step'], string> = {
   reading: 'Reading the text',
@@ -29,7 +37,7 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
@@ -69,7 +77,16 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
     if (id === run.current) setOnline((o) => ({ ...o, [i]: next }))
   }
 
-  const start = async (includeInstalled: boolean) => {
+  const autoRan = useRef<string | null>(null)
+  useEffect(() => {
+    if (!auto || !colors.length || state.kind !== 'idle' || autoRan.current === imageId) return
+    autoRan.current = imageId
+    onAutoBusy?.(true)
+    void start(false, true).finally(() => onAutoBusy?.(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, colors.length, imageId, state.kind])
+
+  const start = async (includeInstalled: boolean, autoApply = false) => {
     const id = ++run.current
     const live = () => id === run.current
     setState({ kind: 'busy', progress: { step: 'reading', progress: 0 } })
@@ -85,8 +102,13 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         setOnline({})
         setState({ kind: 'done', report, lines, withInstalled: includeInstalled })
       }
+      if (autoApply && canRebuild)
+        for (let i = 0; i < lines.length && live(); i++) {
+          const best = lines[i].matches[0]
+          if (best && best.score >= AUTO_MIN_SCORE) await onUseFont(report, i, best, true)
+        }
     } catch (err) {
-      if (!live()) return
+      if (!live() || autoApply) return
       const denied = err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
       setState({ kind: 'error', message: denied ? 'Permission to see your installed fonts was not given.' : `Couldn't check the fonts: ${err instanceof Error ? err.message : String(err)}` })
     }

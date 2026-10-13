@@ -19,7 +19,8 @@ interface Props {
   chips: Chip[] | null
   onRemoveColor: (color: number) => void
   /** Automatic fixes, each with a way to undo it. */
-  fixNotes: { text: string; undoLabel: string; onUndo: () => void }[]
+  /** What was fixed, with a way back. A note without `onUndo` is work in progress. */
+  fixNotes: { text: string; undoLabel?: string; onUndo?: () => void }[]
   transparent: boolean
   transparentHint: string
   transparentLocked: boolean
@@ -144,13 +145,17 @@ export function ResultCard(p: Props) {
             ))}
           </div>
           {p.fixNotes.map((note) => (
-            <div className="fixed" key={note.text}>
-              <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="9" cy="9" r="7.5" />
-                <path d="M5.5 9.2l2.3 2.3 4.7-4.7" />
-              </svg>
+            <div className={note.onUndo ? 'fixed' : 'fixed working'} key={note.text} role={note.onUndo ? undefined : 'status'}>
+              {note.onUndo ? (
+                <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <circle cx="9" cy="9" r="7.5" />
+                  <path d="M5.5 9.2l2.3 2.3 4.7-4.7" />
+                </svg>
+              ) : (
+                <span className="spinner small" aria-hidden="true" />
+              )}
               <span>
-                {note.text} <button onClick={note.onUndo}>{note.undoLabel}</button>
+                {note.text} {note.onUndo && <button onClick={note.onUndo}>{note.undoLabel}</button>}
               </span>
             </div>
           ))}

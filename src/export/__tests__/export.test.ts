@@ -103,3 +103,33 @@ describe('buildDxf', () => {
     expect(dxf).toMatch(/VERTEX\n8\nNAVY\n10\n0\n20\n50\n/)
   })
 })
+
+describe('gradients in exports', () => {
+  const svg = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="100" height="50">
+<defs>
+<linearGradient id="gradient-1" gradientUnits="userSpaceOnUse" x1="10" y1="25" x2="90" y2="25"><stop offset="0" stop-color="#EC4899"/><stop offset="0.5" stop-color="#FACC15"/><stop offset="1" stop-color="#581C87"/></linearGradient>
+</defs>
+<g data-color="#FFF8E7"><path d="M0 0L100 0L100 50L0 50Z" fill="#FFF8E7" fill-rule="evenodd"/></g>
+<g id="Gradient_1" data-gradient="gradient-1"><path id="Gradient_1_1" d="M10 10L90 10L90 40L10 40Z" fill="url(#gradient-1)" fill-rule="evenodd"/></g>
+</svg>`
+
+  it('reads gradient fills from the SVG', () => {
+    const shapes = shapesFromSvg(svg)
+    expect(shapes).toHaveLength(2)
+    expect(shapes[1].gradient?.kind).toBe('linear')
+    expect(shapes[1].gradient?.stops.map((s) => s.offset)).toEqual([0, 0.5, 1])
+  })
+
+  it('fills gradients in the PDF with a shading, alongside spot inks', () => {
+    const shapes = shapesFromSvg(svg)
+    const pdf = new TextDecoder('latin1').decode(buildPdf([{ shape: shapes[0], spotName: 'Cream' }, { shape: shapes[1], spotName: 'ignored' }], { width: 100, height: 50 }))
+    expect(pdf).toMatch(/\/Separation \/Cream/)
+    expect(pdf).toMatch(/\/Pattern cs \/P1 scn/)
+    expect(pdf).toMatch(/\/ShadingType 2 \/ColorSpace \/DeviceRGB \/Coords \[10 25 90 25\]/)
+    expect(pdf).toMatch(/\/FunctionType 3 .*\/Bounds \[0\.5\]/)
+    expect(pdf).not.toMatch(/\/Separation \/ignored/)
+    // Cross-reference offsets still point at their objects.
+    const xref = Number(pdf.match(/startxref\n(\d+)/)?.[1])
+    expect(pdf.slice(xref, xref + 4)).toBe('xref')
+  })
+})

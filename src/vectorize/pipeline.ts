@@ -57,7 +57,7 @@ export interface FlatOptions {
   brand?: BrandSettings
   /**
    * 'apply': gradients become smooth SVG gradients. 'report': they're found and counted but
-   * traced as flat colors (print plates and cut files can't hold gradients). Unset: not looked for.
+   * traced as flat color bands (the client turned them off). Unset: not looked for.
    */
   gradients?: 'apply' | 'report'
   /** Lettering to rebuild from a font. */
@@ -129,7 +129,8 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       removeColors: s.removeColors,
       transparent: s.transparent,
       brand: lineArt || spotOn ? undefined : s.brand,
-      gradients: lineArt || spotOn ? undefined : s.gradients && !s.knockout ? 'apply' : 'report',
+      // Print PDFs fill gradients as full-color shadings; cut files cut each gradient as one shape.
+      gradients: lineArt || spotOn ? undefined : s.gradients ? 'apply' : 'report',
       text: s.lettering?.length && !lineArt ? textOptions(s.lettering, scale, base.image.width, base.image.height) : undefined,
       quantize: {
         maxColors: lineArt ? 2 : spotOn ? spot!.settings.maxInks : trace.colors,

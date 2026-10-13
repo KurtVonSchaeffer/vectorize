@@ -53,6 +53,7 @@ export default function App() {
   const matchMode: MatchMode = inks.enabled ? 'library' : brand.mode
   // Lettering rebuilt from a matched font, per text line of the current image.
   const [lettering, setLettering] = useState<Record<number, LineLettering>>({})
+  const [matchingLettering, setMatchingLettering] = useState(false)
   const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
   const [importedPalette, setImportedPalette] = useState<Palette | null>(loadSavedPalette)
   const palette = importedPalette ?? DEMO_PALETTE
@@ -323,15 +324,11 @@ export default function App() {
     if (!result || !flatKind || !g?.found) return null
     const n = g.found === 1 ? '1 gradient' : `${g.found} gradients`
     if (!client.gradients) return { text: `${n} traced as solid color bands.`, undoLabel: 'Keep them smooth', onUndo: () => setClient((c) => ({ ...c, gradients: true })) }
-    if (!g.kept) {
-      // Print plates and cut files need solid colors.
-      return {
-        text: `This artwork has ${n}. ${client.purpose === 'cut' ? 'Cutting' : 'Print'} files use solid colors, so ${g.found === 1 ? 'it is' : 'they are'} split into bands.`,
-        undoLabel: 'Keep smooth for website',
-        onUndo: () => setClient((c) => ({ ...c, purpose: 'web' })),
-      }
+    return {
+      text: `Kept ${n} smooth, as editable gradient fills${client.purpose === 'print' ? ' (printed in full color)' : client.purpose === 'cut' ? ' (each cut as one shape)' : ''}.`,
+      undoLabel: 'Undo',
+      onUndo: () => setClient((c) => ({ ...c, gradients: false })),
     }
-    return { text: `Kept ${n} smooth, as editable gradient fills.`, undoLabel: 'Undo', onUndo: () => setClient((c) => ({ ...c, gradients: false })) }
   })()
   const brandNote =
     result && result.named.length > 0 && brand.mode !== 'off'
@@ -343,13 +340,15 @@ export default function App() {
       : null
   const letteringNote = (() => {
     const lines = Object.values(lettering)
+    if (matchingLettering && result) return { text: 'Matching the lettering to fonts, to rebuild it cleanly…' }
     if (!lines.length || !result) return null
     const words = lines.reduce((n, l) => n + l.words.length, 0)
     const skipped = lines.reduce((n, l) => n + l.skipped, 0)
-    const fontsUsed = [...new Set(lines.map((l) => l.font))].join(' and ')
+    const fonts = [...new Set(lines.map((l) => l.font))]
+    const fontsUsed = fonts.join(' and ')
     return {
-      text: `Rebuilt ${words === 1 ? '1 word' : `${words} words`} in ${fontsUsed}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}`,
-      undoLabel: 'Undo',
+      text: `Matched the lettering to ${fontsUsed} and rebuilt ${words === 1 ? '1 word' : `${words} words`} from ${fonts.length > 1 ? 'those fonts' : 'the font'}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}`,
+      undoLabel: 'Use traced letters',
       onUndo: () => setLettering({}),
     }
   })()
@@ -438,16 +437,19 @@ export default function App() {
                     colors={palettes?.map((p) => p.color) ?? []}
                     lettering={lettering}
                     canRebuild={kind === 'flat' && !inks.enabled}
-                    onUseFont={async (report, index, match) => {
+                    auto={kind === 'flat' && !inks.enabled}
+                    onAutoBusy={setMatchingLettering}
+                    onUseFont={async (report, index, match, quiet) => {
                       let placed: LineLettering
                       try {
                         const { placeLine } = await import('./fonts/lettering')
                         placed = await placeLine(report, report.lines[index], match)
                       } catch (err) {
-                        showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
+                        if (!quiet) showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
                         return
                       }
                       if (!placed.words.length) {
+                        if (quiet) return
                         showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
                         return
                       }

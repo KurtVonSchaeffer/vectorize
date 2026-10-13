@@ -112,7 +112,7 @@ describe('runFlat', () => {
     expect(r.palette.map((p) => colorName(p.color))).toEqual(['Cream', 'Navy'])
   })
 
-  it('splits gradients into solid colors for print and cut files', () => {
+  it('splits gradients into color bands when the client turns them off', () => {
     const r = runFlat(gradientLogo(), opts({ gradients: 'report', trace: { ...opts().trace, mode: 'knockout' } }))
     expect(r.gradients).toEqual({ found: 1, kept: 0 })
     expect(r.svg).not.toMatch(/Gradient/)

@@ -42,7 +42,7 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
         const shapes = input.flat ? mergeByColor(all) : all
         const inks = shapes.map((shape) => ({
           shape,
-          spotName: input.flat ? (input.spotNames?.get(shape.color) ?? input.names.get(shape.color) ?? undefined) : undefined,
+          spotName: input.flat && !shape.gradient ? (input.spotNames?.get(shape.color) ?? input.names.get(shape.color) ?? undefined) : undefined,
         }))
         const bytes = buildPdf(inks, { width: input.width, height: input.height, title: baseName })
         return new Blob([bytes as BlobPart], { type: 'application/pdf' })
@@ -59,7 +59,9 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
       make: async () => {
         const all = shapesFromSvg(input.svg)
         const shapes = input.flat ? mergeByColor(all) : all
-        const layers = shapes.map((shape) => ({ shape, name: input.names.get(shape.color) ?? 'COLOR' }))
+        let g = 0
+        // A gradient is cut from one material, so it's one layer.
+        const layers = shapes.map((shape) => ({ shape, name: shape.gradient ? `GRADIENT ${++g}` : (input.names.get(shape.color) ?? 'COLOR') }))
         return new Blob([buildDxf(layers, { width: input.width, height: input.height })], { type: 'application/dxf' })
       },
     }
@@ -84,7 +86,7 @@ function mergeByColor(shapes: ColorShape[]): ColorShape[] {
   for (const s of shapes) {
     const m = byColor.get(s.color)
     if (m) m.subpaths.push(...s.subpaths)
-    else byColor.set(s.color, { color: s.color, subpaths: [...s.subpaths] })
+    else byColor.set(s.color, { ...s, subpaths: [...s.subpaths] })
   }
   return [...byColor.values()]
 }

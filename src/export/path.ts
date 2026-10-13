@@ -1,3 +1,5 @@
+import type { GradientFill } from '../palette/gradients'
+
 export type Pt = [number, number]
 /** A closed or open subpath: a start point followed by line or cubic segments. */
 export interface Subpath {
@@ -10,6 +12,8 @@ export interface Subpath {
 export interface ColorShape {
   color: number
   subpaths: Subpath[]
+  /** Filled with this gradient (`color` is then its average). */
+  gradient?: GradientFill
 }
 
 /**
@@ -125,17 +129,40 @@ function translate(s: Subpath, tx: number, ty: number) {
 
 /** Reads every filled <path> from an SVG string (as written by our tracer or VTracer). */
 export function shapesFromSvg(svg: string): ColorShape[] {
+  const gradients = gradientsFromSvg(svg)
   const shapes: ColorShape[] = []
   for (const m of svg.matchAll(/<path\b([^>]*)\/?>/g)) {
     const attrs = m[1]
     const d = attrs.match(/\sd="([^"]*)"/)?.[1]
     const fill = attrs.match(/\sfill="#([0-9a-fA-F]{6})"/)?.[1]
-    if (!d || !fill) continue
+    const gradient = gradients.get(attrs.match(/\sfill="url\(#([^)"]+)\)"/)?.[1] ?? '')
+    if (!d || (!fill && !gradient)) continue
     const t = attrs.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)/)
     const subpaths = parsePath(d, t ? Number(t[1]) : 0, t ? Number(t[2]) : 0)
-    if (subpaths.length) shapes.push({ color: parseInt(fill, 16), subpaths })
+    if (!subpaths.length) continue
+    if (gradient) shapes.push({ color: averageColor(gradient), subpaths, gradient })
+    else shapes.push({ color: parseInt(fill!, 16), subpaths })
   }
   return shapes
+}
+
+/** The <linearGradient>/<radialGradient> definitions our tracer writes (userSpaceOnUse), by id. */
+function gradientsFromSvg(svg: string): Map<string, GradientFill> {
+  const out = new Map<string, GradientFill>()
+  for (const m of svg.matchAll(/<(linear|radial)Gradient\b([^>]*)>([\s\S]*?)<\/\1Gradient>/g)) {
+    const attr = (k: string) => Number(m[2].match(new RegExp(`\\s${k}="(-?[\\d.e-]+)"`))?.[1] ?? 0)
+    const id = m[2].match(/\sid="([^"]+)"/)?.[1]
+    if (!id) continue
+    const stops = [...m[3].matchAll(/<stop\b[^>]*offset="([\d.]+)"[^>]*stop-color="#([0-9a-fA-F]{6})"/g)].map((s) => ({ offset: Number(s[1]), color: parseInt(s[2], 16) }))
+    if (!stops.length) continue
+    out.set(id, m[1] === 'linear' ? { kind: 'linear', x1: attr('x1'), y1: attr('y1'), x2: attr('x2'), y2: attr('y2'), stops } : { kind: 'radial', cx: attr('cx'), cy: attr('cy'), r: attr('r'), stops })
+  }
+  return out
+}
+
+function averageColor(g: GradientFill): number {
+  const c = [0, 1, 2].map((k) => g.stops.reduce((s, st) => s + ((st.color >> (16 - 8 * k)) & 255), 0) / g.stops.length)
+  return (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2])
 }
 
 /** Flattens a subpath into a polyline, with curve steps no longer than `tol` units of chord error. */

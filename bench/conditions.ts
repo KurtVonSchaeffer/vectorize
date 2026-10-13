@@ -206,6 +206,7 @@ async function validateDownload(label: string, blob: Blob): Promise<string | nul
     const xref = Number(t.match(/startxref\n(\d+)/)?.[1])
     if (t.slice(xref, xref + 4) !== 'xref') return 'PDF xref offset wrong'
     if (!/\nf\*\n/.test(t)) return 'PDF has no fills'
+    if (/\/Pattern cs/.test(t) && !/\/ShadingType [23]/.test(t)) return 'PDF gradient has no shading'
   }
   if (label === 'DXF') {
     const t = await blob.text()
@@ -267,7 +268,7 @@ for (const c of CASES) {
         notes.push(`${res.gradients.kept} gradients`)
         if (res.gradients.kept !== c.expect.gradients) problems.push(`${res.gradients.kept} gradients kept, expected ${c.expect.gradients}`)
       }
-      if (purpose !== 'web' && res.gradients.kept) problems.push(`${purpose}: gradients in a ${purpose} file`)
+      if (c.expect.gradients !== undefined && res.gradients.kept !== c.expect.gradients) problems.push(`${purpose}: ${res.gradients.kept} gradients kept`)
       if (purpose === 'web' && c.expect.maxError !== undefined) {
         const err = await meanError(res.svg, source.bitmap)
         notes.push(`error ${err.toFixed(1)}`)
