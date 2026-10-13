@@ -57,7 +57,7 @@ for (const name of cases) {
     const s = { ...(await score(svg, truth)), ms, kind: detected.kind }
     results[`${name}/${config}`] = s
     const row = document.createElement('tr')
-    row.innerHTML = `<td>${name}/${config} <small>(${detected.kind})</small></td>` + [s.meanError, s.wrongPixels, s.paths, s.segments, s.kb, s.ms].map((v) => `<td>${v}</td>`).join('')
+    row.innerHTML = `<td>${name}/${config} <small>(${detected.kind})</small></td>` + [s.meanError, s.wrongPixels, s.wrongBeyondEdges, s.edgeF1, s.missing, s.artefacts, s.paths, s.segments, s.kb, s.ms].map((v) => `<td>${v}</td>`).join('')
     document.getElementById('table')!.append(row)
     const img = document.createElement('img')
     img.title = `${name}/${config}`

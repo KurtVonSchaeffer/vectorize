@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { area, contours, type Point } from '../contours'
-import { fitClosed, type Cubic } from '../fit'
+import { fitClosed, polygonCorners, resample, type Cubic } from '../fit'
 import { traceLabels, type LabelMap } from '../index'
 
 /** Anti-aliased disk coverage field (exact area per pixel, approximated by supersampling). */
@@ -40,6 +40,41 @@ describe('contours', () => {
     // Marching squares clips each square corner by a ⅛ px² triangle; the fitter restores them.
     expect(Math.abs(area(loops[0]))).toBeGreaterThan(99.4)
     expect(Math.abs(area(loops[0]))).toBeLessThanOrEqual(100)
+  })
+
+  it('joins a lopsided diagonal saddle the way the bilinear surface does', () => {
+    // Corner average 0.475 says "apart", but the bilinear saddle value is 0.514: one shape.
+    expect(contours(Float32Array.from([0.004385, 0.757605, 0.725875, 0.412461]), 2, 2)).toHaveLength(1)
+    // Clearly separate diagonal pixels stay separate, in both saddle orientations.
+    expect(contours(Float32Array.from([0.1, 0.9, 0.9, 0.1]), 2, 2)).toHaveLength(2)
+    expect(contours(Float32Array.from([0.9, 0.1, 0.1, 0.9]), 2, 2)).toHaveLength(2)
+    // And clearly joined ones stay joined.
+    expect(contours(Float32Array.from([0.45, 1, 1, 0.45]), 2, 2)).toHaveLength(1)
+  })
+
+  it('keeps a 1px diagonal stroke in one piece', () => {
+    const w = 24
+    const f = new Float32Array(w * w)
+    for (let i = 2; i < w - 2; i++) f[i * w + i] = 1
+    expect(contours(f, w, w)).toHaveLength(1)
+  })
+
+  it('keeps nested shapes: ring, island inside the hole', () => {
+    const outer = disk(64, 64, 32, 32, 25)
+    const hole = disk(64, 64, 32, 32, 15)
+    const island = disk(64, 64, 32, 32, 6)
+    const loops = contours(outer.map((v, i) => v - hole[i] + island[i]), 64, 64)
+    // Filled even-odd, so each boundary is its own loop: outline, hole, island.
+    const areas = loops.map((l) => Math.abs(area(l))).sort((x, y) => y - x)
+    expect(areas).toHaveLength(3)
+    ;[25, 15, 6].forEach((r, k) => expect(Math.abs(areas[k] - Math.PI * r * r) / (Math.PI * r * r)).toBeLessThan(0.02))
+  })
+
+  it('rejects malformed fields and levels', () => {
+    expect(() => contours(new Float32Array(3), 2, 2)).toThrow(RangeError)
+    expect(() => contours(new Float32Array(4), 2.5, 2)).toThrow(RangeError)
+    for (const level of [0, 1, -1, Number.NaN]) expect(() => contours(new Float32Array(4), 2, 2, level)).toThrow(RangeError)
+    expect(contours(new Float32Array(0), 0, 0)).toEqual([])
   })
 
   it('returns holes as separate loops', () => {
@@ -105,5 +140,56 @@ describe('traceLabels', () => {
   it('skips labels with no color (paper)', () => {
     const map: LabelMap = { w: 4, h: 4, labels: new Uint8Array(16), second: new Uint8Array(16).fill(255), cov: new Float32Array(16).fill(1), colors: [-1] }
     expect(traceLabels(map, { smoothing: 0.8, minArea: 1, error: 0.5, cornerAngle: 60, precision: 2 }).paths).toBe(0)
+  })
+})
+
+describe('resample', () => {
+  const gaps = (pts: Point[]) => pts.map((p, i) => Math.hypot(p[0] - pts[(i + 1) % pts.length][0], p[1] - pts[(i + 1) % pts.length][1]))
+
+  it('spaces points evenly, the closing edge included', () => {
+    // Perimeter 40.2: carry-based sampling would leave a 0.2 px gap at the seam.
+    const pts = resample([[0, 0], [10.05, 0], [10.05, 10.05], [0, 10.05]], 0.5)
+    expect(pts).toHaveLength(81)
+    const g = gaps(pts)
+    expect(Math.max(...g)).toBeLessThanOrEqual(0.5)
+    // Gaps only shrink where a sample straddles a corner (chord shorter than arc).
+    expect(g.filter((x) => x < 0.49).length).toBeLessThanOrEqual(4)
+    expect(Math.min(...g)).toBeGreaterThan(0.3)
+  })
+
+  it('samples a circle uniformly', () => {
+    const circle: Point[] = Array.from({ length: 360 }, (_, i) => [50 + 20 * Math.cos((i * Math.PI) / 180), 50 + 20 * Math.sin((i * Math.PI) / 180)])
+    const g = gaps(resample(circle, 0.5))
+    expect(Math.max(...g) - Math.min(...g)).toBeLessThan(1e-3)
+  })
+
+  it('ignores repeated, closing and non-finite vertices', () => {
+    const clean = resample([[0, 0], [10, 0], [10, 10], [0, 10]], 0.5)
+    expect(resample([[0, 0], [0, 0], [10, 0], [Number.NaN, 3], [10, 10], [0, 10], [0, 10], [0, 0]], 0.5)).toEqual(clean)
+  })
+
+  it('handles degenerate contours without NaN', () => {
+    expect(resample([], 0.5)).toEqual([])
+    expect(resample([[2, 3], [2, 3], [2, 3]], 0.5)).toEqual([[2, 3]])
+    const line = resample([[0, 0], [4, 0]], 0.5)
+    expect(line.every((p) => p.every(Number.isFinite))).toBe(true)
+    for (const step of [0, -1, Number.NaN, Infinity]) expect(() => resample([[0, 0], [1, 0]], step)).toThrow(RangeError)
+  })
+
+  it('still fits squares with sharp corners and irregular shapes without NaN', () => {
+    const square = contours(new Float32Array(30 * 30).map((_, i) => (i % 30 >= 5 && i % 30 < 25 && i / 30 >= 5 && i / 30 < 25 ? 1 : 0)), 30, 30)[0]
+    const corners = polygonCorners(square, 60)
+    expect(corners).toHaveLength(4)
+    for (const [x, y] of corners!) expect(Math.min(Math.abs(x - 5), Math.abs(x - 25)) + Math.min(Math.abs(y - 5), Math.abs(y - 25))).toBeLessThan(0.3)
+    let seed = 7
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    const blob: Point[] = Array.from({ length: 50 }, (_, i) => {
+      const a = (i / 50) * 2 * Math.PI
+      const r = 15 + rand() * 6
+      return [30 + r * Math.cos(a), 30 + r * Math.sin(a)]
+    })
+    const curves = fitClosed(blob, { error: 0.5, cornerAngle: 60 })
+    expect(curves.length).toBeGreaterThan(0)
+    expect(curves.flat(2).every(Number.isFinite)).toBe(true)
   })
 })

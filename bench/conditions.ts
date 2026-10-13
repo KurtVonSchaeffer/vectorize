@@ -12,6 +12,8 @@ import { bitmapToImageData, hasVisiblePixels, loadImage } from '../src/vectorize
 import { buildTraceJob, runTraceJob } from '../src/vectorize/pipeline'
 import { Tracer } from '../src/vectorize/tracer'
 import { DEMO_PALETTE } from '../src/palette/demo'
+import type { RasterComparison } from '../src/quality/compare'
+import { compareSvg } from '../src/quality/render'
 
 interface Case {
   name: string
@@ -164,22 +166,10 @@ const out = document.getElementById('rows')!
 const summary = { pass: 0, fail: 0 }
 ;(window as unknown as { __conditions: unknown }).__conditions = { summary, rows: [] as unknown[] }
 
-/** Mean absolute RGB difference between the rendered SVG and the source image. */
-async function meanError(svg: string, bitmap: ImageBitmap): Promise<number> {
+/** The rendered SVG compared with the source image (both over white). */
+async function compareWithSource(svg: string, bitmap: ImageBitmap): Promise<RasterComparison> {
   const { width: w, height: h } = bitmap
-  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
-  try {
-    const img = new Image()
-    img.src = url
-    await img.decode()
-    const a = canvas(w, h, (g) => g.drawImage(bitmap, 0, 0)).getContext('2d')!.getImageData(0, 0, w, h).data
-    const b = canvas(w, h, (g) => { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h) }).getContext('2d')!.getImageData(0, 0, w, h).data
-    let sum = 0
-    for (let i = 0; i < a.length; i += 4) sum += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2])
-    return sum / (a.length / 4) / 3
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+  return compareSvg(svg, canvas(w, h, (g) => g.drawImage(bitmap, 0, 0)).getContext('2d')!.getImageData(0, 0, w, h))
 }
 
 async function validateDownload(label: string, blob: Blob): Promise<string | null> {
@@ -270,8 +260,9 @@ for (const c of CASES) {
       }
       if (c.expect.gradients !== undefined && res.gradients.kept !== c.expect.gradients) problems.push(`${purpose}: ${res.gradients.kept} gradients kept`)
       if (purpose === 'web' && c.expect.maxError !== undefined) {
-        const err = await meanError(res.svg, source.bitmap)
-        notes.push(`error ${err.toFixed(1)}`)
+        const q = await compareWithSource(res.svg, source.bitmap)
+        const err = q.meanError
+        notes.push(`error ${err.toFixed(1)}`, `edge F1 ${q.edgeF1.toFixed(2)}`, `${q.missingDetails.length} missing details`)
         if (err > c.expect.maxError) problems.push(`error ${err.toFixed(1)} > ${c.expect.maxError}`)
       }
       if (purpose === 'web' && c.expect.colors && colors != null && (colors < c.expect.colors[0] || colors > c.expect.colors[1])) problems.push(`${colors} colors, expected ${c.expect.colors.join('–')}`)

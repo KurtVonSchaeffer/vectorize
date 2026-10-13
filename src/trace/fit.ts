@@ -191,21 +191,36 @@ export function slice(pts: Point[], a: number, b: number): Point[] {
   return out
 }
 
-/** Resamples a closed polyline at even spacing. */
+/**
+ * Resamples a closed polyline at even spacing (at most `step`) all the way round, closing edge
+ * included, so there's no short gap or near-duplicate point where the loop meets itself.
+ * Repeated and non-finite vertices are dropped first.
+ */
 export function resample(loop: Point[], step: number): Point[] {
+  if (!(step > 0) || !Number.isFinite(step)) throw new RangeError('Resampling step must be a positive number')
+  const v: Point[] = []
+  for (const p of loop) {
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue
+    const last = v[v.length - 1]
+    if (!last || last[0] !== p[0] || last[1] !== p[1]) v.push(p)
+  }
+  while (v.length > 1 && v[0][0] === v[v.length - 1][0] && v[0][1] === v[v.length - 1][1]) v.pop()
+  if (v.length < 2) return v.map((p) => [p[0], p[1]])
+
+  const lengths = v.map((a, i) => dist(a, v[(i + 1) % v.length]))
+  const perimeter = lengths.reduce((s, l) => s + l, 0)
+  const count = Math.ceil(perimeter / step - 1e-9)
+  const spacing = perimeter / count
   const out: Point[] = []
-  let carry = 0
-  for (let i = 0; i < loop.length; i++) {
-    const a = loop[i]
-    const b = loop[(i + 1) % loop.length]
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1])
-    let d = carry
-    while (d < len) {
-      const t = d / len
-      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
-      d += step
-    }
-    carry = d - len
+  let edge = 0
+  let edgeStart = 0
+  for (let i = 0; i < count; i++) {
+    const d = i * spacing
+    while (edge < v.length - 1 && d >= edgeStart + lengths[edge]) edgeStart += lengths[edge++]
+    const a = v[edge]
+    const b = v[(edge + 1) % v.length]
+    const t = (d - edgeStart) / lengths[edge]
+    out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
   }
   return out
 }

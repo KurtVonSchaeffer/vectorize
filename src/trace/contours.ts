@@ -6,6 +6,9 @@ export type Point = [number, number]
  * (x + 0.5, y + 0.5). The field is treated as 0 outside the image, so every contour closes.
  */
 export function contours(field: Float32Array, w: number, h: number, level = 0.5): Point[][] {
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 0 || h < 0 || field.length !== w * h) throw new RangeError(`Contour field is ${field.length} values, not ${w}×${h}`)
+  // The padding is 0, so the level must be above it for every contour to close.
+  if (!(level > 0 && level < 1)) throw new RangeError(`Contour level must be between 0 and 1, not ${level}`)
   // Pad with a ring of zeros so contours touching the edge close around the image border.
   const W = w + 2
   const H = h + 2
@@ -55,8 +58,12 @@ export function contours(field: Float32Array, w: number, h: number, level = 0.5)
         case 6: case 9: link(top, bottom); break
         case 7: case 8: link(left, top); break
         case 5: case 10: {
-          // Saddle: resolve by the cell-center average so the result is consistent.
-          const center = (f[i] + f[i + 1] + f[i + W] + f[i + W + 1]) / 4 >= level
+          // Saddle: the field is read as bilinear inside the cell, and the two inside corners
+          // join when its saddle point is inside (asymptotic decider, Nielson & Hamann 1991).
+          // Averaging the corners instead misjudges lopsided cells, which breaks or bridges
+          // thin diagonal strokes.
+          const det = (f[i] - level) * (f[i + W + 1] - level) - (f[i + 1] - level) * (f[i + W] - level)
+          const center = c === 10 ? det >= 0 : det <= 0
           if ((c === 5) === center) {
             link(left, top)
             link(bottom, right)
@@ -88,7 +95,8 @@ export function contours(field: Float32Array, w: number, h: number, level = 0.5)
       prev = cur
       cur = nxt
     }
-    if (loop.length >= 3) loops.push(loop)
+    // Only loops that come back to their start; a broken chain must not become a filled shape.
+    if (cur === start && loop.length >= 3) loops.push(loop)
   }
   return loops
 }

@@ -336,7 +336,9 @@ export function upscaleLabels(src: Uint8Array, w: number, h: number, f: number, 
           if (votes[l] === 0) touched.push(l)
           votes[l] += g * c
           if (c < 1 && second) {
-            const l2 = second[q]
+            // No usable second color: the whole vote stays with the first. An unset second
+            // label (EMPTY) must never vote, or ink edges would turn transparent.
+            const l2 = second[q] === EMPTY ? l : second[q]
             if (votes[l2] === 0) touched.push(l2)
             votes[l2] += g * (1 - c)
           }

@@ -89,7 +89,7 @@ VTracer's own color clustering turns every anti-aliased edge into extra shapes (
 ### Checks
 
 - `npm test`: unit tests for color math, parsers, quantizer, tracer, detection, the pipeline and the PDF/DXF writers.
-- `/bench/conditions.html`: 17 kinds of input, run through the app's own functions, with every download validated.
+- `/bench/conditions.html`: 20 kinds of input, run through the app's own functions, with every download validated.
 - `/bench/index.html`: quality benchmark (below).
 
 ### Online font search (WhatFontIs)
@@ -106,7 +106,17 @@ The API key stays on a server; the browser only talks to `/api/identify-font` (c
 
 ### Quality benchmark
 
-Open `/bench/index.html` on the dev server. It rasterizes ground-truth SVGs to small JPEGs, vectorizes them, and scores the output against the original (mean error, % wrong pixels, paths, curve segments, size). Query params: `cases=logo,badge,scene,ink`, `configs=logo,illustration,lineart,spot`, `set=param:value,...`.
+Open `/bench/index.html` on the dev server. It rasterizes ground-truth SVGs to small JPEGs, vectorizes them, and scores the output against the original. Query params: `cases=logo,badge,scene,ink`, `configs=web,print,spot`, `detail=0.5`, `corners=0.75`, `shapes=0`.
+
+Scores come from `src/quality/compare.ts` (`compareRasters`, or `compareSvg` in the browser), which the conditions suite uses too:
+
+- **mean error / wrong px %**: sRGB difference with both images over white, so the colour of transparent pixels doesn't count. Wrong means a mean R, G, B difference above 48.
+- **wrong beyond edges %**: the same, but a pixel only counts when the other image has no similar colour within 1 px, so anti-aliasing and sub-pixel edge placement are forgiven.
+- **edge F1**: Sobel edges on luminance, matched within 1 px.
+- **missing / artefacts**: connected areas (≥ 4 px) of ground truth the output doesn't show, and of output the ground truth doesn't have. An edge moved more than 1 px shows up in both.
+- **alpha error / flips**: transparency differences, in the comparison result.
+
+Limits: none of these is a quality percentage. Colour error isn't perceptual; edges between equally bright colours and soft gradients produce no Sobel edges; details smaller than 4 px aren't reported. JPEG noise in a reference counts as error against a clean vector, so compare versions on the same input rather than different images against each other.
 
 ### Known limits
 
