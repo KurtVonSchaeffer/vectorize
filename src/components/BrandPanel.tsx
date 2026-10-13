@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react'
 import type { BrandColor, BrandMode, BrandSettings } from '../palette/brand'
 import type { Palette } from '../palette/parse'
+import { btnSmall, chipSmall, cx, field, fieldLabel, note, seg, segBtn, swatch } from './ui'
 
 export type MatchMode = BrandMode | 'library'
 
@@ -37,11 +38,11 @@ export function BrandPanel({ brand, mode, onMode, onColors, artwork, library, li
   const notYetAdded = artwork.filter((a) => !brand.colors.some((b) => b.color === a.color))
 
   return (
-    <div className="field brand">
-      <span className="field-label" id="brand-label">
+    <div className={cx(field, 'gap-2')}>
+      <span className={fieldLabel} id="brand-label">
         Brand colors
       </span>
-      <div className="mini-seg" role="group" aria-labelledby="brand-label">
+      <div className={seg} role="group" aria-labelledby="brand-label">
         {(
           [
             ['off', 'Off'],
@@ -50,7 +51,7 @@ export function BrandPanel({ brand, mode, onMode, onColors, artwork, library, li
             ['library', 'Library'],
           ] as [MatchMode, string][]
         ).map(([v, l]) => (
-          <button key={v} aria-pressed={mode === v} onClick={() => onMode(v)}>
+          <button key={v} className={segBtn} aria-pressed={mode === v} onClick={() => onMode(v)}>
             {l}
           </button>
         ))}
@@ -73,17 +74,18 @@ export function BrandPanel({ brand, mode, onMode, onColors, artwork, library, li
               ))}
             </datalist>
           )}
-          <div className="brand-list">
+          <div className="grid gap-1.5">
             {brand.colors.map((c, i) => (
-              <div className="brand-row" key={i}>
+              <div className="grid grid-cols-[30px_minmax(0,1fr)_auto_28px] items-center gap-1.5" key={i}>
                 <input
                   type="color"
+                  className="size-[30px] cursor-pointer rounded-[7px] border border-line p-0 [&::-webkit-color-swatch]:rounded-[5px] [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0.5"
                   value={hex(c.color)}
                   aria-label={`${c.name} color`}
                   onChange={(e) => update(i, { color: parseInt(e.target.value.slice(1), 16) })}
                 />
                 <input
-                  className="brand-name"
+                  className="min-w-0 rounded-[7px] border border-line bg-card px-2 py-[5px] text-[13px]"
                   value={c.name}
                   list={library ? listId : undefined}
                   aria-label="Brand color name"
@@ -94,14 +96,14 @@ export function BrandPanel({ brand, mode, onMode, onColors, artwork, library, li
                     update(i, swatch ? { name, color: rgbInt(...swatch.rgb) } : { name })
                   }}
                 />
-                <select value={c.tolerance} aria-label={`How close a color must be to become ${c.name}`} onChange={(e) => update(i, { tolerance: Number(e.target.value) })}>
+                <select className="rounded-[7px] border border-line bg-card px-1 py-[5px] text-xs" value={c.tolerance} aria-label={`How close a color must be to become ${c.name}`} onChange={(e) => update(i, { tolerance: Number(e.target.value) })}>
                   {TOLERANCES.map(([v, l]) => (
                     <option key={v} value={v}>
                       {l}
                     </option>
                   ))}
                 </select>
-                <button className="icon-btn" onClick={() => remove(i)} aria-label={`Remove ${c.name}`}>
+                <button className="grid size-7 place-items-center rounded-md text-ink-2 hover:bg-bg hover:text-ink [&_svg]:size-3.5" onClick={() => remove(i)} aria-label={`Remove ${c.name}`}>
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                     <path d="M4.5 4.5l7 7m0-7l-7 7" />
                   </svg>
@@ -109,25 +111,25 @@ export function BrandPanel({ brand, mode, onMode, onColors, artwork, library, li
               </div>
             ))}
           </div>
-          <div className="brand-actions">
-            <button className="btn small" onClick={() => add({})}>
+          <div className="flex gap-1.5">
+            <button className={btnSmall} onClick={() => add({})}>
               + Add color
             </button>
           </div>
           {notYetAdded.length > 0 && (
-            <div className="from-art">
+            <div className="grid gap-1.5">
               <small>Add from your artwork:</small>
-              <div className="chips">
+              <div className="flex flex-wrap gap-2">
                 {notYetAdded.map((a) => (
-                  <button key={a.color} className="chip small" onClick={() => add({ name: a.name, color: a.color })} title={`Add ${a.name} as a brand color`}>
-                    <i style={{ background: hex(a.color) }} />
+                  <button key={a.color} className={chipSmall} onClick={() => add({ name: a.name, color: a.color })} title={`Add ${a.name} as a brand color`}>
+                    <i className={cx(swatch, 'size-[18px]')} style={{ background: hex(a.color) }} />
                     {a.name}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          {(mode === 'snap' || mode === 'only') && !brand.colors.length && <small className="note">Add at least one brand color to use this.</small>}
+          {(mode === 'snap' || mode === 'only') && !brand.colors.length && <small className={note}>Add at least one brand color to use this.</small>}
         </>
       )}
     </div>

@@ -5,6 +5,7 @@ import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate } from '../fonts/match'
 import { identifyOnline, onlineAvailable, type OnlineFont } from '../fonts/online'
+import { bar, barFill, btnSmall, cx, field, fieldLabel, note, progress } from './ui'
 
 interface Props {
   /** Identifies the image, so results reset when a new one is opened. */
@@ -24,6 +25,14 @@ interface Props {
   /** Reports whether the automatic lettering match is running. */
   onAutoBusy?: (busy: boolean) => void
 }
+
+const MATCH = 'grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5 rounded-lg border border-line px-2 py-1.5 [&>*]:min-w-0'
+const SAMPLE = 'col-start-1 row-start-1 truncate text-xl/[1.15]'
+const NAME = 'col-start-1 row-start-2 flex flex-wrap items-baseline gap-1.5 text-xs'
+const SRC = 'text-[11px] not-italic text-ink-2'
+const SRC_STRONG = 'font-semibold text-accent'
+const TEXT = 'text-xs font-semibold text-ink-2'
+const USE = 'col-span-full mt-1 justify-self-start'
 
 /** Automatically rebuilt only when the best free match is at least this close. */
 const AUTO_MIN_SCORE = 0.8
@@ -124,43 +133,43 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
   const canInstalled = canListInstalledFonts()
 
   return (
-    <div className="field fonts">
-      <span className="field-label">Fonts in this artwork</span>
+    <div className={cx(field, 'min-w-0')}>
+      <span className={fieldLabel}>Fonts in this artwork</span>
       {state.kind === 'busy' ? (
-        <div className="ai-progress" role="status">
+        <div className={progress} role="status">
           <span>{STEP[state.progress.step]}</span>
-          <div className="bar">
-            <div style={{ width: `${Math.round(state.progress.progress * 100)}%` }} />
+          <div className={bar}>
+            <div className={barFill} style={{ width: `${Math.round(state.progress.progress * 100)}%` }} />
           </div>
         </div>
       ) : (
         <>
           {state.kind === 'idle' && <small>Finds the text and suggests the closest fonts. The image stays on your computer.</small>}
-          {state.kind === 'error' && <small className="note">{state.message}</small>}
-          {state.kind === 'done' && !state.lines.length && <small className="note">No text found in this artwork.</small>}
+          {state.kind === 'error' && <small className={note}>{state.message}</small>}
+          {state.kind === 'done' && !state.lines.length && <small className={note}>No text found in this artwork.</small>}
           {state.kind === 'done' &&
             state.lines.map((line, i) => (
-              <div className="font-line" key={i}>
-                <div className="font-text">“{line.text}”</div>
-                <ol className="font-matches">
+              <div className="grid min-w-0 gap-1.5" key={i}>
+                <div className={TEXT}>“{line.text}”</div>
+                <ol className="grid min-w-0 gap-1 justify-self-stretch">
                   {line.matches.slice(0, 5).map((m) => (
-                    <li key={`${m.label}|${m.source}`}>
-                      <span className="font-sample" style={{ fontFamily: `"${m.family}"`, fontWeight: m.weight, fontStyle: m.style }}>
+                    <li key={`${m.label}|${m.source}`} className={MATCH}>
+                      <span className={SAMPLE} style={{ fontFamily: `"${m.family}"`, fontWeight: m.weight, fontStyle: m.style }}>
                         {line.text}
                       </span>
-                      <span className="font-name">
+                      <span className={NAME}>
                         {m.label}
-                        <em className={`font-src ${m.source}`}>{SOURCE_LABEL[m.source]}</em>
+                        <em className={cx(SRC, m.source !== 'google' && SRC_STRONG)}>{SOURCE_LABEL[m.source]}</em>
                       </span>
-                      <span className="font-score">{Math.round(m.score * 100)}%</span>
+                      <span className="col-start-2 row-span-2 row-start-1 self-center text-xs font-semibold tabular-nums">{Math.round(m.score * 100)}%</span>
                       {canRebuild &&
                         (lettering[i]?.font === m.label ? (
-                          <button className="btn small font-use active" onClick={() => onClearFont(i)} title="Put the traced letters back">
+                          <button className={cx(btnSmall, USE, 'border-accent text-accent')} onClick={() => onClearFont(i)} title="Put the traced letters back">
                             ✓ Lettering rebuilt · Undo
                           </button>
                         ) : (
                           <button
-                            className="btn small font-use"
+                            className={cx(btnSmall, USE)}
                             disabled={placing !== null}
                             onClick={() => useFont(state.report, i, m)}
                             title={`Replace the traced letters with ${m.label}, so they're perfectly clean`}
@@ -184,14 +193,14 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
                 )}
               </div>
             ))}
-          <div className="brand-actions">
+          <div className="flex gap-1.5">
             {state.kind !== 'done' && (
-              <button className="btn small" onClick={() => start(false)}>
+              <button className={btnSmall} onClick={() => start(false)}>
                 Find fonts
               </button>
             )}
             {canInstalled && !(state.kind === 'done' && state.withInstalled) && (
-              <button className="btn small" onClick={() => start(true)} title="Also compares the fonts installed on this computer, including commercial fonts you own">
+              <button className={btnSmall} onClick={() => start(true)} title="Also compares the fonts installed on this computer, including commercial fonts you own">
                 {state.kind === 'done' ? 'Also check my installed fonts' : 'Include my installed fonts'}
               </button>
             )}
@@ -260,9 +269,9 @@ function OnlineResults({
   const usable = useCatalogMatch(result?.status === 'done' ? result.fonts : null)
   if (!result || result.status === 'error')
     return (
-      <div className="font-online">
-        {result?.status === 'error' && <small className="note">{result.message}</small>}
-        <button className="btn small" onClick={onSearch}>
+      <div className="grid justify-items-start gap-1.5">
+        {result?.status === 'error' && <small className={note}>{result.message}</small>}
+        <button className={btnSmall} onClick={onSearch}>
           {result ? 'Try the online search again' : 'Search 1 million fonts online, including commercial'}
         </button>
         <small>Sends a black-and-white image of just “{line.text}” to WhatFontIs.com. Nothing else leaves your computer.</small>
@@ -270,37 +279,37 @@ function OnlineResults({
     )
   if (result.status === 'busy')
     return (
-      <div className="font-online ai-progress" role="status">
+      <div className={cx(progress, 'justify-items-start')} role="status">
         <span>Searching online…</span>
-        <div className="bar indeterminate">
-          <div />
+        <div className={cx(bar, 'justify-self-stretch')}>
+          <div className="h-full w-[35%] animate-bar-slide bg-accent motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-50" />
         </div>
       </div>
     )
   return (
-    <div className="font-online">
-      <div className="font-text">Online matches</div>
+    <div className="grid justify-items-start gap-1.5">
+      <div className={TEXT}>Online matches</div>
       {result.fonts.length ? (
-        <ol className="font-matches">
+        <ol className="grid min-w-0 gap-1 justify-self-stretch">
           {result.fonts.slice(0, 8).map((f, k) => (
-            <li key={k}>
+            <li key={k} className={MATCH}>
               {f.sample && (
-                <span className="font-sample">
-                  <img src={f.sample} alt={`${f.name} sample`} />
+                <span className={SAMPLE}>
+                  <img className="block h-7 max-w-full object-contain object-left" src={f.sample} alt={`${f.name} sample`} />
                 </span>
               )}
-              <span className="font-name">
+              <span className={cx(NAME, !f.sample && 'row-start-1')}>
                 {f.page ? (
-                  <a href={f.page} target="_blank" rel="noopener noreferrer">
+                  <a className="text-inherit" href={f.page} target="_blank" rel="noopener noreferrer">
                     {f.name}
                   </a>
                 ) : (
                   f.name
                 )}
-                <em className={`font-src ${f.type}`}>{f.type === 'commercial' ? 'Commercial' : f.type === 'free' ? 'Free' : 'Online'}</em>
+                <em className={cx(SRC, f.type === 'commercial' && SRC_STRONG)}>{f.type === 'commercial' ? 'Commercial' : f.type === 'free' ? 'Free' : 'Online'}</em>
               </span>
               {canRebuild && usable.has(f.name) && (
-                <button className={`btn small font-use${inUse === f.name ? ' active' : ''}`} disabled={placing !== null || inUse === f.name} onClick={() => onUse(usable.get(f.name)!)}>
+                <button className={cx(btnSmall, USE, inUse === f.name && 'border-accent text-accent')} disabled={placing !== null || inUse === f.name} onClick={() => onUse(usable.get(f.name)!)}>
                   {inUse === f.name ? '✓ Lettering rebuilt' : placing?.endsWith(`|${f.name}`) ? 'Rebuilding…' : 'Use for lettering'}
                 </button>
               )}
@@ -308,11 +317,11 @@ function OnlineResults({
           ))}
         </ol>
       ) : (
-        <small className="note">No matches found online.</small>
+        <small className={note}>No matches found online.</small>
       )}
       <small>
         Online results by{' '}
-        <a href="https://www.whatfontis.com" target="_blank" rel="noopener noreferrer">
+        <a className="text-accent" href="https://www.whatfontis.com" target="_blank" rel="noopener noreferrer">
           WhatFontIs.com
         </a>
         . Open a font to preview it or see where to buy it.

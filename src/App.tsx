@@ -374,18 +374,18 @@ export default function App() {
 
   // ---------- Render ----------
   return (
-    <div className="page">
-      <header className="top">
-        <button className="brand" onClick={reset} aria-label="Vectorize, start over">
-          <svg viewBox="0 0 26 26" aria-hidden="true">
+    <div className="mx-auto grid max-w-[1200px] gap-5 px-5 pt-[18px] pb-12">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <button className="flex items-center gap-2.5 py-1 font-display text-[19px]/none font-extrabold tracking-[-0.02em]" onClick={reset} aria-label="Vectorize, start over">
+          <svg className="size-[26px]" viewBox="0 0 26 26" aria-hidden="true">
             <path d="M4 20C7 6 19 6 22 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-            <rect x="2" y="18" width="4.5" height="4.5" rx="1" fill="var(--accent)" />
-            <rect x="19.5" y="18" width="4.5" height="4.5" rx="1" fill="var(--accent)" />
+            <rect x="2" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
+            <rect x="19.5" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
           </svg>
           Vectorize
         </button>
         {source && (
-          <button className="new" onClick={reset}>
+          <button className="rounded-full border border-line bg-card px-4 py-2 font-semibold hover:border-ink-2" onClick={reset}>
             Upload another image
           </button>
         )}
@@ -394,11 +394,11 @@ export default function App() {
       {!source || !detection ? (
         <Upload onFile={openBlob} onExample={async () => openBlob(await exampleImage(), 'example-badge.jpg')} loading={opening} />
       ) : (
-        <section className="work">
-          <div className="work-main">
+        <section className="grid items-start gap-5 min-[941px]:grid-cols-[minmax(0,1fr)_370px]">
+          <div className="grid min-w-0 gap-2">
             <Compare originalUrl={source.url} svg={result?.svg ?? null} width={source.width} height={source.height} busy={busyLabel} />
-            <div className="filerow">
-              <b>{source.name}</b> · {source.width}×{source.height}
+            <div className="pl-1 text-[13px] wrap-anywhere text-ink-2">
+              <b className="font-semibold text-ink">{source.name}</b> · {source.width}×{source.height}
             </div>
           </div>
           <ResultCard
@@ -517,10 +517,11 @@ export default function App() {
       )}
 
       {toast && (
-        <div className="toast" role="status">
+        <div className="fixed bottom-[calc(24px+env(safe-area-inset-bottom,0px))] left-1/2 z-10 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-3.5 rounded-[10px] bg-ink px-4 py-[11px] text-sm text-card shadow-[0_10px_30px_rgb(0_0_0/0.25)]" role="status">
           <span>{toast.text}</span>
           {toast.undo && (
             <button
+              className="font-bold text-accent"
               onClick={() => {
                 toast.undo!()
                 setToast(null)

@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, type Connect, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { handle } from './supabase/functions/identify-font/whatfontis.ts'
 
 // Cross-origin isolation enables SharedArrayBuffer, which onnxruntime-web needs for
@@ -43,7 +44,7 @@ function fontApi(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), fontApi()],
+  plugins: [react(), tailwindcss(), fontApi()],
   worker: { format: 'es' },
   // transformers.js ships its own onnxruntime-web WASM loader; pre-bundling breaks it.
   optimizeDeps: { exclude: ['@huggingface/transformers'] },

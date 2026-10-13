@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import type { Palette } from '../palette/parse'
 import type { Ink, InkSettings } from '../palette/quantize'
+import { btnGhost, btnSmall, check, cx, fieldLabel, link, note, range } from './ui'
 
 interface Props {
   settings: InkSettings
@@ -17,9 +18,9 @@ interface Props {
 const css = (rgb: [number, number, number]) => `rgb(${rgb.join(',')})`
 
 function matchLabel(de: number): { label: string; cls: string } {
-  if (de < 2) return { label: 'Exact', cls: 'good' }
-  if (de < 5) return { label: 'Close', cls: 'ok' }
-  return { label: 'Far', cls: 'far' }
+  if (de < 2) return { label: 'Exact', cls: 'text-good' }
+  if (de < 5) return { label: 'Close', cls: 'text-warn' }
+  return { label: 'Far', cls: 'text-bad' }
 }
 
 export function InkPanel({ settings, palette, isDemo, inks, onChange, onImport, onUseDemo, embedded }: Props) {
@@ -27,11 +28,11 @@ export function InkPanel({ settings, palette, isDemo, inks, onChange, onImport, 
   const listId = useId()
 
   return (
-    <section className={embedded ? 'section embedded' : 'section'}>
+    <section className={cx('grid gap-3', !embedded && 'px-3.5 py-3')}>
       {!embedded && (
         <>
-          <h3>Brand colors</h3>
-          <label className="check">
+          <h3 className="text-sm font-medium">Brand colors</h3>
+          <label className={check}>
             <input type="checkbox" checked={settings.enabled} onChange={(e) => onChange({ enabled: e.target.checked })} />
             <span>
               Match my brand colors
@@ -43,24 +44,24 @@ export function InkPanel({ settings, palette, isDemo, inks, onChange, onImport, 
 
       {settings.enabled && (
         <>
-          <div className="palette-row">
+          <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="field-label">{palette.name}</div>
+              <div className={fieldLabel}>{palette.name}</div>
               <small>{palette.swatches.length.toLocaleString()} swatches</small>
             </div>
-            <div className="row-tight">
-              <button className="btn small" onClick={() => file.current?.click()}>
+            <div className="flex gap-1">
+              <button className={btnSmall} onClick={() => file.current?.click()}>
                 Import…
               </button>
               {!isDemo && (
-                <button className="btn small ghost" onClick={onUseDemo}>
+                <button className={btnGhost} onClick={onUseDemo}>
                   Demo
                 </button>
               )}
             </div>
           </div>
           {isDemo && (
-            <small className="note">
+            <small className={note}>
               Demo inks only. Import your licensed library: export it from Illustrator or Pantone Connect as .ase, or use a .csv / .json of names and
               hex or Lab values.
             </small>
@@ -77,16 +78,16 @@ export function InkPanel({ settings, palette, isDemo, inks, onChange, onImport, 
             }}
           />
 
-          <label className="slider">
-            <div className="slider-head">
+          <label className="grid gap-1 [&_small]:text-xs">
+            <div className="flex justify-between text-sm font-medium">
               <span>Max inks</span>
-              <output>{settings.maxInks}</output>
+              <output className="text-ink-2 tabular-nums">{settings.maxInks}</output>
             </div>
-            <input type="range" min={1} max={12} value={settings.maxInks} onChange={(e) => onChange({ maxInks: Number(e.target.value) })} />
+            <input className={range} type="range" min={1} max={12} value={settings.maxInks} onChange={(e) => onChange({ maxInks: Number(e.target.value) })} />
             <small>Each ink is a separate screen or plate.</small>
           </label>
 
-          <label className="check">
+          <label className={check}>
             <input type="checkbox" checked={settings.whiteIsPaper} onChange={(e) => onChange({ whiteIsPaper: e.target.checked })} />
             <span>
               White is paper
@@ -95,7 +96,7 @@ export function InkPanel({ settings, palette, isDemo, inks, onChange, onImport, 
           </label>
 
           {inks && inks.length > 0 && (
-            <div className="inks">
+            <div className="grid gap-1.5">
               <datalist id={listId}>
                 {palette.swatches.map((s) => (
                   <option key={s.name} value={s.name} />
@@ -129,11 +130,11 @@ function InkRow({ ink, listId, palette, onSwap }: { ink: Ink; listId: string; pa
   const overridden = ink.swatch.name !== ink.auto.name
 
   return (
-    <div className="ink">
-      <span className="chip" style={{ background: css(ink.swatch.rgb) }} />
-      <div className="ink-main">
+    <div className="flex items-center gap-2.5 rounded-lg border border-line bg-bg px-2 py-1.5">
+      <span className="size-[26px] flex-none rounded-md shadow-[inset_0_0_0_1px_rgb(0_0_0/0.15)]" style={{ background: css(ink.swatch.rgb) }} />
+      <div className="min-w-0 flex-1">
         <input
-          className="ink-name"
+          className="-ml-[5px] w-full rounded-[5px] border border-transparent bg-transparent px-1 py-px font-semibold outline-none hover:border-line hover:bg-card focus:border-line focus:bg-card"
           list={listId}
           value={draft ?? ink.swatch.name}
           title="Type or pick a swatch to swap this ink"
@@ -149,12 +150,12 @@ function InkRow({ ink, listId, palette, onSwap }: { ink: Ink; listId: string; pa
           onBlur={() => setDraft(null)}
         />
         <small>
-          {(ink.coverage * 100).toFixed(ink.coverage < 0.01 ? 1 : 0)}% of artwork · <span className={`match ${match.cls}`}>{match.label}</span> (ΔE{' '}
+          {(ink.coverage * 100).toFixed(ink.coverage < 0.01 ? 1 : 0)}% of artwork · <span className={match.cls}>{match.label}</span> (ΔE{' '}
           {ink.deltaE.toFixed(1)})
           {overridden && (
             <>
               {' · '}
-              <button className="link" onClick={() => onSwap(ink.auto.name)}>
+              <button className={link} onClick={() => onSwap(ink.auto.name)}>
                 reset
               </button>
             </>

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { AiProgress, UpscaleSetting } from '../ai/enhancer'
 import type { ArtKind } from '../vectorize/detect'
 import { KIND_LABEL, type Style } from '../vectorize/client'
+import { bar, barFill, field, fieldLabel, progress, seg, segBtn, select } from './ui'
 
 interface Props {
   detected: ArtKind
@@ -20,12 +21,12 @@ interface Props {
 
 export function MoreOptions(p: Props) {
   return (
-    <details className="more">
-      <summary>More options</summary>
-      <div className="more-body">
-        <div className="field">
-          <label htmlFor="style">Artwork type</label>
-          <select id="style" value={p.style} onChange={(e) => p.onStyle(e.target.value as Style)}>
+    <details className="group rounded-xl border border-line">
+      <summary className="px-3.5 py-2.5 text-sm font-semibold group-open:border-b group-open:border-line">More options</summary>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
+        <div className={field}>
+          <label className={fieldLabel} htmlFor="style">Artwork type</label>
+          <select className={select} id="style" value={p.style} onChange={(e) => p.onStyle(e.target.value as Style)}>
             <option value="auto">Automatic ({KIND_LABEL[p.detected]})</option>
             {(Object.keys(KIND_LABEL) as ArtKind[]).map((k) => (
               <option key={k} value={k}>
@@ -36,9 +37,9 @@ export function MoreOptions(p: Props) {
         </div>
 
         {p.showColors && (
-          <div className="field">
-            <label htmlFor="maxColors">Maximum colors</label>
-            <select id="maxColors" value={p.maxColors ?? 'auto'} onChange={(e) => p.onMaxColors(e.target.value === 'auto' ? null : Number(e.target.value))}>
+          <div className={field}>
+            <label className={fieldLabel} htmlFor="maxColors">Maximum colors</label>
+            <select className={select} id="maxColors" value={p.maxColors ?? 'auto'} onChange={(e) => p.onMaxColors(e.target.value === 'auto' ? null : Number(e.target.value))}>
               <option value="auto">Automatic</option>
               {[1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24].map((n) => (
                 <option key={n} value={n}>
@@ -49,11 +50,11 @@ export function MoreOptions(p: Props) {
           </div>
         )}
 
-        <div className="field">
-          <span className="field-label" id="upscale-label">
+        <div className={field}>
+          <span className={fieldLabel} id="upscale-label">
             Sharpen small images (AI)
           </span>
-          <div className="mini-seg" role="group" aria-labelledby="upscale-label">
+          <div className={seg} role="group" aria-labelledby="upscale-label">
             {(
               [
                 ['off', 'Off'],
@@ -61,16 +62,16 @@ export function MoreOptions(p: Props) {
                 ['4x', '4× + de-JPEG'],
               ] as [UpscaleSetting, string][]
             ).map(([v, l]) => (
-              <button key={v} aria-pressed={p.upscale === v} onClick={() => p.onUpscale(v)}>
+              <button key={v} className={segBtn} aria-pressed={p.upscale === v} onClick={() => p.onUpscale(v)}>
                 {l}
               </button>
             ))}
           </div>
           {p.upscaleProgress ? (
-            <div className="ai-progress">
+            <div className={progress}>
               <span>{p.upscaleProgress.phase === 'download' ? 'Downloading the sharpening model' : 'Sharpening'}</span>
-              <div className="bar">
-                <div style={{ width: `${Math.round(p.upscaleProgress.progress * 100)}%` }} />
+              <div className={bar}>
+                <div className={barFill} style={{ width: `${Math.round(p.upscaleProgress.progress * 100)}%` }} />
               </div>
             </div>
           ) : (
