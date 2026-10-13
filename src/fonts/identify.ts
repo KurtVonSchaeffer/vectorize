@@ -16,13 +16,15 @@ export interface FontReport {
   chars: string
   /** The image the text was read from (upscaled for OCR). */
   canvas: OffscreenCanvas
+  /** OCR canvas pixels per source image pixel. */
+  scale: number
 }
 
 export type FontProgress = { step: 'reading' | 'loading' | 'comparing'; progress: number }
 
 /** Reads the text in an image and cuts out its letter shapes, grouped by text line. */
 export async function findText(bitmap: ImageBitmap, colors: number[], onProgress?: (p: FontProgress) => void): Promise<FontReport> {
-  const { words, canvas } = await readText(bitmap, colors, (p) => onProgress?.({ step: 'reading', progress: p }))
+  const { words, canvas, scale } = await readText(bitmap, colors, (p) => onProgress?.({ step: 'reading', progress: p }))
   const img = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height)
   const byLine = new Map<number, { text: string[]; shapes: WordShapes[]; y: number; box: Box }>()
   // Reading order: lines top to bottom, words left to right.
@@ -38,7 +40,7 @@ export async function findText(bitmap: ImageBitmap, colors: number[], onProgress
   }
   const lines = [...byLine.values()].sort((a, b) => a.y - b.y).map((l) => ({ text: l.text.join(' '), shapes: l.shapes, matches: [], box: l.box }))
   const chars = [...new Set(lines.flatMap((l) => l.shapes.flatMap((s) => s.glyphs.map((g) => g.char))))].join('')
-  return { lines, chars, canvas }
+  return { lines, chars, canvas, scale }
 }
 
 /** Free candidates are loaded once per character set and reused across lines and reruns. */

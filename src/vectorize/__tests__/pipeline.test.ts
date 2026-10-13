@@ -119,6 +119,32 @@ describe('runFlat', () => {
     expect(r.palette.length).toBeGreaterThan(3)
   })
 
+  // A rough "I" and a period in navy on cream; the "I" is rebuilt from a font outline.
+  const lettered = () => image(120, 60, (x, y) => (x >= 20 && x < 30 && y >= 10 && y < 50) || (x >= 38 && x < 43 && y >= 45 && y < 50) ? [43, 45, 66, 255] : [255, 248, 231, 255])
+  const textFor = (): FlatOptions['text'] => {
+    const coverage = new Uint8Array(120 * 60)
+    for (let y = 10; y < 50; y++) for (let x = 20; x < 30; x++) coverage[y * 120 + x] = 255
+    return { words: [{ text: 'I.', font: 'Test Sans', letters: [{ char: 'I', d: 'M20 10L30 10L30 50L20 50Z' }], box: [20, 10, 43, 50] }], coverage }
+  }
+
+  it('replaces traced letters with font outlines and keeps nearby punctuation', () => {
+    const r = runFlat(lettered(), opts({ text: textFor() }))
+    expect(r.lettered).toBe(1)
+    expect(r.svg).toMatch(/<g id="Text_I" data-text="I\." data-font="Test Sans" data-color="#2B2D42">\n<path id="Text_I_1_I" d="M20 10L30 10L30 50L20 50Z"/)
+    // The period is still traced in navy; the traced "I" is gone (one navy shape left).
+    const navy = r.svg.match(/<g data-color="#2B2D42">([\s\S]*?)<\/g>/)?.[1] ?? ''
+    expect((navy.match(/<path/g) ?? []).length).toBe(1)
+    expect(r.palette.map((p) => colorName(p.color))).toEqual(['Cream', 'Navy'])
+  })
+
+  it('writes font letters into print plates instead of overlapping them', () => {
+    const r = runFlat(lettered(), opts({ text: textFor(), trace: { ...opts().trace, mode: 'knockout' } }))
+    expect(r.lettered).toBe(1)
+    expect(r.svg).not.toMatch(/Text_/)
+    const navy = r.svg.match(/<g data-color="#2B2D42">([\s\S]*?)<\/g>/)?.[1] ?? ''
+    expect((navy.match(/<path/g) ?? []).length).toBe(2) // the rebuilt "I" and the period
+  })
+
   it('finds exactly the three real colors and the background', () => {
     const r = runFlat(logo(), opts())
     expect(r.palette.map((p) => colorName(p.color))).toEqual(['Cream', 'Navy', 'Orange'])

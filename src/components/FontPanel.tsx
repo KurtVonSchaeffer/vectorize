@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { canListInstalledFonts, installedFonts } from '../fonts/candidates'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
+import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate } from '../fonts/match'
 import { identifyOnline, onlineAvailable, type OnlineFont } from '../fonts/online'
 
@@ -10,6 +11,12 @@ interface Props {
   bitmap: ImageBitmap
   /** The artwork's colors; each is read as its own black-on-white picture. */
   colors: number[]
+  /** Lines whose lettering is rebuilt from a font, by line index. */
+  lettering: Record<number, LineLettering>
+  /** Whether lettering can be rebuilt for this kind of artwork. */
+  canRebuild: boolean
+  onUseFont: (report: FontReport, line: number, match: FontCandidate) => Promise<void>
+  onClearFont: (line: number) => void
 }
 
 const STEP: Record<FontProgress['step'], string> = {
@@ -22,8 +29,18 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
+  /** The font being placed right now ("line|label"). */
+  const [placing, setPlacing] = useState<string | null>(null)
+  const useFont = async (report: FontReport, i: number, m: FontCandidate) => {
+    setPlacing(`${i}|${m.label}`)
+    try {
+      await onUseFont(report, i, m)
+    } finally {
+      setPlacing(null)
+    }
+  }
   const installed = useRef<FontCandidate[] | null>(null)
   const run = useRef(0)
   /** Online results per line index. */
@@ -107,6 +124,21 @@ export function FontPanel({ imageId, bitmap, colors }: Props) {
                         <em className={`font-src ${m.source}`}>{m.source === 'installed' ? 'Installed' : 'Free · Google Fonts'}</em>
                       </span>
                       <span className="font-score">{Math.round(m.score * 100)}%</span>
+                      {canRebuild &&
+                        (lettering[i]?.font === m.label ? (
+                          <button className="btn small font-use active" onClick={() => onClearFont(i)} title="Put the traced letters back">
+                            ✓ Lettering rebuilt · Undo
+                          </button>
+                        ) : (
+                          <button
+                            className="btn small font-use"
+                            disabled={placing !== null}
+                            onClick={() => useFont(state.report, i, m)}
+                            title={`Replace the traced letters with ${m.label}, so they're perfectly clean`}
+                          >
+                            {placing === `${i}|${m.label}` ? 'Rebuilding…' : 'Use for lettering'}
+                          </button>
+                        ))}
                     </li>
                   ))}
                 </ol>

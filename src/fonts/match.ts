@@ -9,11 +9,17 @@ export interface Glyph {
   mask: Float32Array
   /** Height relative to the tallest letter in the word (cap height for most words). */
   rel: number
+  /** The letter's ink bounds in the OCR canvas. */
+  box: Box
 }
 
 export interface WordShapes {
   text: string
   glyphs: Glyph[]
+  /** The word's bounds in the OCR canvas. */
+  box: Box
+  /** Every letter and digit of the word was found (so the whole word can be rebuilt). */
+  complete: boolean
 }
 
 export interface FontCandidate {
@@ -21,6 +27,8 @@ export interface FontCandidate {
   family: string
   /** Name to show (e.g. "Arial Black", "Montserrat ExtraBold"). */
   label: string
+  /** Where the font file comes from: the Google family name, or the installed PostScript name. */
+  ref: string
   weight: number
   style: 'normal' | 'italic'
   source: 'installed' | 'google'
@@ -44,16 +52,22 @@ export function wordShapes(img: ImageData, word: OcrWord): WordShapes | null {
   const ink = inkMask(img, box)
   if (!ink) return null
   const W = box.x1 - box.x0
-  const raw: { char: string; mask: Float32Array; w: number; h: number }[] = []
+  const raw: { char: string; mask: Float32Array; w: number; h: number; box: Box }[] = []
   for (const g of word.glyphs) {
     const gb = clampBox(g.box, img)
     const tight = tightBox(ink, W, { x0: gb.x0 - box.x0, y0: gb.y0 - box.y0, x1: gb.x1 - box.x0, y1: gb.y1 - box.y0 })
     if (!tight) continue
-    raw.push({ char: g.char, ...normalize((x, y) => ink[y * W + x], tight) })
+    raw.push({ char: g.char, ...normalize((x, y) => ink[y * W + x], tight), box: { x0: tight.x0 + box.x0, y0: tight.y0 + box.y0, x1: tight.x1 + box.x0, y1: tight.y1 + box.y0 } })
   }
-  if (raw.length < 2) return null
-  const maxH = Math.max(...raw.map((r) => r.h))
-  return { text: word.text, glyphs: raw.map((r) => ({ char: r.char, mask: r.mask, rel: r.h / maxH })) }
+  if (raw.filter((r) => isAlnum(r.char)).length < 2) return null
+  const maxH = Math.max(...raw.filter((r) => isAlnum(r.char)).map((r) => r.h))
+  const alnum = word.text.replace(/[^\p{L}\p{N}]/gu, '')
+  return {
+    text: word.text,
+    glyphs: raw.map((r) => ({ char: r.char, mask: r.mask, rel: r.h / maxH, box: r.box })),
+    box,
+    complete: raw.map((r) => r.char).filter(isAlnum).join('') === alnum,
+  }
 }
 
 function clampBox(b: Box, img: ImageData): Box {
@@ -108,6 +122,8 @@ export function inkMask(img: ImageData, b: Box): Float32Array | null {
     }
   return mask
 }
+
+const isAlnum = (c: string) => /[\p{L}\p{N}]/u.test(c)
 
 const d2 = (a: number[], b: number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
 
@@ -198,7 +214,9 @@ export function fontShapes(font: FontCandidate, chars: string[]): Map<string, { 
  * shapes (intersection over union), discounted when the letter's height relative to its word
  * differs (x-height and cap height are strong identifiers). Averaged over all letters.
  */
-export function scoreFont(font: FontCandidate, words: WordShapes[]): number {
+export function scoreFont(font: FontCandidate, all: WordShapes[]): number {
+  // Punctuation is too small and similar across fonts to tell them apart.
+  const words = all.map((w) => ({ ...w, glyphs: w.glyphs.filter((g) => isAlnum(g.char)) }))
   const chars = words.flatMap((w) => w.glyphs.map((g) => g.char))
   const shapes = fontShapes(font, chars)
   if (!shapes) return 0
@@ -229,7 +247,7 @@ export function scoreFont(font: FontCandidate, words: WordShapes[]): number {
  * scored on every letter. Yields to the browser between batches so the page stays responsive.
  */
 export async function rankFonts(words: WordShapes[], candidates: FontCandidate[], onProgress?: (done: number, total: number) => void): Promise<FontMatch[]> {
-  const quick = words.map((w) => ({ ...w, glyphs: [...w.glyphs].sort((a, b) => b.rel - a.rel).slice(0, 3) })).slice(0, 3)
+  const quick = words.map((w) => ({ ...w, glyphs: w.glyphs.filter((g) => isAlnum(g.char)).sort((a, b) => b.rel - a.rel).slice(0, 3) })).slice(0, 3)
   const first: FontMatch[] = []
   for (let i = 0; i < candidates.length; i++) {
     first.push({ ...candidates[i], score: scoreFont(candidates[i], quick) })

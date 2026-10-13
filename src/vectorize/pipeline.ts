@@ -4,10 +4,12 @@ import { applyBrand, type BrandSettings } from '../palette/brand'
 import { colorNames } from '../palette/names'
 import { colorAt, findGradients } from '../palette/gradients'
 import { blendRatio, nameSvg, quantize, type FixedLabels, type Ink, type InkSettings, type QuantizeOptions } from '../palette/quantize'
-import { traceLabels, type LabelMap, type ShapeCounts, type TraceOptions } from '../trace'
+import { layersToSvg, traceLabels, type LabelMap, type ShapeCounts, type TracedLayer, type TraceOptions } from '../trace'
 import { removeFlatBackground } from './background'
 import type { FlatTracer } from './flat-tracer'
 import { finalizeSvg, prepareImage, type InputImage } from './image'
+import type { PlacedWord } from '../fonts/lettering'
+import { scalePath } from '../fonts/path'
 import { toEngineConfig, type PrepParams, type TraceParams } from './params'
 import type { Tracer } from './tracer'
 
@@ -34,6 +36,15 @@ export interface JobSettings {
   brand?: BrandSettings
   /** Draw gradients as smooth SVG gradients (on screen and web files). */
   gradients?: boolean
+  /** Words to rebuild from a font (source-image pixels). */
+  lettering?: PlacedWord[]
+}
+
+/** Rebuilt lettering, in the traced image's pixels. */
+export interface TextOptions {
+  words: { text: string; font: string; letters: { char: string; d: string }[]; box: [number, number, number, number] }[]
+  /** Coverage (0–255) of all placed letters, per traced pixel. */
+  coverage: Uint8Array
 }
 
 /** Settings for the flat-color pipeline; plain data so it can be sent to a worker. */
@@ -49,6 +60,8 @@ export interface FlatOptions {
    * traced as flat colors (print plates and cut files can't hold gradients). Unset: not looked for.
    */
   gradients?: 'apply' | 'report'
+  /** Lettering to rebuild from a font. */
+  text?: TextOptions
 }
 
 export interface PaletteEntry {
@@ -71,6 +84,8 @@ export interface FlatResult {
   named: [number, string][]
   /** Gradients found in the artwork, and how many were kept as smooth gradients. */
   gradients: { found: number; kept: number }
+  /** Words rebuilt from a font. */
+  lettered: number
 }
 
 /**
@@ -115,6 +130,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       transparent: s.transparent,
       brand: lineArt || spotOn ? undefined : s.brand,
       gradients: lineArt || spotOn ? undefined : s.gradients && !s.knockout ? 'apply' : 'report',
+      text: s.lettering?.length && !lineArt ? textOptions(s.lettering, scale, base.image.width, base.image.height) : undefined,
       quantize: {
         maxColors: lineArt ? 2 : spotOn ? spot!.settings.maxInks : trace.colors,
         mergeDelta: spotOn || lineArt ? 0 : trace.colorMerge,
@@ -138,6 +154,22 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       },
     },
   }
+}
+
+/** Places rebuilt words in the traced image and renders their coverage (main thread). */
+function textOptions(words: PlacedWord[], scale: number, w: number, h: number): TextOptions {
+  const canvas = new OffscreenCanvas(w, h)
+  const g = canvas.getContext('2d')!
+  const placed = words.map((word) => {
+    const letters = word.letters.map((l) => ({ char: l.char, d: scalePath(l.d, scale) }))
+    for (const l of letters) g.fill(new Path2D(l.d))
+    const box: [number, number, number, number] = [word.box.x0 * scale, word.box.y0 * scale, word.box.x1 * scale, word.box.y1 * scale]
+    return { text: word.text, font: word.font, letters, box }
+  })
+  const data = g.getImageData(0, 0, w, h).data
+  const coverage = new Uint8Array(w * h)
+  for (let p = 0; p < coverage.length; p++) coverage[p] = data[p * 4 + 3]
+  return { words: placed, coverage }
 }
 
 /** The flat-color pipeline: quantize, apply the client's color choices, trace. Pure. */
@@ -175,8 +207,14 @@ export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
   } else if (o.transparent && bgLabel >= 0) {
     map = { ...map, colors: map.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
   }
-  const { svg, paths, shapes } = traceLabels(map, o.trace)
   const palette = paletteOf(map, bgLabel).filter((e) => !map.fills?.[map.colors.indexOf(e.color)])
+  const knockout = o.trace.mode === 'knockout'
+  const text = o.text ? applyText(map, o.text, knockout) : null
+  if (text) map = text.map
+  const traced = traceLabels(map, o.trace)
+  let { svg } = traced
+  const { paths, shapes } = traced
+  if (text?.layers.length) svg = layersToSvg([...traced.layers, ...text.layers], map.w, map.h)
   return {
     svg,
     inks: q.inks,
@@ -187,7 +225,99 @@ export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
     shapes,
     named: [...branded.named],
     gradients: { found: regions.length, kept: apply ? regions.length : 0 },
+    lettered: text?.words ?? 0,
   }
+}
+
+/**
+ * Swaps traced letters for font outlines. Each word's letter color is the color under the
+ * placed letters, and its background the color around the word. Stacked output erases the
+ * traced letters (their pixels take the background) and draws the outlines on top. Knockout
+ * output (print plates, cut files) can't overlap, so the outlines' exact coverage is written into
+ * the color map instead and traced like everything else.
+ */
+function applyText(map: LabelMap, text: TextOptions, knockout: boolean): { map: LabelMap; layers: TracedLayer[]; words: number } {
+  const { w, h } = map
+  const labels = map.labels.slice()
+  const second = map.second.slice()
+  const cov = map.cov.slice()
+  const layers: TracedLayer[] = []
+  let words = 0
+  for (const word of text.words) {
+    const pad = 3
+    const x0 = Math.max(0, Math.floor(word.box[0]) - pad), y0 = Math.max(0, Math.floor(word.box[1]) - pad)
+    const x1 = Math.min(w, Math.ceil(word.box[2]) + pad), y1 = Math.min(h, Math.ceil(word.box[3]) + pad)
+    if (x1 <= x0 || y1 <= y0) continue
+    // Letter color: the majority under the placed letters. Background: the majority around the word.
+    const under = new Map<number, number>()
+    const around = new Map<number, number>()
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const p = y * w + x
+        const l = map.labels[p]
+        if (l >= 254) continue
+        if (text.coverage[p] > 191) under.set(l, (under.get(l) ?? 0) + 1)
+        if (x === x0 || x === x1 - 1 || y === y0 || y === y1 - 1) around.set(l, (around.get(l) ?? 0) + 1)
+      }
+    const top = (m: Map<number, number>, not = -1) => [...m].filter(([l]) => l !== not).sort((a, b) => b[1] - a[1])[0]?.[0] ?? -1
+    const ink = top(under)
+    const bg = top(around, ink)
+    if (ink < 0 || bg < 0 || map.colors[ink] < 0) continue
+    // Traced letter pixels: each connected shape of the ink color in the word's box that
+    // overlaps the placed letters (punctuation and other marks nearby don't, and stay).
+    const bw = x1 - x0, bh = y1 - y0
+    const comp = new Int32Array(bw * bh).fill(-1)
+    const replaced: boolean[] = []
+    const isInk = (p: number) => map.labels[p] === ink || (map.second[p] === ink && map.cov[p] < 0.5)
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = (y - y0) * bw + (x - x0)
+        if (comp[i] >= 0 || !isInk(y * w + x)) continue
+        const id = replaced.length
+        let size = 0, covered = 0
+        const stack = [i]
+        comp[i] = id
+        while (stack.length) {
+          const j = stack.pop()!
+          const px = x0 + (j % bw), py = y0 + Math.floor(j / bw)
+          size++
+          if (text.coverage[py * w + px] > 0) covered++
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = px + dx - x0, ny = py + dy - y0
+            if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue
+            const k = ny * bw + nx
+            if (comp[k] < 0 && isInk((y0 + ny) * w + x0 + nx)) {
+              comp[k] = id
+              stack.push(k)
+            }
+          }
+        }
+        replaced.push(covered >= size * 0.3)
+      }
+    const traced = (x: number, y: number) => {
+      const c = comp[(y - y0) * bw + (x - x0)]
+      return c >= 0 && replaced[c]
+    }
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const p = y * w + x
+        const a = text.coverage[p] / 255
+        if (!knockout) {
+          // Erase the traced letters; the outlines are drawn on top.
+          if (traced(x, y)) [labels[p], second[p], cov[p]] = [bg, 255, 1]
+          else if (map.second[p] === ink && a > 0) [second[p], cov[p]] = [255, 1]
+          continue
+        }
+        // Knockout: write the outlines' exact coverage into the map instead.
+        if (a > 0) {
+          if (a >= 0.5) [labels[p], second[p], cov[p]] = [ink, bg, a]
+          else [labels[p], second[p], cov[p]] = [bg, ink, 1 - a]
+        } else if (traced(x, y)) [labels[p], second[p], cov[p]] = [bg, 255, 1]
+      }
+    if (!knockout) layers.push({ color: map.colors[ink], d: word.letters.map((l) => l.d).join(''), shapes: word.letters.map((l) => l.d), text: { word: word.text, font: word.font, letters: word.letters.map((l) => l.char) } })
+    words++
+  }
+  return { map: { ...map, labels, second, cov }, layers, words }
 }
 
 export interface TraceResult {
@@ -206,6 +336,8 @@ export interface TraceResult {
   named: [number, string][]
   /** Gradients found, and how many were kept smooth (flat modes only). */
   gradients: { found: number; kept: number }
+  /** Words rebuilt from a font. */
+  lettered: number
   /** Size of the coordinate space the SVG paths use. */
   width: number
   height: number
@@ -223,11 +355,11 @@ export async function runTraceJob(
     const res = tracers.flat ? await tracers.flat.run(job.image, job.options) : runFlat(job.image, job.options)
     const finalized = finalizeSvg(res.svg, job.image, original)
     const svg = nameSvg(finalized, inkNames({ palette: res.palette, inks: annotate ? res.inks : [], named: res.named }))
-    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, ...size }
+    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, ...size }
   }
   const out = await tracers.vtracer.trace(job.image, toEngineConfig(job.params, job.scale))
   const svg = finalizeSvg(out.svg, job.image, original)
-  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, ...size }
+  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, ...size }
 }
 
 /**

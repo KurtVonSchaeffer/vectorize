@@ -54,6 +54,8 @@ export interface TracedLayer {
   shapes?: string[]
   /** Drawn with this gradient; `color` is then its average. */
   fill?: GradientFill
+  /** Lettering rebuilt from a font: one path per letter (in `shapes`), named after the word. */
+  text?: { word: string; font: string; letters: string[] }
 }
 
 const NO_SHAPE = 254
@@ -342,12 +344,29 @@ export function layersToSvg(layers: TracedLayer[], w: number, h: number): string
   const defs: string[] = []
   const gradientIds = new Map<GradientFill, number>()
   const pathCount = new Map<number, number>()
+  const textNames = new Map<string, number>()
   let open: string | null = null
   for (const l of layers) {
     let key: string
     let fill: string
     let groupTag: string
     let gradient = 0
+    if (l.text) {
+      const slug = l.text.word.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Text'
+      const n = (textNames.get(slug) ?? 0) + 1
+      textNames.set(slug, n)
+      if (open !== null) parts.push('</g>')
+      open = null
+      const fillHex = hex6(l.color)
+      parts.push(`<g id="Text_${slug}${n > 1 ? `_${n}` : ''}" data-text="${escapeAttr(l.text.word)}" data-font="${escapeAttr(l.text.font)}" data-color="${fillHex}">`)
+      ;(l.shapes ?? []).forEach((d, i) => {
+        const ch = l.text!.letters[i] ?? ''
+        const id = /[A-Za-z0-9]/.test(ch) ? ch : `${i + 1}`
+        if (d) parts.push(`<path id="Text_${slug}${n > 1 ? `_${n}` : ''}_${i + 1}_${id}" d="${d}" fill="${fillHex}"/>`)
+      })
+      parts.push('</g>')
+      continue
+    }
     if (l.fill) {
       let k = gradientIds.get(l.fill)
       if (k === undefined) {
@@ -384,6 +403,8 @@ export function layersToSvg(layers: TracedLayer[], w: number, h: number): string
   const defsBlock = defs.length ? `<defs>\n${defs.join('\n')}\n</defs>\n` : ''
   return `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">\n${defsBlock}${parts.join('\n')}\n</svg>`
 }
+
+const escapeAttr = (v: string) => v.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 function toPath(curves: Cubic[], fmt: (v: number) => number): string {
   if (!curves.length) return ''

@@ -7,7 +7,11 @@ interface LocalFontData {
   fullName: string
   postscriptName: string
   style: string
+  blob(): Promise<Blob>
 }
+
+/** Installed font files by candidate family alias, for rebuilding lettering from outlines. */
+const localFiles = new Map<string, LocalFontData & { blob(): Promise<Blob> }>()
 
 export const canListInstalledFonts = () => typeof window !== 'undefined' && 'queryLocalFonts' in window
 
@@ -48,7 +52,8 @@ export async function installedFonts(): Promise<FontCandidate[]> {
           const face = new FontFace(family, `local("${f.postscriptName}")`)
           await face.load()
           document.fonts.add(face)
-          out.push({ family, label: f.fullName, weight: 400, style: 'normal', source: 'installed' })
+          localFiles.set(family, f)
+          out.push({ family, label: f.fullName, ref: f.postscriptName, weight: 400, style: 'normal', source: 'installed' })
         } catch {
           // Some system faces can't be loaded this way; skip them.
         }
@@ -112,7 +117,7 @@ export async function googleFonts(chars: string, onProgress?: (done: number, tot
     const face = new FontFace(alias, `url(${url})`, { weight: descriptor })
     await face.load()
     document.fonts.add(face)
-    for (const weight of weights) out.push({ family: alias, label: `${family} ${WEIGHT_NAME[weight]}`, weight, style: 'normal', source: 'google' })
+    for (const weight of weights) out.push({ family: alias, label: `${family} ${WEIGHT_NAME[weight]}`, ref: family, weight, style: 'normal', source: 'google' })
     return true
   }
 
@@ -131,4 +136,26 @@ export async function googleFonts(chars: string, onProgress?: (done: number, tot
     while (queue.length) await run(queue.shift()!)
   }))
   return out
+}
+
+// ---------- Font files (for outlines) ----------
+
+/**
+ * The font file behind a candidate, for reading letter outlines. Free fonts come from
+ * Fontsource (the same Google Fonts, as WOFF files the parser can read), at the nearest weight
+ * the family has; installed fonts come from the computer (Chrome/Edge).
+ */
+export async function fontFile(font: FontCandidate): Promise<ArrayBuffer> {
+  if (font.source === 'installed') {
+    const local = localFiles.get(font.family)
+    if (!local) throw new Error('That installed font is no longer available. Check installed fonts again.')
+    return (await local.blob()).arrayBuffer()
+  }
+  const id = font.ref.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const info = await fetch(`https://api.fontsource.org/v1/fonts/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+  const weights: number[] = info?.weights ?? [400]
+  const weight = weights.reduce((best, w) => (Math.abs(w - font.weight) < Math.abs(best - font.weight) ? w : best), weights[0])
+  const res = await fetch(`https://cdn.jsdelivr.net/fontsource/fonts/${id}@latest/latin-${weight}-normal.woff`)
+  if (!res.ok) throw new Error(`Couldn't download ${font.ref}.`)
+  return res.arrayBuffer()
 }

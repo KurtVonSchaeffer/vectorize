@@ -3,6 +3,7 @@ import { Enhancer, type AiProgress, type UpscaleSetting } from './ai/enhancer'
 import { Compare } from './components/Compare'
 import { BrandPanel, type MatchMode } from './components/BrandPanel'
 import { FontPanel } from './components/FontPanel'
+import type { LineLettering } from './fonts/lettering'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip } from './components/ResultCard'
@@ -50,6 +51,9 @@ export default function App() {
     setRemoved([])
   }
   const matchMode: MatchMode = inks.enabled ? 'library' : brand.mode
+  // Lettering rebuilt from a matched font, per text line of the current image.
+  const [lettering, setLettering] = useState<Record<number, LineLettering>>({})
+  const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
   const [importedPalette, setImportedPalette] = useState<Palette | null>(loadSavedPalette)
   const palette = importedPalette ?? DEMO_PALETTE
 
@@ -88,6 +92,7 @@ export default function App() {
         setDetection(det)
         setTransparent(det.hasAlpha || det.kind === 'lineart')
         setRemoved([])
+        setLettering({})
         setResult(null)
         setTraceError(null)
         setUpscaled(null)
@@ -179,8 +184,9 @@ export default function App() {
       exactShapes,
       gradients,
       brand,
+      lettering: letteringWords,
     })
-  }, [input, source, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, knockout, brand])
+  }, [input, source, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, knockout, brand, letteringWords])
 
   // Recent results, so going back to a previous setting (e.g. Print → Website → Print) is instant.
   const cache = useRef(new Map<string, TraceResult>())
@@ -335,7 +341,19 @@ export default function App() {
           onUndo: () => setBrand({ ...brand, mode: 'off' }),
         }
       : null
-  const fixNotes = [gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
+  const letteringNote = (() => {
+    const lines = Object.values(lettering)
+    if (!lines.length || !result) return null
+    const words = lines.reduce((n, l) => n + l.words.length, 0)
+    const skipped = lines.reduce((n, l) => n + l.skipped, 0)
+    const fontsUsed = [...new Set(lines.map((l) => l.font))].join(' and ')
+    return {
+      text: `Rebuilt ${words === 1 ? '1 word' : `${words} words`} in ${fontsUsed}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}`,
+      undoLabel: 'Undo',
+      onUndo: () => setLettering({}),
+    }
+  })()
+  const fixNotes = [letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
 
   const busyLabel = aiProgress
     ? aiProgress.phase === 'download'
@@ -413,7 +431,31 @@ export default function App() {
                 onUpscale={setUpscale}
                 upscaleProgress={aiProgress}
                 upscaleNote={upscaleNote}
-                fonts={<FontPanel imageId={source.id} bitmap={source.bitmap} colors={palettes?.map((p) => p.color) ?? []} />}
+                fonts={
+                  <FontPanel
+                    imageId={source.id}
+                    bitmap={source.bitmap}
+                    colors={palettes?.map((p) => p.color) ?? []}
+                    lettering={lettering}
+                    canRebuild={kind === 'flat' && !inks.enabled}
+                    onUseFont={async (report, index, match) => {
+                      let placed: LineLettering
+                      try {
+                        const { placeLine } = await import('./fonts/lettering')
+                        placed = await placeLine(report, report.lines[index], match)
+                      } catch (err) {
+                        showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
+                        return
+                      }
+                      if (!placed.words.length) {
+                        showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
+                        return
+                      }
+                      setLettering((l) => ({ ...l, [index]: placed }))
+                    }}
+                    onClearFont={(index) => setLettering(({ [index]: _, ...rest }) => rest)}
+                  />
+                }
                 brandColors={
                   <BrandPanel
                     brand={brand}
@@ -490,7 +532,12 @@ const listJoin = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0,
 function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: boolean): string {
   const opts =
     job.kind === 'flat'
-      ? { ...job.options, quantize: { ...job.options.quantize, palette: job.options.quantize.palette ? `${job.options.quantize.palette.name}:${job.options.quantize.palette.swatches.length}` : null } }
+      ? {
+          ...job.options,
+          quantize: { ...job.options.quantize, palette: job.options.quantize.palette ? `${job.options.quantize.palette.name}:${job.options.quantize.palette.swatches.length}` : null },
+          // The coverage map follows from the words; keep the key small.
+          text: job.options.text?.words.map((w) => `${w.font}:${w.text}:${w.box.map(Math.round).join(',')}`) ?? null,
+        }
       : job.params
   return `${sourceId}|${upscale}|${job.kind}|${job.image.width}x${job.image.height}|${annotate}|${JSON.stringify(opts)}`
 }

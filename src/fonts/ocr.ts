@@ -86,9 +86,10 @@ function wordsOf(blocks: Block[], lineBase: number): OcrWord[] {
       for (const line of para.lines) {
         lineNo++
         for (const word of line.words) {
-          const glyphs = word.symbols.filter((s) => /[\p{L}\p{N}]/u.test(s.text) && s.confidence > 40).map((s) => ({ char: s.text, box: s.bbox }))
+          // Letters, digits and punctuation (punctuation helps place a word, not identify a font).
+          const glyphs = word.symbols.filter((s) => /[\p{L}\p{N}\p{P}]/u.test(s.text) && s.confidence > 40).map((s) => ({ char: s.text, box: s.bbox }))
           const alnum = word.text.replace(/[^\p{L}\p{N}]/gu, '')
-          if (word.confidence < 55 || alnum.length < 2 || glyphs.length < 2) continue
+          if (word.confidence < 55 || alnum.length < 2 || glyphs.filter((g) => /[\p{L}\p{N}]/u.test(g.char)).length < 2) continue
           words.push({ line: lineNo, text: word.text, confidence: word.confidence, box: word.bbox, glyphs })
         }
       }
@@ -132,9 +133,9 @@ function colorMask(img: ImageData, color: number, colors: number[]): OffscreenCa
 }
 
 /**
- * The image's main colors (up to `max`), from a coarse histogram: 4 bits per channel, bins
- * covering at least 2% of the image, near-duplicates merged. Enough to separate text from the
- * shapes behind it.
+ * The image's main colors (up to `max`): a coarse histogram (4 bits per channel) whose bins are
+ * pooled into clusters of similar color, most common first, keeping clusters that cover at least
+ * 2% of the image. Pooling first matters for JPEGs, which spread one color over many shades.
  */
 export function mainColors(img: ImageData, max = 6): number[] {
   const bins = new Map<number, { n: number; r: number; g: number; b: number }>()
@@ -149,12 +150,17 @@ export function mainColors(img: ImageData, max = 6): number[] {
     bins.set(key, bin)
     total++
   }
-  const out: [number, number, number][] = []
+  const clusters: { n: number; r: number; g: number; b: number }[] = []
   for (const bin of [...bins.values()].sort((a, b) => b.n - a.n)) {
-    if (bin.n < total * 0.02 || out.length >= max) break
-    const c: [number, number, number] = [bin.r / bin.n, bin.g / bin.n, bin.b / bin.n]
-    if (out.some((o) => (o[0] - c[0]) ** 2 + (o[1] - c[1]) ** 2 + (o[2] - c[2]) ** 2 < 40 ** 2)) continue
-    out.push(c)
+    const c = [bin.r / bin.n, bin.g / bin.n, bin.b / bin.n]
+    const near = clusters.find((k) => (k.r / k.n - c[0]) ** 2 + (k.g / k.n - c[1]) ** 2 + (k.b / k.n - c[2]) ** 2 < 48 ** 2)
+    if (near) {
+      near.n += bin.n; near.r += bin.r; near.g += bin.g; near.b += bin.b
+    } else clusters.push({ ...bin })
   }
-  return out.map(([r, g, b]) => (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b))
+  return clusters
+    .filter((k) => k.n >= total * 0.02)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, max)
+    .map((k) => (Math.round(k.r / k.n) << 16) | (Math.round(k.g / k.n) << 8) | Math.round(k.b / k.n))
 }
