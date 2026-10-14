@@ -48,9 +48,23 @@ The part before `__` is the category. The upload and its original share the rest
    - the background improver's alternatives and its offer rule.
    
    Then the SVG, PDF and DXF downloads for print, web and cutting are generated and checked. Expect 5–60 s per logo.
-3. Export JSON and CSV, then **Save as baseline**. Later engine changes are re-run against it, and the page shows the change per file.
-4. Open each logo in the app itself (`/`) and do the visual review (section 5). Use each offered "cleaner version" and compare the two.
-5. Record the visual verdicts next to the CSV rows.
+3. Under each logo, the page shows four pictures side by side: the **upload**, the **first vector result**, the **suggested improvement** (if the app would offer one) and the **original** (if supplied). Enlarge them together to 4×, 8×, 16× or 32×, and click any picture to choose the spot. The upload is shown with its real pixels, and the vectors are redrawn sharp at that size. Switch the background to black to look for white boxes and halos. Areas the structural checks flag (merged, broken, missing or extra shapes) are outlined in colour; **next flag** jumps to each one.
+4. Fill in the manual checklist under each logo (section 5) and answer *Would you send this to a printer?*. Answers are saved in this browser. The final verdict is **FAIL** if any automatic criterion, check or the overall answer fails, **PASS** only after a "yes" with nothing failed, and **REVIEW** otherwise.
+5. Open the PDF and DXF in Illustrator / Acrobat and the cutter software for the print and cut checks (download them from the app at `/`).
+6. **Download report** saves one self-contained HTML file: summary, release recommendation, and for every logo its pictures at 1× and 16×, its scores, flags and manual review. Also export JSON / CSV, then **Save as baseline**. Later engine changes are re-run against it, and the page shows the change per file.
+
+### Structural checks (flags, shown under each logo)
+
+They are compared with the original, or with the upload when there's no original. They raise REVIEW, not FAIL, except for open cut outlines, which block release. Thresholds are in `bench/review.ts` (`STRUCTURE`).
+
+| Flag | Meaning |
+|---|---|
+| Excessive nodes | More than 12 segments per 100 px of outline, or more than 3× the original SVG's nodes |
+| Jagged edges likely when enlarged | More than 15% of segments shorter than ¾ px (stair-steps) |
+| Lumpy curves likely when enlarged | More than 5% of curve-to-curve joins bend 15–60° |
+| Merged / broken / missing / extra shapes | Letters or marks joined together, split apart, lost or invented, found by matching separate shapes by overlap |
+| Incorrect colours | An original colour shown more than ΔE 3 off |
+| Cut file | Open outlines, or pieces under 1 mm at 200 mm wide (hard to weed) |
 
 ### Does the harness match the app?
 
@@ -75,7 +89,7 @@ These thresholds are a starting proposal. The first run will show whether they s
 
 ## 5. Visual print-readiness review
 
-For each logo, open the SVG at 100% and 400% and compare it with the upload and the original:
+For each logo, use the enlargement viewer on the test page (1× up to 32×) and compare it with the upload and the original. The checklist is on the page:
 
 - [ ] **Shapes:** curves are smooth, with no wobble, lumps or flat spots; corners that should be sharp are sharp; straight lines are straight.
 - [ ] **Lettering:** every letter is legible and correctly spelled; counters (O, e, a) are open; spacing is even. If a font was rebuilt, it is the right one. If unsure, the rebuild should have been offered rather than applied.
