@@ -185,6 +185,26 @@ describe('runFlat', () => {
     expect(r.palette.map((p) => colorName(p.color))).toEqual(['Cream', 'Navy'])
   })
 
+  it('removes colour slivers along the rebuilt letters, but keeps other artwork of that colour', () => {
+    // A 2 px pink fringe along the "I" (as anti-aliasing next to a gradient leaves) and a pink square well away from it.
+    const fringed = () =>
+      image(120, 60, (x, y) =>
+        x >= 20 && x < 30 && y >= 10 && y < 50
+          ? [43, 45, 66, 255]
+          : (x >= 30 && x < 32 && y >= 10 && y < 50) || (x >= 80 && x < 100 && y >= 20 && y < 40)
+            ? [236, 72, 153, 255]
+            : [255, 248, 231, 255],
+      )
+    const before = runFlat(fringed(), opts())
+    expect(before.svg).toMatch(/data-color="#EC4899"/)
+    const r = runFlat(fringed(), opts({ text: textFor() }))
+    expect(r.lettered).toBe(1)
+    // Only the square is left in pink: one shape, well away from the letter.
+    const pink = r.svg.match(/<g [^>]*data-color="#EC4899">([\s\S]*?)<\/g>/)?.[1] ?? ''
+    expect((pink.match(/<path/g) ?? []).length).toBe(1)
+    expect(pink).toMatch(/M\s?(8\d|9\d|100)/)
+  })
+
   it('keeps font letters as outlines in print plates, cut exactly out of the background', () => {
     const r = runFlat(lettered(), opts({ text: textFor(), trace: { ...opts().trace, mode: 'knockout' } }))
     expect(r.lettered).toBe(1)

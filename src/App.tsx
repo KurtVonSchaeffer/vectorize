@@ -61,6 +61,8 @@ export default function App() {
   const [matchingLettering, setMatchingLettering] = useState(false)
   // The image whose automatic lettering match has finished (it runs once, after the first result).
   const [letteringSettled, setLetteringSettled] = useState<string | null>(null)
+  // Lines the automatic match found but couldn't rebuild confidently, for the image with this id.
+  const [unmatchedLettering, setUnmatchedLettering] = useState<{ id: string; lines: { line: number; text: string; closest: { label: string; score: number } | null }[] } | null>(null)
   const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
   const [importedPalette, setImportedPalette] = useState<Palette | null>(loadSavedPalette)
   const palette = importedPalette ?? DEMO_PALETTE
@@ -380,13 +382,20 @@ export default function App() {
   const letteringNote = (() => {
     const lines = Object.values(lettering)
     if (matchingLettering && result) return { text: 'Matching the lettering to fonts, to rebuild it cleanly…' }
+    // Lines found but not rebuilt (no font close enough, and none chosen since).
+    const unmatched = (unmatchedLettering && unmatchedLettering.id === source?.id ? unmatchedLettering.lines : []).filter((u) => !lettering[u.line])
+    const howTo = 'If you know the font, choose it under More options → Fonts in this artwork → Use a font you know.'
+    const kept = unmatched.length
+      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} didn't match a font closely enough to rebuild automatically${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
+      : ''
+    if (!lines.length && result && kept) return { text: `Kept the lettering as traced: ${kept}. ${howTo}` }
     if (!lines.length || !result) return null
     const words = lines.reduce((n, l) => n + l.words.length, 0)
     const skipped = lines.reduce((n, l) => n + l.skipped, 0)
-    const fonts = [...new Set(lines.map((l) => l.font))]
+    const fonts = [...new Set(lines.flatMap((l) => l.words.map((w) => w.font)))]
     const fontsUsed = fonts.join(' and ')
     return {
-      text: `Matched the lettering to ${fontsUsed} and rebuilt ${words === 1 ? '1 word' : `${words} words`} from ${fonts.length > 1 ? 'those fonts' : 'the font'}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}`,
+      text: `Matched the lettering to ${fontsUsed} and rebuilt ${words === 1 ? '1 word' : `${words} words`} from ${fonts.length > 1 ? 'those fonts' : 'the font'}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}${kept ? ` ${kept}, so it stays as traced. ${howTo}` : ''}`,
       undoLabel: 'Use traced letters',
       onUndo: () => setLettering({}),
     }
@@ -532,11 +541,15 @@ export default function App() {
                       setMatchingLettering(busy)
                       if (!busy) setLetteringSettled(source.id)
                     }}
-                    onUseFont={async (report, index, match, quiet) => {
+                    onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
+                    onUseFont={async (report, index, match, quiet, only, named) => {
+                      const line = report.lines[index]
+                      // Only some words (e.g. the bold word of a bold + light wordmark).
+                      const part = only ? { ...line, shapes: line.shapes.filter((_, k) => only.includes(k)) } : line
                       let placed: LineLettering
                       try {
-                        const { placeLine } = await import('./fonts/lettering')
-                        placed = await placeLine(report, report.lines[index], match)
+                        const { placeLine, MIN_OVERLAP_NAMED } = await import('./fonts/lettering')
+                        placed = await placeLine(report, part, match, named ? MIN_OVERLAP_NAMED : undefined)
                       } catch (err) {
                         if (!quiet) showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
                         return
@@ -546,7 +559,13 @@ export default function App() {
                         showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
                         return
                       }
-                      setLettering((l) => ({ ...l, [index]: placed }))
+                      setLettering((l) => {
+                        if (!only || !l[index]) return { ...l, [index]: placed }
+                        // Keep the line's other words as they were rebuilt; replace the chosen ones.
+                        const chosen = new Set(part.shapes.map((w) => w.text))
+                        const words = [...l[index].words.filter((w) => !chosen.has(w.text)), ...placed.words].sort((a, b) => a.box.x0 - b.box.x0)
+                        return { ...l, [index]: { font: [...new Set(words.map((w) => w.font))].join(' + '), words, skipped: placed.skipped } }
+                      })
                     }}
                     onClearFont={(index) => setLettering(({ [index]: _, ...rest }) => rest)}
                     sharpen={

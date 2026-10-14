@@ -303,9 +303,51 @@ function applyText(map: LabelMap, text: TextOptions, knockout: boolean): { map: 
         }
         replaced.push(covered >= size * 0.3)
       }
+    // Slivers of other colours on the traced letters' edges (anti-aliasing and compression mixed
+    // with nearby colours, e.g. a gradient): shapes lying mostly on or within 2 px of the letters
+    // (traced or placed) go too, or they would show as coloured lines along the clean outlines.
+    const letterish = new Uint8Array(bw * bh)
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = (y - y0) * bw + (x - x0)
+        if (!((comp[i] >= 0 && replaced[comp[i]]) || text.coverage[y * w + x] > 0)) continue
+        for (let dy = -2; dy <= 2; dy++)
+          for (let dx = -2; dx <= 2; dx++) {
+            const nx = x - x0 + dx, ny = y - y0 + dy
+            if (nx >= 0 && ny >= 0 && nx < bw && ny < bh) letterish[ny * bw + nx] = 1
+          }
+      }
+    const other = new Int32Array(bw * bh).fill(-1)
+    const sliver: boolean[] = []
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = (y - y0) * bw + (x - x0)
+        const l = map.labels[y * w + x]
+        if (other[i] >= 0 || comp[i] >= 0 || l === bg || l === ink || l >= 254) continue
+        const id = sliver.length
+        let size = 0, covered = 0
+        const stack = [i]
+        other[i] = id
+        while (stack.length) {
+          const j = stack.pop()!
+          const px = x0 + (j % bw), py = y0 + Math.floor(j / bw)
+          size++
+          if (letterish[j]) covered++
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = px + dx - x0, ny = py + dy - y0
+            if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue
+            const k = ny * bw + nx
+            if (other[k] < 0 && comp[k] < 0 && map.labels[(y0 + ny) * w + x0 + nx] === l) {
+              other[k] = id
+              stack.push(k)
+            }
+          }
+        }
+        sliver.push(covered >= size * 0.5)
+      }
     const traced = (x: number, y: number) => {
-      const c = comp[(y - y0) * bw + (x - x0)]
-      return c >= 0 && replaced[c]
+      const i = (y - y0) * bw + (x - x0)
+      return (comp[i] >= 0 && replaced[comp[i]]) || (other[i] >= 0 && sliver[other[i]])
     }
     for (let y = y0; y < y1; y++)
       for (let x = x0; x < x1; x++) {

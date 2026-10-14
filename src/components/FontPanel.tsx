@@ -3,7 +3,7 @@ import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candid
 import { loadIndex } from '../fonts/catalog'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
-import type { FontCandidate } from '../fonts/match'
+import type { FontCandidate, FontMatch } from '../fonts/match'
 import { identifyOnline, onlineAvailable, type OnlineFont } from '../fonts/online'
 import { bar, barFill, btnSmall, cx, field, fieldLabel, note, progress } from './ui'
 
@@ -17,13 +17,19 @@ interface Props {
   lettering: Record<number, LineLettering>
   /** Whether lettering can be rebuilt for this kind of artwork. */
   canRebuild: boolean
-  /** `quiet`: chosen automatically, so a font that doesn't line up is skipped silently. */
-  onUseFont: (report: FontReport, line: number, match: FontCandidate, quiet?: boolean) => Promise<void>
+  /**
+   * `quiet`: chosen automatically, so a font that doesn't line up is skipped silently. `words`:
+   * only these words of the line (indices), e.g. a bold word and a light word in one line.
+   * `named`: the client named this font, so a looser fit is accepted.
+   */
+  onUseFont: (report: FontReport, line: number, match: FontCandidate, quiet?: boolean, words?: number[], named?: boolean) => Promise<void>
   onClearFont: (line: number) => void
   /** Find the fonts and rebuild confident matches as soon as the artwork is traced. */
   auto: boolean
   /** Reports whether the automatic lettering match is running. */
   onAutoBusy?: (busy: boolean) => void
+  /** The automatic match found lettering but no font close enough to rebuild it: per such line, its text and closest match. */
+  onAutoUnmatched?: (lines: { line: number; text: string; closest: FontCandidate & { score: number } | null }[]) => void
   /** A line's best match is below the automatic threshold: worth trying, if it scores better. */
   onTryFont?: (report: FontReport, line: number, match: FontCandidate) => void
   /**
@@ -66,14 +72,14 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onTryFont, sharpen }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTryFont, sharpen }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
-  const useFont = async (report: FontReport, i: number, m: FontCandidate) => {
+  const useFont = async (report: FontReport, i: number, m: FontCandidate, words?: number[], named?: boolean) => {
     setPlacing(`${i}|${m.label}`)
     try {
-      await onUseFont(report, i, m)
+      await onUseFont(report, i, m, false, words, named)
     } finally {
       setPlacing(null)
     }
@@ -135,12 +141,18 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         setOnline({})
         setState({ kind: 'done', report, lines, withInstalled: includeInstalled })
       }
-      if (autoApply && canRebuild)
+      if (autoApply && canRebuild) {
+        const unmatched: { line: number; text: string; closest: FontMatch | null }[] = []
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
           if (best && best.score >= AUTO_MIN_SCORE) await onUseFont(report, i, best, true)
-          else if (best && best.score >= TRY_MIN_SCORE) onTryFont?.(report, i, best)
+          else {
+            unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
+            if (best && best.score >= TRY_MIN_SCORE) onTryFont?.(report, i, best)
+          }
         }
+        if (live()) onAutoUnmatched?.(unmatched)
+      }
     } catch (err) {
       if (!live() || autoApply) return
       const denied = err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
@@ -198,6 +210,9 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
                     </li>
                   ))}
                 </ol>
+                {canRebuild && (
+                  <NamedFont line={line} placing={placing} onUse={(m, words) => useFont(state.report, i, m, words, true)} />
+                )}
                 {canOnline && (
                   <OnlineResults
                     line={line}
@@ -345,5 +360,99 @@ function OnlineResults({
         . Open a font to preview it or see where to buy it.
       </small>
     </div>
+  )
+}
+
+const WEIGHTS: [number, string][] = [
+  [100, 'Thin'],
+  [200, 'ExtraLight'],
+  [300, 'Light'],
+  [400, 'Regular'],
+  [500, 'Medium'],
+  [600, 'SemiBold'],
+  [700, 'Bold'],
+  [800, 'ExtraBold'],
+  [900, 'Black'],
+]
+
+/** Free font family names (and their Fontsource ids) from the catalog, for suggestions. */
+function useFamilies(): Map<string, string> {
+  const [families, setFamilies] = useState(new Map<string, string>())
+  useEffect(() => {
+    let live = true
+    loadIndex('')
+      .then(({ meta }) => live && setFamilies(new Map(meta.fonts.map(([id, family]) => [family.toLowerCase(), id]))))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+  return families
+}
+
+/**
+ * The client names the font (the brand font is often known): any free family at any weight,
+ * for the whole line or one word, so a bold word and a light word can each get their weight.
+ * The real letter outlines then replace the traced letters, placed as for a matched font.
+ */
+function NamedFont({ line, placing, onUse }: { line: TextLine; placing: string | null; onUse: (m: FontCandidate, words?: number[]) => void }) {
+  const families = useFamilies()
+  const [family, setFamily] = useState('')
+  const [weight, setWeight] = useState(400)
+  const [word, setWord] = useState(-1)
+  const words = line.shapes.map((s) => s.text)
+  const listId = `families-${line.box.x0}-${line.box.y0}`
+  const name = family.trim()
+  const id = families.get(name.toLowerCase()) ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const label = `${name} ${WEIGHTS.find(([w]) => w === weight)![1]}`
+  const busy = placing !== null
+  return (
+    <details className="grid gap-1.5">
+      <summary className="cursor-pointer text-xs font-semibold text-accent">Use a font you know</summary>
+      <div className="mt-1.5 grid gap-1.5">
+        <input
+          className="min-w-0 rounded-lg border border-line bg-transparent px-2 py-1 text-sm"
+          list={listId}
+          placeholder="Font name, e.g. Montserrat"
+          value={family}
+          onChange={(e) => setFamily(e.target.value)}
+          aria-label="Font name"
+        />
+        <datalist id={listId}>
+          {name.length >= 2 &&
+            [...families.keys()]
+              .filter((f) => f.startsWith(name.toLowerCase()))
+              .slice(0, 20)
+              .map((f) => <option key={f} value={f.replace(/\b\w/g, (c) => c.toUpperCase())} />)}
+        </datalist>
+        <div className="flex flex-wrap gap-1.5">
+          <select className="rounded-lg border border-line bg-transparent px-2 py-1 text-sm" value={weight} onChange={(e) => setWeight(Number(e.target.value))} aria-label="Weight">
+            {WEIGHTS.map(([w, n]) => (
+              <option key={w} value={w}>
+                {n}
+              </option>
+            ))}
+          </select>
+          {words.length > 1 && (
+            <select className="min-w-0 rounded-lg border border-line bg-transparent px-2 py-1 text-sm" value={word} onChange={(e) => setWord(Number(e.target.value))} aria-label="Which words">
+              <option value={-1}>All words</option>
+              {words.map((w, k) => (
+                <option key={k} value={k}>
+                  Only “{w}”
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            className={btnSmall}
+            disabled={!id || busy}
+            onClick={() => onUse({ family: `named-${id}-${weight}`, label, ref: id, weight, style: 'normal', source: 'google' }, word >= 0 ? [word] : undefined)}
+          >
+            {placing?.endsWith(`|${label}`) ? 'Rebuilding…' : 'Rebuild with this font'}
+          </button>
+        </div>
+        <small>Any free Google font, at any weight. For a commercial font you own, use “Include my installed fonts”.</small>
+      </div>
+    </details>
   )
 }

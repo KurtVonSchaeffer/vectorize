@@ -34,6 +34,11 @@ export interface LineLettering {
 const MAX_FIT_ERROR = 0.12
 /** And the placed letters must overlap the artwork's letters at least this much. */
 const MIN_OVERLAP = 0.6
+/**
+ * For a font the client named themselves. Thin lettering loses overlap to sub-pixel offsets and
+ * soft edges: a light wordmark measured 0.51 with its likely font, and 0.38 one weight too thin.
+ */
+export const MIN_OVERLAP_NAMED = 0.45
 
 /** Letter outlines from a font: bounds in font units (y up), and the path at a position and size. */
 interface GlyphSource {
@@ -176,7 +181,7 @@ function mapPoints(d: string, f: (x: number, y: number) => [number, number]): st
   })
 }
 
-export async function placeLine(report: FontReport, line: TextLine, match: FontCandidate): Promise<LineLettering> {
+export async function placeLine(report: FontReport, line: TextLine, match: FontCandidate, minOverlap = MIN_OVERLAP): Promise<LineLettering> {
   const font = await loadFont(match)
   const img = report.canvas.getContext('2d')!.getImageData(0, 0, report.canvas.width, report.canvas.height)
   const words: PlacedWord[] = []
@@ -184,7 +189,7 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
   for (const w of line.shapes) {
     // Placing traces letters on the main thread; let the page respond between words.
     await yieldToPage()
-    const placed = w.complete ? placeWord(font, w.glyphs, w.box, img) : null
+    const placed = w.complete ? placeWord(font, w.glyphs, w.box, img, minOverlap) : null
     if (!placed) {
       skipped++
       continue
@@ -205,7 +210,7 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
  * Fits one size and baseline for the word (least squares over every letter's top, bottom and
  * width), then puts each letter at its own traced position, so spacing matches the artwork.
  */
-function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], wordBox: Box, img: ImageData): { letters: { char: string; d: string }[]; box: Box } | null {
+function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], wordBox: Box, img: ImageData, minOverlap: number): { letters: { char: string; d: string }[]; box: Box } | null {
   const found = glyphs.map((g) => ({ g, glyph: font.glyph(g.char) }))
   if (found.some((o) => !o.glyph)) return null
   const outlines = found.map(({ g, glyph }) => ({ g, glyph: glyph!, bb: glyph!.bbox }))
@@ -248,7 +253,7 @@ function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], word
     x1: Math.max(...outlines.map((o) => o.g.box.x1)),
     y1: Math.max(...outlines.map((o) => o.g.box.y1)),
   }
-  if (overlap(letters.map((l) => l.d), wordBox, img) < MIN_OVERLAP) return null
+  if (overlap(letters.map((l) => l.d), wordBox, img) < minOverlap) return null
   return { letters, box }
 }
 
