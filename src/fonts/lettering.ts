@@ -5,6 +5,7 @@ import type { FontReport, TextLine } from './identify'
 import { inkMask, type FontCandidate } from './match'
 import type { Box } from './ocr'
 import { scalePath } from './path'
+import { yieldToPage } from './yield'
 
 /**
  * Rebuilding lettering from a font: the traced letters of a word are replaced by the real letter
@@ -181,6 +182,8 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
   const words: PlacedWord[] = []
   let skipped = 0
   for (const w of line.shapes) {
+    // Placing traces letters on the main thread; let the page respond between words.
+    await yieldToPage()
     const placed = w.complete ? placeWord(font, w.glyphs, w.box, img) : null
     if (!placed) {
       skipped++

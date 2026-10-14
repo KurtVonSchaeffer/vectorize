@@ -512,12 +512,14 @@ function separateRegions(src: ImageData, bins: number[], assign: Int32Array, cen
   const k = centers.length
   // Only pairs close enough to be merged at all need judging; usually there are none.
   const de = new Float64Array(k * k)
+  const candidate = new Uint8Array(k * k)
   let candidates = false
   for (let a = 0; a < k; a++)
     for (let b = a + 1; b < k; b++) {
       de[a * k + b] = deltaE2000(centers[a], centers[b])
-      if (de[a * k + b] >= DISTINCT_DE && de[a * k + b] < mergeDelta) candidates = true
+      if (de[a * k + b] >= DISTINCT_DE && de[a * k + b] < mergeDelta) candidate[a * k + b] = 1
     }
+  for (let i = 0; i < k * k; i++) if (candidate[i]) candidates = true
   if (!candidates) return () => false
   const point = new Int32Array(BINS).fill(-1)
   bins.forEach((b, i) => (point[b] = i))
@@ -544,6 +546,7 @@ function separateRegions(src: ImageData, bins: number[], assign: Int32Array, cen
     const b = cluster[q]
     if (a < 0 || b < 0 || a === b) return
     const lo = Math.min(a, b) * k + Math.max(a, b)
+    if (!candidate[lo]) return
     contact[lo]++
     step[lo] += Math.hypot(d[p * 4] - d[q * 4], d[p * 4 + 1] - d[q * 4 + 1], d[p * 4 + 2] - d[q * 4 + 2])
   }
@@ -613,7 +616,19 @@ function majorityFilter(src: Uint8Array, w: number, h: number): Uint8Array {
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const p = y * w + x
-      if (src[p] === EMPTY) continue
+      const own0 = src[p]
+      if (own0 === EMPTY) continue
+      // Only a pixel with at most one same-label neighbour can change: stop at the second match.
+      let same = 0
+      if (src[p - w - 1] === own0) same++
+      if (src[p - w] === own0) same++
+      if (same < 2 && src[p - w + 1] === own0) same++
+      if (same < 2 && src[p - 1] === own0) same++
+      if (same < 2 && src[p + 1] === own0) same++
+      if (same < 2 && src[p + w - 1] === own0) same++
+      if (same < 2 && src[p + w] === own0) same++
+      if (same < 2 && src[p + w + 1] === own0) same++
+      if (same >= 2) continue
       seen.length = 0
       for (let dy = -1; dy <= 1; dy++)
         for (let dx = -1; dx <= 1; dx++) {

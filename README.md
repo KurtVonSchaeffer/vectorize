@@ -92,6 +92,12 @@ VTracer's own color clustering turns every anti-aliased edge into extra shapes (
 - `/bench/conditions.html`: 20 kinds of input, run through the app's own functions, with every download validated.
 - `/bench/index.html`: quality benchmark (below).
 - `/bench/diagnose.html`: where detail is lost, stage by stage (input, colour map, vector) for small text, thin lines, dots, corners, similar colours, gradients, transparency and low resolution. See [docs/v6-diagnosis.md](docs/v6-diagnosis.md) and [docs/v6-results.md](docs/v6-results.md).
+- `/bench/real.html`: real-logo acceptance test (`docs/real-logo-acceptance.md`). Drop logos named `category__name` plus their originals (`.svg` or `.truth.png`); each goes through the app's first result and background improver, its downloads are checked, and it's scored against the acceptance criteria, with JSON/CSV export and a saved baseline. Files stay in the browser.
+- `/bench/parity.html`: checks that the simulation used by `/bench/real.html` matches the app. Each synthetic case runs in the real app (in an embedded frame) and in the simulation; first SVGs and improver offers should be identical.
+- `/bench/assess.html`: V7 assessment experiments (`?exp=proxy|typo|lowres|colour|complexity`). See [docs/v7-assessment.md](docs/v7-assessment.md).
+- `PROFILE=1 npx vitest run bench/profile.test.ts`: CPU profile of the flat-colour pipeline.
+- `IDENTITY=save|check npx vitest run bench/identity.test.ts`: byte-identical output check for performance work.
+- `/bench/assess.html?exp=improver`: validates the background improver against ground truth. See [docs/v7-results.md](docs/v7-results.md).
 
 ### Online font search (WhatFontIs)
 
