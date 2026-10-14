@@ -207,6 +207,8 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
 
   for (let layer = 0; layer < order.length; layer++) {
     const inLayer = (r: number) => (knockout ? r === layer : r >= layer)
+    // The layer's bounds, so smoothing skips the area it doesn't cover.
+    let bx0 = w, by0 = h, bx1 = -1, by1 = -1
     for (let p = 0; p < n; p++) {
       const r1 = rank[labels[p]]
       const r2 = second[p] < NO_SHAPE ? rank[second[p]] : -1
@@ -214,8 +216,16 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
       if (inLayer(r1)) m += cov[p]
       if (inLayer(r2)) m += 1 - cov[p]
       field[p] = m
+      if (m !== 0) {
+        const x = p % w
+        const y = (p / w) | 0
+        if (x < bx0) bx0 = x
+        if (x > bx1) bx1 = x
+        if (y < by0) by0 = y
+        if (y > by1) by1 = y
+      }
     }
-    const smooth = keepThin(blur(field, w, h, opts.smoothing), w, h, level, opts.smoothing)
+    const smooth = keepThin(blur(field, w, h, opts.smoothing, [bx0, by0, bx1, by1]), w, h, level, opts.smoothing)
     const all = contours(smooth, w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
     const isOwn = (p: number) => labels[p] < 254 && inLayer(rank[labels[p]])
     const loops = all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
@@ -429,7 +439,14 @@ function toPath(curves: Cubic[], fmt: (v: number) => number): string {
  */
 function realDetail(loop: Point[], all: Point[][], w: number, h: number, isOwn: (p: number) => boolean): boolean {
   let depth = 0
-  for (const other of all) if (other !== loop && insideLoop(loop[0], other)) depth++
+  const [px, py] = loop[0]
+  for (const other of all) {
+    if (other === loop) continue
+    // A point outside a loop's bounds can't be inside it; skip the full test.
+    const [ox0, oy0, ox1, oy1] = bounds(other)
+    if (px < ox0 || px > ox1 || py < oy0 || py > oy1) continue
+    if (insideLoop(loop[0], other)) depth++
+  }
   const hole = depth % 2 === 1
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
   for (const [x, y] of loop) {
@@ -443,6 +460,23 @@ function realDetail(loop: Point[], all: Point[][], w: number, h: number, isOwn: 
     for (let x = Math.max(0, Math.ceil(x0 - 0.5)); x <= Math.min(w - 1, Math.floor(x1 - 0.5)); x++)
       if (insideLoop([x + 0.5, y + 0.5], loop) && isOwn(y * w + x) !== hole) return true
   return false
+}
+
+const boundsCache = new WeakMap<Point[], [number, number, number, number]>()
+/** A loop's bounding box [x0, y0, x1, y1], computed once. */
+function bounds(loop: Point[]): [number, number, number, number] {
+  let b = boundsCache.get(loop)
+  if (!b) {
+    b = [Infinity, Infinity, -Infinity, -Infinity]
+    for (const [x, y] of loop) {
+      if (x < b[0]) b[0] = x
+      if (y < b[1]) b[1] = y
+      if (x > b[2]) b[2] = x
+      if (y > b[3]) b[3] = y
+    }
+    boundsCache.set(loop, b)
+  }
+  return b
 }
 
 /** Even-odd point-in-polygon test. */
@@ -512,27 +546,36 @@ const WIDTH_LEVEL = (() => {
 })()
 const widthLevel = (P: number) => WIDTH_LEVEL[Math.round(Math.min(1, Math.max(0, P)) * 1000)]
 
-/** Separable Gaussian blur; edges clamp. sigma ≤ 0 returns the input. */
-export function blur(src: Float32Array, w: number, h: number, sigma: number): Float32Array {
+/**
+ * Separable Gaussian blur; edges clamp. sigma ≤ 0 returns the input. `box` ([x0, y0, x1, y1],
+ * inclusive) bounds the non-zero part of `src`: everything farther than the blur radius from it
+ * stays 0, so only that area is computed (same values, in the same order, as without it).
+ */
+export function blur(src: Float32Array, w: number, h: number, sigma: number, box: [number, number, number, number] = [0, 0, w - 1, h - 1]): Float32Array {
   if (sigma <= 0) return src
   const r = Math.max(1, Math.ceil(sigma * 2.5))
   const k = new Float32Array(2 * r + 1)
   let sum = 0
   for (let i = -r; i <= r; i++) sum += k[i + r] = Math.exp(-(i * i) / (2 * sigma * sigma))
   for (let i = 0; i < k.length; i++) k[i] /= sum
+  const out = new Float32Array(w * h)
+  const [bx0, by0, bx1, by1] = box
+  if (bx1 < bx0 || by1 < by0) return out
+  const x0 = Math.max(0, bx0 - r), x1 = Math.min(w - 1, bx1 + r)
+  const y0 = Math.max(0, by0 - r), y1 = Math.min(h - 1, by1 + r)
 
+  // Rows outside the box are all 0 and blur to 0, so the horizontal pass only needs box rows.
   const tmp = new Float32Array(w * h)
-  for (let y = 0; y < h; y++) {
+  for (let y = by0; y <= by1; y++) {
     const row = y * w
-    for (let x = 0; x < w; x++) {
+    for (let x = x0; x <= x1; x++) {
       let s = 0
       for (let i = -r; i <= r; i++) s += src[row + Math.min(w - 1, Math.max(0, x + i))] * k[i + r]
       tmp[row + x] = s
     }
   }
-  const out = new Float32Array(w * h)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
       let s = 0
       for (let i = -r; i <= r; i++) s += tmp[Math.min(h - 1, Math.max(0, y + i)) * w + x] * k[i + r]
       out[y * w + x] = s

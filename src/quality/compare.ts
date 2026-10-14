@@ -335,3 +335,21 @@ export function colourFidelity(reference: ArrayLike<number>, candidate: ArrayLik
     merged,
   }
 }
+
+/**
+ * Detail missing and added, as shares (0–1) of the reference's ink: pixels unlike its most
+ * common exact colour (the background). Uses the regions a comparison found (see
+ * compareRasters), so edge shifts within its tolerance don't count. On JPEG references the
+ * background isn't one exact colour, so the ink count is inflated and the shares come out
+ * lower; compare shares for the same reference only.
+ */
+export function inkChange(reference: ArrayLike<number>, r: RasterComparison): { missing: number; extra: number } {
+  const counts = new Map<number, number>()
+  const key = (i: number) => (reference[i + 3] < 128 ? -1 : (reference[i] << 16) | (reference[i + 1] << 8) | reference[i + 2])
+  for (let i = 0; i < reference.length; i += 4) counts.set(key(i), (counts.get(key(i)) ?? 0) + 1)
+  let most = 0
+  for (const n of counts.values()) if (n > most) most = n
+  const ink = Math.max(1, reference.length / 4 - most)
+  const area = (rs: Region[]) => rs.reduce((s, x) => s + x.area, 0)
+  return { missing: area(r.missingDetails) / ink, extra: area(r.artefacts) / ink }
+}

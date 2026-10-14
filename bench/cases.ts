@@ -1,6 +1,6 @@
 // Ground-truth diagnostic cases shared by the diagnose and assess pages: each isolates one kind of
 // detail and is drawn from an exact SVG, so outputs can be measured against the original.
-import type { ColourFidelity, RasterComparison } from '../src/quality/compare'
+import { inkChange, type ColourFidelity, type RasterComparison } from '../src/quality/compare'
 import { rasterizeSvg } from '../src/quality/render'
 import { ARTWORK } from './artwork'
 
@@ -116,20 +116,8 @@ export const pct = (v: number) => +(v * 100).toFixed(2)
 
 /** Share of the truth's "ink" (pixels unlike its most common colour) lost or added. */
 export function inkShare(truth: ImageData, r: RasterComparison) {
-  const d = truth.data
-  const counts = new Map<number, number>()
-  for (let i = 0; i < d.length; i += 4) {
-    const k = d[i + 3] < 128 ? -1 : (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]
-    counts.set(k, (counts.get(k) ?? 0) + 1)
-  }
-  const bg = [...counts].sort((a, b) => b[1] - a[1])[0][0]
-  let ink = 0
-  for (let i = 0; i < d.length; i += 4) {
-    const k = d[i + 3] < 128 ? -1 : (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]
-    if (k !== bg) ink++
-  }
-  const area = (rs: { area: number }[]) => rs.reduce((s, x) => s + x.area, 0)
-  return { missingInk: pct(area(r.missingDetails) / Math.max(1, ink)), extraInk: pct(area(r.artefacts) / Math.max(1, ink)) }
+  const { missing, extra } = inkChange(truth.data, r)
+  return { missingInk: pct(missing), extraInk: pct(extra) }
 }
 
 export const summary = (r: RasterComparison, truth: ImageData) => ({
