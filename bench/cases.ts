@@ -136,3 +136,36 @@ export async function input(c: Case, jpeg: number | null): Promise<Blob> {
   return cv.convertToBlob(jpeg !== null ? { type: 'image/jpeg', quality: jpeg } : { type: 'image/png' })
 }
 
+/** Extra cases for the improver (bench/assess.html?exp=improver) and the app parity check. */
+export const VALIDATION: Case[] = [
+  { group: 'validation', name: 'jpeg saved as png', svg: CASES.find((c) => c.name === 'badge 200px wide')!.svg, w: 200, h: 133 },
+  {
+    group: 'validation',
+    name: 'small transparent logo with text',
+    svg: svg(180, 120, `<circle cx="50" cy="60" r="36" fill="#0b7285"/><path d="M38 60l9 9 17-19" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><text x="96" y="66" font-family="Arial" font-weight="700" font-size="17" fill="#0b7285">Check</text>`, null),
+    w: 180,
+    h: 120,
+    pngOnly: true,
+  },
+  {
+    group: 'validation',
+    name: 'small gradient logo',
+    svg: svg(220, 110, `<defs><linearGradient id="v" x1="0" x2="1"><stop offset="0" stop-color="#7048e8"/><stop offset="1" stop-color="#e64980"/></linearGradient></defs><rect x="10" y="20" width="70" height="70" rx="16" fill="url(#v)"/><text x="92" y="64" font-family="Arial" font-weight="700" font-size="20" fill="#343a40">Prism</text>`),
+    w: 220,
+    h: 110,
+  },
+  {
+    group: 'validation',
+    name: 'thin-line icon',
+    svg: svg(96, 96, `<g fill="none" stroke="#212529" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="26" width="60" height="44" rx="6"/><path d="M18 36h60M30 52h16M30 60h24"/><circle cx="66" cy="56" r="6"/></g>`),
+    w: 96,
+    h: 96,
+  },
+  {
+    group: 'validation',
+    name: 'wordmark with tiny tagline',
+    svg: svg(360, 120, `<text x="20" y="62" font-family="Georgia" font-size="40" fill="#1f2a5c">Harbour</text><text x="22" y="90" font-family="Arial" font-size="10" letter-spacing="1" fill="#495057">COFFEE · ROASTERS · EST 1998</text>`),
+    w: 360,
+    h: 120,
+  },
+]

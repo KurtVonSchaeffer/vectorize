@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorize app parity check</title>
+    <style>body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111} table{border-collapse:collapse;margin-top:12px} th,td{padding:4px 10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top} .up{color:#1d8a4b} .down{color:#c0362c} iframe{width:1200px;height:800px;border:1px solid #ddd;margin-top:12px}</style>
+  </head>
+  <body>
+    <h1>App parity check</h1>
+    <p>Each synthetic case runs in the real app (below) and in the simulation the acceptance test uses (<code>bench/improver-sim.ts</code>). The first SVG and the improver's offer should be identical.</p>
+    <p id="status">Starting…</p>
+    <table>
+      <thead><tr><th>file</th><th>first SVG</th><th>app offer</th><th>simulation offer</th><th>offer</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <iframe id="app" title="App"></iframe>
+    <script type="module" src="./parity.ts"></script>
+  </body>
+</html>

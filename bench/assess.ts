@@ -12,14 +12,15 @@ import { findText, matchFonts } from '../src/fonts/identify'
 import { placeLine, type PlacedWord } from '../src/fonts/lettering'
 import { deltaE2000, hexToRgb, rgbToLab } from '../src/palette/color'
 import { colourFidelity, compareRasters } from '../src/quality/compare'
-import { rasterizeSvg, scoreAgainstUpload } from '../src/quality/render'
+import { rasterizeSvg } from '../src/quality/render'
 import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor, type ClientSettings } from '../src/vectorize/client'
 import { detectArt, type Detection } from '../src/vectorize/detect'
 import { bitmapToImageData, loadImage, type InputImage, type SourceImage } from '../src/vectorize/image'
-import { alternatives, compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored } from '../src/vectorize/improve'
-import { buildTraceJob, runTraceJob, type TraceResult } from '../src/vectorize/pipeline'
+import { compressionRipple, COMPRESSED_RIPPLE, isLossy, type Scored } from '../src/vectorize/improve'
+import { buildTraceJob, runTraceJob } from '../src/vectorize/pipeline'
 import { Tracer } from '../src/vectorize/tracer'
-import { CASES, fidelity, input, inkShare, summary, svg, type Case } from './cases'
+import { CASES, fidelity, input, inkShare, summary, svg, VALIDATION, type Case } from './cases'
+import { simulateImprover } from './improver-sim'
 
 const q = new URLSearchParams(location.search)
 const exp = q.get('exp') ?? 'proxy'
@@ -339,40 +340,6 @@ function spearman(a: number[], b: number[]): number {
 
 status.textContent = `Running ${exp}…`
 // ---------- improver: validate the background improvement rules ----------
-/** Cases beyond the diagnostic set, for validating the improver on unseen artwork. */
-const VALIDATION: Case[] = [
-  { group: 'validation', name: 'jpeg saved as png', svg: CASES.find((c) => c.name === 'badge 200px wide')!.svg, w: 200, h: 133 },
-  {
-    group: 'validation',
-    name: 'small transparent logo with text',
-    svg: svg(180, 120, `<circle cx="50" cy="60" r="36" fill="#0b7285"/><path d="M38 60l9 9 17-19" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><text x="96" y="66" font-family="Arial" font-weight="700" font-size="17" fill="#0b7285">Check</text>`, null),
-    w: 180,
-    h: 120,
-    pngOnly: true,
-  },
-  {
-    group: 'validation',
-    name: 'small gradient logo',
-    svg: svg(220, 110, `<defs><linearGradient id="v" x1="0" x2="1"><stop offset="0" stop-color="#7048e8"/><stop offset="1" stop-color="#e64980"/></linearGradient></defs><rect x="10" y="20" width="70" height="70" rx="16" fill="url(#v)"/><text x="92" y="64" font-family="Arial" font-weight="700" font-size="20" fill="#343a40">Prism</text>`),
-    w: 220,
-    h: 110,
-  },
-  {
-    group: 'validation',
-    name: 'thin-line icon',
-    svg: svg(96, 96, `<g fill="none" stroke="#212529" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="26" width="60" height="44" rx="6"/><path d="M18 36h60M30 52h16M30 60h24"/><circle cx="66" cy="56" r="6"/></g>`),
-    w: 96,
-    h: 96,
-  },
-  {
-    group: 'validation',
-    name: 'wordmark with tiny tagline',
-    svg: svg(360, 120, `<text x="20" y="62" font-family="Georgia" font-size="40" fill="#1f2a5c">Harbour</text><text x="22" y="90" font-family="Arial" font-size="10" letter-spacing="1" fill="#495057">COFFEE · ROASTERS · EST 1998</text>`),
-    w: 360,
-    h: 120,
-  },
-]
-
 interface Option {
   label: string
   proxy: Scored
@@ -382,10 +349,6 @@ interface Option {
 
 async function improverExperiment() {
   const enhancer = new Enhancer()
-  const scoredOf = async (source: SourceImage, res: TraceResult): Promise<Scored> => {
-    const { score, edgeF1 } = await scoreAgainstUpload(source.bitmap, res.svg)
-    return { score, edgeF1, segments: (res.svg.match(/[CLQ]/g) ?? []).length, colours: res.palette?.length ?? 0 }
-  }
   for (const c of [...CASES, ...VALIDATION]) {
     if (only && !only.includes(c.group)) continue
     for (const jpeg of FORMATS) {
@@ -400,72 +363,18 @@ async function improverExperiment() {
         blob = await cv.convertToBlob({ type: 'image/png' })
       }
       const source = await loadImage(blob, name)
-      const det = detectArt(bitmapToImageData(source.bitmap))
-      const client = { ...DEFAULT_CLIENT, purpose: 'web' as const }
-      const job = (o: { detail?: number; image?: InputImage; lettering?: PlacedWord[] }) =>
-        buildTraceJob(o.image ?? source, source.width, {
-          trace: traceParamsFor(det.kind, { ...client, detail: o.detail ?? client.detail }, detailBoost(det, source.width, source.height)),
-          prep: prepFor(det.kind, client),
-          spot: null,
-          removeColors: [],
-          transparent: det.hasAlpha,
-          knockout: false,
-          exactShapes: true,
-          gradients: true,
-          lettering: o.lettering,
-        })
-      const traceOf = (j: ReturnType<typeof job>) => runTraceJob({ vtracer: tracer, flat: null }, j, source, false)
-      if (det.kind !== 'flat' && det.kind !== 'lineart') continue
-      // The first result, as the app shows it: lettering rebuilt automatically at a match of 0.8+.
-      let lettering: PlacedWord[] = []
-      const tryLines: { font: string; words: PlacedWord[] }[] = []
-      const plain = await traceOf(job({}))
-      if (det.kind === 'flat') {
-        try {
-          // As the app: small lettering is read from the AI-sharpened copy, rebuilt automatically
-          // at a match of 0.85+, and only offered (quality-checked) from 0.5.
-          let sharp: ImageBitmap | null = null
-          if (worthSharpening(det, source.width, source.height)) {
-            const up = await enhancer.upscale(`${name}|${jpeg}`, bitmapToImageData(source.bitmap), '2x').catch(() => null)
-            if (up) sharp = await createImageBitmap(up)
-          }
-          const report = await findText(sharp ?? source.bitmap, plain.palette?.map((p) => p.color) ?? [])
-          if (sharp) report.scale *= sharp.width / source.width
-          for (const line of await matchFonts(report, [])) {
-            const m = line.matches[0]
-            if (!m || m.score < 0.5) continue
-            const placed = await placeLine(report, line, m)
-            if (!placed.words.length) continue
-            if (m.score >= 0.85) lettering = [...lettering, ...placed.words]
-            else tryLines.push({ font: m.label, words: placed.words })
-          }
-        } catch {
-          // No text found: nothing to rebuild.
-        }
-      }
-      const t0 = performance.now()
-      const first = lettering.length ? await traceOf(job({ lettering })) : plain
-      const firstScore = await scoredOf(source, first)
-      const firstTruth = await truthScore(c, first.svg)
+      const sim = await simulateImprover(source, enhancer, tracer)
+      if (!sim) continue
+      const firstTruth = await truthScore(c, sim.first.svg)
       const compressed = isLossy(name) || compressionRipple(bitmapToImageData(source.bitmap)) >= COMPRESSED_RIPPLE
       const options: Option[] = []
-      const consider = async (label: string, res: TraceResult | null) => {
-        if (!res?.paths) return
-        const proxy = await scoredOf(source, res)
-        const t = await truthScore(c, res.svg)
-        options.push({ label, proxy, truth: { miss: t.miss, extra: t.extra }, ok: isImprovement(firstScore, proxy) })
+      for (const o of sim.options) {
+        const t = await truthScore(c, o.svg)
+        options.push({ label: o.label, proxy: o.proxy, truth: { miss: t.miss, extra: t.extra }, ok: o.ok })
       }
-      for (const alt of alternatives(det, source.width, source.height, client.detail)) {
-        if (alt.kind === 'detail') await consider(alt.label, await traceOf(job({ detail: alt.detail, lettering })))
-        else {
-          const up = await enhancer.upscale(`${name}|${jpeg}`, bitmapToImageData(source.bitmap), '2x').catch(() => null)
-          if (up) await consider('AI sharpening', await traceOf(job({ image: { url: '', width: up.width, height: up.height, bitmap: await createImageBitmap(up) }, lettering })))
-        }
-      }
-      for (const l of tryLines) await consider(`lettering: ${l.font}`, await traceOf(job({ lettering: [...lettering, ...l.words] })))
-      const ms = Math.round(performance.now() - t0)
-      const offered = options.filter((o) => o.ok).sort((a, b) => a.proxy.score - b.proxy.score)[0] ?? null
-      rows.push({ exp: 'improver', group: c.group, name: c.name, format: fmt(jpeg), compressed, first: { proxy: firstScore, truth: { miss: firstTruth.miss, extra: firstTruth.extra } }, options, offered: offered?.label ?? null, ms })
+      const ms = sim.ms
+      const offered = options.find((o) => o.label === sim.offered?.label) ?? null
+      rows.push({ exp: 'improver', group: c.group, name: c.name, format: fmt(jpeg), compressed, first: { proxy: sim.first.proxy, truth: { miss: firstTruth.miss, extra: firstTruth.extra } }, options, offered: offered?.label ?? null, ms })
       const t = (x: { miss: number; extra: number }) => (x.miss + x.extra).toFixed(2)
       show([c.name, fmt(jpeg), compressed ? 'compressed' : '', `first ${t(firstTruth)}`, offered ? `offers ${offered.label}: ${t(offered.truth)}` : 'no offer', options.map((o) => `${o.label} ${o.proxy.score.toFixed(2)}→${t(o.truth)}${o.ok ? '✓' : ''}`).join('; '), `${ms} ms`])
     }
