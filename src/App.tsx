@@ -15,6 +15,7 @@ import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
+import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
@@ -253,6 +254,22 @@ export default function App() {
   )
 
   const flatKind = kind === 'flat' || kind === 'lineart' || inks.enabled
+
+  // Whether the result flattened visible shading (e.g. gradients the tracer couldn't keep), so the
+  // summary doesn't call it ready for print. Line art is left out: it becomes solid ink on purpose.
+  const [shadingLost, setShadingLost] = useState<{ svg: string; lost: boolean } | null>(null)
+  useEffect(() => {
+    const svg = result?.svg
+    if (!svg || !source || kind !== 'flat') return
+    let live = true
+    shadingLossOf(source.bitmap, svg)
+      .then((s) => live && setShadingLost({ svg, lost: lostShading(s) }))
+      .catch(() => live && setShadingLost({ svg, lost: false }))
+    return () => {
+      live = false
+    }
+  }, [result?.svg, source, kind])
+  const flattened = kind === 'flat' && !!result && shadingLost?.svg === result.svg && shadingLost.lost
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
   const downloads = useMemo(() => {
@@ -305,7 +322,9 @@ export default function App() {
   const colorCount = chips?.length ?? null
   const summary = status === 'working' && !result
     ? 'Finding colors and tracing edges…'
-    : `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}, clean edges` : `${(result?.paths ?? 0).toLocaleString()} shapes`}, ready for ${{ print: 'print', web: 'the web', cut: 'cutting' }[client.purpose]}.`
+    : flattened
+      ? `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}` : `${(result?.paths ?? 0).toLocaleString()} shapes`}. Some shading in your image became flat color, so zoom in and check it before you ${{ print: 'print', web: 'publish', cut: 'cut' }[client.purpose]} it.`
+      : `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}, clean edges` : `${(result?.paths ?? 0).toLocaleString()} shapes`}, ready for ${{ print: 'print', web: 'the web', cut: 'cutting' }[client.purpose]}.`
   const headline = {
     flat: 'Your artwork is now a sharp vector',
     photo: 'Your image is now a vector',
