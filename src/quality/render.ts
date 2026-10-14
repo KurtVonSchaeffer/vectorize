@@ -1,4 +1,4 @@
-import { compareRasters, type CompareOptions, type RasterComparison } from './compare'
+import { compareRasters, inkChange, type CompareOptions, type RasterComparison } from './compare'
 
 /** Renders an SVG to ImageData at the given size (browser only). Undrawn areas stay transparent. */
 export async function rasterizeSvg(svg: string, width: number, height: number): Promise<ImageData> {
@@ -20,4 +20,24 @@ export async function rasterizeSvg(svg: string, width: number, height: number): 
 export async function compareSvg(svg: string, reference: ImageData, options?: CompareOptions): Promise<RasterComparison> {
   const candidate = await rasterizeSvg(svg, reference.width, reference.height)
   return compareRasters(reference.data, candidate.data, reference.width, reference.height, options)
+}
+
+/**
+ * How far an SVG is from the uploaded image, without any ground truth. `score` is detail missing
+ * plus detail added, in percent of the upload's ink, edges within 1 px forgiven (lower is
+ * better); `edgeF1` is edge agreement (higher is better). Large uploads are compared at most
+ * `maxSide` px on their longest side.
+ */
+export async function scoreAgainstUpload(upload: ImageBitmap, svg: string, maxSide = 1000): Promise<{ score: number; edgeF1: number }> {
+  const k = Math.min(1, maxSide / Math.max(upload.width, upload.height))
+  const w = Math.max(1, Math.round(upload.width * k))
+  const h = Math.max(1, Math.round(upload.height * k))
+  const c = new OffscreenCanvas(w, h)
+  const g = c.getContext('2d', { willReadFrequently: true })!
+  g.drawImage(upload, 0, 0, w, h)
+  const reference = g.getImageData(0, 0, w, h)
+  const candidate = await rasterizeSvg(svg, w, h)
+  const r = compareRasters(reference.data, candidate.data, w, h, { tolerance: 1 })
+  const { missing, extra } = inkChange(reference.data, r)
+  return { score: (missing + extra) * 100, edgeF1: r.edgeF1 }
 }

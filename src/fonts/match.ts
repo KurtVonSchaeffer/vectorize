@@ -1,4 +1,5 @@
 import type { Box, OcrWord } from './ocr'
+import { yieldToPage } from './yield'
 
 /** Head start for fonts that ship with computers (or are installed), in score points (0–1). */
 const COMMON_FONT_PRIOR = 0.01
@@ -256,19 +257,30 @@ export function scoreFont(font: FontCandidate, all: WordShapes[]): number {
  */
 export async function rankFonts(words: WordShapes[], candidates: FontCandidate[], onProgress?: (done: number, total: number) => void): Promise<FontMatch[]> {
   const quick = words.map((w) => ({ ...w, glyphs: w.glyphs.filter((g) => isAlnum(g.char)).sort((a, b) => b.rel - a.rel).slice(0, 3) })).slice(0, 3)
+  // This runs on the main thread (it draws fonts on a canvas): yield every ~12 ms of work so the
+  // page stays responsive (no task much over 50 ms) while matching runs in the background.
+  let slice = performance.now()
+  const breathe = async () => {
+    if (performance.now() - slice < 12) return
+    await yieldToPage()
+    slice = performance.now()
+  }
   const first: FontMatch[] = []
   for (let i = 0; i < candidates.length; i++) {
     first.push({ ...candidates[i], score: scoreFont(candidates[i], quick) })
-    if (i % 25 === 24) {
-      onProgress?.(i + 1, candidates.length)
-      await new Promise((r) => setTimeout(r, 0))
-    }
+    if (i % 25 === 24) onProgress?.(i + 1, candidates.length)
+    await breathe()
   }
   const finalists = first.sort((a, b) => b.score - a.score).slice(0, 40)
   // When fonts explain the letters equally well, the widely used one is the likelier choice:
   // standard fonts get a small head start (1 point).
   const prior = (f: FontCandidate) => (f.source === 'google' ? 0 : COMMON_FONT_PRIOR)
-  const ranked = finalists.map((f) => ({ ...f, score: Math.min(1, scoreFont(f, words) + prior(f)) })).sort((a, b) => b.score - a.score)
+  const ranked: FontMatch[] = []
+  for (const f of finalists) {
+    ranked.push({ ...f, score: Math.min(1, scoreFont(f, words) + prior(f)) })
+    await breathe()
+  }
+  ranked.sort((a, b) => b.score - a.score)
   onProgress?.(candidates.length, candidates.length)
   // One entry per family+style, best first.
   const seen = new Set<string>()

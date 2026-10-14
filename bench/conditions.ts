@@ -4,7 +4,7 @@
 import { downloadsFor } from '../src/export/files'
 import { colorNames } from '../src/palette/names'
 import { DEFAULT_INKS } from '../src/palette/quantize'
-import { DEFAULT_CLIENT, prepFor, traceParamsFor, type Purpose } from '../src/vectorize/client'
+import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor, type Purpose } from '../src/vectorize/client'
 import { detectArt, type ArtKind } from '../src/vectorize/detect'
 import { exampleImage } from '../src/vectorize/example'
 import { FlatTracer } from '../src/vectorize/flat-tracer'
@@ -236,7 +236,7 @@ for (const c of CASES) {
 
     for (const purpose of PURPOSES) {
       const job = buildTraceJob(source, source.width, {
-        trace: traceParamsFor(det.kind, DEFAULT_CLIENT),
+        trace: traceParamsFor(det.kind, DEFAULT_CLIENT, detailBoost(det, source.width, source.height)),
         prep: prepFor(det.kind, DEFAULT_CLIENT),
         spot: { settings: DEFAULT_INKS, palette: DEMO_PALETTE },
         removeColors: [],

@@ -1,6 +1,6 @@
 import { hexToRgb, rgbToLab } from '../src/palette/color'
 import { DEFAULT_INKS } from '../src/palette/quantize'
-import { DEFAULT_CLIENT, prepFor, traceParamsFor, type ClientSettings } from '../src/vectorize/client'
+import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor, type ClientSettings } from '../src/vectorize/client'
 import { detectArt } from '../src/vectorize/detect'
 import { FlatTracer } from '../src/vectorize/flat-tracer'
 import { bitmapToImageData, loadImage } from '../src/vectorize/image'
@@ -44,7 +44,7 @@ for (const name of cases) {
       config === 'spot' ? { settings: { ...DEFAULT_INKS, enabled: true, maxInks: palette.swatches.length, whiteIsPaper: false }, palette } : null
     const t0 = performance.now()
     const job = buildTraceJob(source, source.width, {
-      trace: traceParamsFor(detected.kind, client),
+      trace: traceParamsFor(detected.kind, client, detailBoost(detected, source.width, source.height)),
       prep: prepFor(detected.kind, client),
       spot,
       removeColors: [],

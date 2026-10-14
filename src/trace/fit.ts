@@ -346,7 +346,11 @@ function generateBezier(pts: Point[], u: number[], tHat1: Point, tHat2: Point): 
   let alpha2 = det ? (C[0][0] * X[1] - C[1][0] * X[0]) / det : 0
   const segLength = dist(first, last)
   const epsilon = 1e-6 * segLength
-  if (alpha1 < epsilon || alpha2 < epsilon) {
+  // A handle longer than the stretch of outline it describes overshoots wildly (short runs with
+  // nearly opposite tangents can solve to handles hundreds of px long).
+  let arc = 0
+  for (let i = 1; i < pts.length; i++) arc += dist(pts[i - 1], pts[i])
+  if (alpha1 < epsilon || alpha2 < epsilon || alpha1 > arc || alpha2 > arc) {
     // Degenerate fit: fall back to the Wu/Barsky heuristic.
     alpha1 = alpha2 = segLength / 3
   }

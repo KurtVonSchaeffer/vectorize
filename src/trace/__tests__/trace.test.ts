@@ -193,3 +193,18 @@ describe('resample', () => {
     expect(curves.flat(2).every(Number.isFinite)).toBe(true)
   })
 })
+
+describe('fitClosed robustness', () => {
+  it('never shoots control points far outside a tiny, thin outline', () => {
+    // A real outline from 8 px serif text (JPEG): a small hook whose short runs used to solve to
+    // Bézier handles over 300 px long.
+    const sliver: Point[] = [[25.997, 21.5], [26.5, 21.162], [26.802, 21.5], [26.904, 22.5], [26.888, 23.5], [27.056, 24.5], [27.379, 25.5], [26.5, 25.844], [25.5, 25.508], [24.5, 25.693], [23.5, 25.81], [23.166, 25.5], [22.952, 24.5], [23.387, 23.5], [23.5, 23.387], [23.838, 23.5], [24.223, 24.5], [24.5, 25.034], [25.5, 25.467], [25.803, 24.5], [25.72, 23.5], [25.5, 22.662], [25.465, 22.5], [25.5, 22.422]]
+    for (const curve of fitClosed(sliver, { error: 0.5, cornerAngle: 60 }))
+      for (const [x, y] of curve) {
+        expect(x).toBeGreaterThan(20)
+        expect(x).toBeLessThan(30)
+        expect(y).toBeGreaterThan(19)
+        expect(y).toBeLessThan(28)
+      }
+  })
+})
