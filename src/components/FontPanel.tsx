@@ -22,7 +22,7 @@ interface Props {
    * only these words of the line (indices), e.g. a bold word and a light word in one line.
    * `named`: the client named this font, so a looser fit is accepted.
    */
-  onUseFont: (report: FontReport, line: number, match: FontCandidate, quiet?: boolean, words?: number[], named?: boolean) => Promise<void>
+  onUseFont: (report: FontReport, line: number, match: FontCandidate, quiet?: boolean, words?: number[], named?: boolean) => Promise<boolean>
   onClearFont: (line: number) => void
   /** Find the fonts and rebuild confident matches as soon as the artwork is traced. */
   auto: boolean
@@ -145,11 +145,10 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         const unmatched: { line: number; text: string; closest: FontMatch | null }[] = []
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
-          if (best && best.score >= AUTO_MIN_SCORE) await onUseFont(report, i, best, true)
-          else {
-            unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
-            if (best && best.score >= TRY_MIN_SCORE) onTryFont?.(report, i, best)
-          }
+          // A close match can still fail to line up when placed: that line stays traced too.
+          if (best && best.score >= AUTO_MIN_SCORE && (await onUseFont(report, i, best, true))) continue
+          unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
+          if (best && best.score >= TRY_MIN_SCORE && best.score < AUTO_MIN_SCORE) onTryFont?.(report, i, best)
         }
         if (live()) onAutoUnmatched?.(unmatched)
       }
@@ -403,6 +402,8 @@ function NamedFont({ line, placing, onUse }: { line: TextLine; placing: string |
   const words = line.shapes.map((s) => s.text)
   const listId = `families-${line.box.x0}-${line.box.y0}`
   const name = family.trim()
+  // Only fonts in the free catalog can be loaded; if the catalog didn't load, the font file itself is the check.
+  const known = families.size === 0 || families.has(name.toLowerCase())
   const id = families.get(name.toLowerCase()) ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   const label = `${name} ${WEIGHTS.find(([w]) => w === weight)![1]}`
   const busy = placing !== null
@@ -445,13 +446,17 @@ function NamedFont({ line, placing, onUse }: { line: TextLine; placing: string |
           )}
           <button
             className={btnSmall}
-            disabled={!id || busy}
+            disabled={!id || !known || busy}
             onClick={() => onUse({ family: `named-${id}-${weight}`, label, ref: id, weight, style: 'normal', source: 'google' }, word >= 0 ? [word] : undefined)}
           >
             {placing?.endsWith(`|${label}`) ? 'Rebuilding…' : 'Rebuild with this font'}
           </button>
         </div>
-        <small>Any free Google font, at any weight. For a commercial font you own, use “Include my installed fonts”.</small>
+        {name.length >= 2 && !known ? (
+          <small className={note}>“{name}” isn't in the free font catalog. Check the spelling, or for a commercial font you own, use “Include my installed fonts”.</small>
+        ) : (
+          <small>Any free Google font, at any weight. For a commercial font you own, use “Include my installed fonts”.</small>
+        )}
       </div>
     </details>
   )

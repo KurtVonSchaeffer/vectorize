@@ -89,8 +89,9 @@ const BASELINE = 'real-baseline-v2'
 const tracer = new Tracer()
 const enhancer = new Enhancer()
 const results: Result[] = []
-const visuals = new Map<string, Visual>()
-;(window as unknown as { __visuals: Map<string, Visual> }).__visuals = visuals
+// Per result (not per file name: two jobs can share a name).
+const visuals = new Map<Result, Visual>()
+;(window as unknown as { __visuals: Map<Result, Visual> }).__visuals = visuals
 const reviews = loadReviews()
 ;(window as unknown as { __real: Result[] }).__real = results
 const table = document.getElementById('rows')!
@@ -234,7 +235,7 @@ async function score(file: File, original: File | null, category: string): Promi
       colours: colourFidelity(ref1.data, res1.data, W, H).colours,
     })
     r.flags = structureFlags(r.structure)
-    visuals.set(file.name, {
+    visuals.set(r, {
       file: file.name,
       width: W,
       height: H,
@@ -289,7 +290,7 @@ function render(r: Result, before: Result | undefined) {
       .join('')
   }
   table.append(tr)
-  const v = visuals.get(r.file)
+  const v = visuals.get(r)
   if (!v) return
   // A saved review counts only for the exact same files; a different file with the same name starts fresh.
   const saved = reviews[r.file]
@@ -384,7 +385,7 @@ function reportRows(): ReportRow[] {
   return results.map((r): ReportRow => {
       // Not tested (it failed to run) is a failure; photos and pixel art are outside this test.
       if (r.error) return { file: r.file, category: r.category, verdict: 'FAIL', auto: false, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [`could not be tested: ${r.error}`] }
-      if (!visuals.has(r.file)) return { file: r.file, category: r.category, verdict: 'REVIEW', auto: null, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [], excluded: `${r.kind}: not covered by this test` }
+      if (!visuals.has(r)) return { file: r.file, category: r.category, verdict: 'REVIEW', auto: null, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [], excluded: `${r.kind}: not covered by this test` }
       const blocking = Object.entries(r.exports).filter(([, v]) => v !== 'ok').map(([k, v]) => `${k} export ${v}`)
       blocking.push(...r.verdict.filter((x) => x.startsWith('OFFER WORSE')))
       if (r.structure?.openOutlines) blocking.push(`cut file has ${r.structure.openOutlines} open outline(s)`)
@@ -394,7 +395,7 @@ function reportRows(): ReportRow[] {
       if (r.first) metrics.push(['vs original', `${r.first.error}% / F1 ${r.first.edgeF1}`], ['colour ΔE', `${r.first.meanDE}`])
       if (r.offer) metrics.push(['suggestion', r.offer.label])
       if (r.font) metrics.push(['font rebuilt', r.font])
-      return { file: r.file, category: r.category, verdict: r.final, auto: r.pass, notes: r.verdict, flags: r.flags, metrics, review: r.review ?? undefined, visual: visuals.get(r.file)!, blocking }
+      return { file: r.file, category: r.category, verdict: r.final, auto: r.pass, notes: r.verdict, flags: r.flags, metrics, review: r.review ?? undefined, visual: visuals.get(r)!, blocking }
     })
 }
 document.getElementById('report')!.addEventListener('click', async () => {

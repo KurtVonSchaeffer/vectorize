@@ -205,6 +205,17 @@ describe('runFlat', () => {
     expect(pink).toMatch(/M\s?(8\d|9\d|100)/)
   })
 
+  it('keeps a small solid mark of another colour right next to the rebuilt letters', () => {
+    // A 4×4 pink mark touching the "I": real artwork, not an edge sliver.
+    const marked = () =>
+      image(120, 60, (x, y) =>
+        x >= 20 && x < 30 && y >= 10 && y < 50 ? [43, 45, 66, 255] : x >= 30 && x < 34 && y >= 20 && y < 24 ? [236, 72, 153, 255] : [255, 248, 231, 255],
+      )
+    const r = runFlat(marked(), opts({ text: textFor(), quantize: { ...opts().quantize, minArea: 4 }, trace: { ...opts().trace, minArea: 4 } }))
+    expect(r.lettered).toBe(1)
+    expect(r.svg).toMatch(/data-color="#EC4899"/)
+  })
+
   it('keeps font letters as outlines in print plates, cut exactly out of the background', () => {
     const r = runFlat(lettered(), opts({ text: textFor(), trace: { ...opts().trace, mode: 'knockout' } }))
     expect(r.lettered).toBe(1)

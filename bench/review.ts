@@ -566,7 +566,9 @@ const VERDICT_COLOUR: Record<Verdict, string> = { PASS: '#1d8a4b', REVIEW: '#b45
 /** A self-contained HTML report (images embedded), with each logo at 1× and enlarged 16×. */
 export async function reportHtml(rows: ReportRow[], categories: Record<string, string>, meta: { version: string }): Promise<string> {
   const rec = recommendation(rows, categories)
-  const count = (v: Verdict) => rows.filter((r) => r.verdict === v).length
+  // Totals leave out-of-scope artwork out, as the recommendation does; its sections still show.
+  const counted = rows.filter((r) => !r.excluded)
+  const count = (v: Verdict) => counted.filter((r) => r.verdict === v).length
   const parts: string[] = []
   for (const r of rows) {
     if (!r.visual) {
@@ -596,14 +598,14 @@ export async function reportHtml(rows: ReportRow[], categories: Record<string, s
   }
   const cats = Object.entries(categories)
     .map(([k, l]) => {
-      const rs = rows.filter((r) => r.category === k)
+      const rs = counted.filter((r) => r.category === k)
       return rs.length ? `<tr><td>${l}</td><td>${rs.length}</td><td>${rs.filter((r) => r.verdict === 'PASS').length}</td><td>${rs.filter((r) => r.verdict === 'REVIEW').length}</td><td>${rs.filter((r) => r.verdict === 'FAIL').length}</td></tr>` : ''
     })
     .join('')
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vectorize acceptance report</title>
 <style>body{font:13px/1.45 system-ui,sans-serif;margin:24px;color:#111;background:#fff} table{border-collapse:collapse} td,th{border-bottom:1px solid #ddd;padding:3px 10px;text-align:left} small{color:#666}</style></head><body>
 <h1>Vectorize real-logo acceptance report</h1>
-<p>${esc(meta.version)} · ${new Date().toLocaleString()} · ${rows.length} logos: <b style="color:${VERDICT_COLOUR.PASS}">${count('PASS')} PASS</b>, <b style="color:${VERDICT_COLOUR.REVIEW}">${count('REVIEW')} REVIEW</b>, <b style="color:${VERDICT_COLOUR.FAIL}">${count('FAIL')} FAIL</b></p>
+<p>${esc(meta.version)} · ${new Date().toLocaleString()} · ${counted.length} logos${rows.length > counted.length ? ` (+${rows.length - counted.length} not covered)` : ''}: <b style="color:${VERDICT_COLOUR.PASS}">${count('PASS')} PASS</b>, <b style="color:${VERDICT_COLOUR.REVIEW}">${count('REVIEW')} REVIEW</b>, <b style="color:${VERDICT_COLOUR.FAIL}">${count('FAIL')} FAIL</b></p>
 <h2>Recommendation: ${rec.decision}</h2><ul>${rec.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
 <p><small>RELEASE: no blocking problem, every logo reviewed, ≥ 80% acceptable as-is or with minor fixes, no category under 50%, at most 20% failing the enlargement check. REVISE: a confirmed, fixable defect (worse suggestion, invalid file, wrong font, open cut outlines). HOLD BACK: quality bar not met. INCOMPLETE: fewer than 10 logos or unreviewed logos. The V6 comparison (docs/real-logo-acceptance.md §6.2) is run separately.</small></p>
 <table><tr><th>Category</th><th>Logos</th><th>PASS</th><th>REVIEW</th><th>FAIL</th></tr>${cats}</table>

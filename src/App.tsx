@@ -386,7 +386,7 @@ export default function App() {
     const unmatched = (unmatchedLettering && unmatchedLettering.id === source?.id ? unmatchedLettering.lines : []).filter((u) => !lettering[u.line])
     const howTo = 'If you know the font, choose it under More options → Fonts in this artwork → Use a font you know.'
     const kept = unmatched.length
-      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} didn't match a font closely enough to rebuild automatically${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
+      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} couldn't be rebuilt from a font automatically${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
       : ''
     if (!lines.length && result && kept) return { text: `Kept the lettering as traced: ${kept}. ${howTo}` }
     if (!lines.length || !result) return null
@@ -544,28 +544,33 @@ export default function App() {
                     onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
                     onUseFont={async (report, index, match, quiet, only, named) => {
                       const line = report.lines[index]
-                      // Only some words (e.g. the bold word of a bold + light wordmark).
-                      const part = only ? { ...line, shapes: line.shapes.filter((_, k) => only.includes(k)) } : line
+                      // Only some words (e.g. the bold word of a bold + light wordmark), by position in the line.
+                      const picked = only ?? line.shapes.map((_, k) => k)
+                      const part = only ? { ...line, shapes: picked.map((k) => line.shapes[k]) } : line
                       let placed: LineLettering
                       try {
-                        const { placeLine, MIN_OVERLAP_NAMED } = await import('./fonts/lettering')
-                        placed = await placeLine(report, part, match, named ? MIN_OVERLAP_NAMED : undefined)
+                        const { placeLine } = await import('./fonts/lettering')
+                        placed = await placeLine(report, part, match, { named })
                       } catch (err) {
                         if (!quiet) showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
-                        return
+                        return false
                       }
                       if (!placed.words.length) {
-                        if (quiet) return
-                        showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
-                        return
+                        if (!quiet) showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
+                        return false
                       }
+                      // Positions within the part → positions within the line.
+                      const words = placed.words.map((w) => ({ ...w, index: picked[w.index ?? 0] }))
                       setLettering((l) => {
-                        if (!only || !l[index]) return { ...l, [index]: placed }
+                        const prev = l[index]
+                        if (!only || !prev) return { ...l, [index]: { ...placed, words, tried: picked } }
                         // Keep the line's other words as they were rebuilt; replace the chosen ones.
-                        const chosen = new Set(part.shapes.map((w) => w.text))
-                        const words = [...l[index].words.filter((w) => !chosen.has(w.text)), ...placed.words].sort((a, b) => a.box.x0 - b.box.x0)
-                        return { ...l, [index]: { font: [...new Set(words.map((w) => w.font))].join(' + '), words, skipped: placed.skipped } }
+                        const all = [...prev.words.filter((w) => !picked.includes(w.index ?? -1)), ...words].sort((a, b) => a.box.x0 - b.box.x0)
+                        const tried = [...new Set([...(prev.tried ?? line.shapes.map((_, k) => k)), ...picked])]
+                        const skipped = tried.filter((k) => !all.some((w) => w.index === k)).length
+                        return { ...l, [index]: { font: [...new Set(all.map((w) => w.font))].join(' + '), words: all, skipped, tried } }
                       })
+                      return true
                     }}
                     onClearFont={(index) => setLettering(({ [index]: _, ...rest }) => rest)}
                     sharpen={
