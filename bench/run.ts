@@ -1,6 +1,6 @@
 import { hexToRgb, rgbToLab } from '../src/palette/color'
 import { DEFAULT_INKS } from '../src/palette/quantize'
-import { DEFAULT_CLIENT, prepFor, traceParamsFor, type ClientSettings } from '../src/vectorize/client'
+import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor, type ClientSettings } from '../src/vectorize/client'
 import { detectArt } from '../src/vectorize/detect'
 import { FlatTracer } from '../src/vectorize/flat-tracer'
 import { bitmapToImageData, loadImage } from '../src/vectorize/image'
@@ -44,7 +44,7 @@ for (const name of cases) {
       config === 'spot' ? { settings: { ...DEFAULT_INKS, enabled: true, maxInks: palette.swatches.length, whiteIsPaper: false }, palette } : null
     const t0 = performance.now()
     const job = buildTraceJob(source, source.width, {
-      trace: traceParamsFor(detected.kind, client),
+      trace: traceParamsFor(detected.kind, client, detailBoost(detected, source.width, source.height)),
       prep: prepFor(detected.kind, client),
       spot,
       removeColors: [],
@@ -57,7 +57,7 @@ for (const name of cases) {
     const s = { ...(await score(svg, truth)), ms, kind: detected.kind }
     results[`${name}/${config}`] = s
     const row = document.createElement('tr')
-    row.innerHTML = `<td>${name}/${config} <small>(${detected.kind})</small></td>` + [s.meanError, s.wrongPixels, s.paths, s.segments, s.kb, s.ms].map((v) => `<td>${v}</td>`).join('')
+    row.innerHTML = `<td>${name}/${config} <small>(${detected.kind})</small></td>` + [s.meanError, s.wrongPixels, s.wrongBeyondEdges, s.edgeF1, s.missing, s.artefacts, s.paths, s.segments, s.kb, s.ms].map((v) => `<td>${v}</td>`).join('')
     document.getElementById('table')!.append(row)
     const img = document.createElement('img')
     img.title = `${name}/${config}`

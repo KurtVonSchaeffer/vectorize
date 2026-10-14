@@ -24,6 +24,13 @@ interface Props {
   auto: boolean
   /** Reports whether the automatic lettering match is running. */
   onAutoBusy?: (busy: boolean) => void
+  /** A line's best match is below the automatic threshold: worth trying, if it scores better. */
+  onTryFont?: (report: FontReport, line: number, match: FontCandidate) => void
+  /**
+   * A sharpened (AI 2×) copy of the image, for small lettering: fonts at 6–12 px are identified
+   * far more reliably from it (docs/v7-results.md). Null when it isn't worth making.
+   */
+  sharpen?: () => Promise<ImageBitmap | null>
 }
 
 const MATCH = 'grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5 rounded-lg border border-line px-2 py-1.5 [&>*]:min-w-0'
@@ -34,8 +41,14 @@ const SRC_STRONG = 'font-semibold text-accent'
 const TEXT = 'text-xs font-semibold text-ink-2'
 const USE = 'col-span-full mt-1 justify-self-start'
 
-/** Automatically rebuilt only when the best free match is at least this close. */
-const AUTO_MIN_SCORE = 0.8
+/**
+ * Automatically rebuilt only when the best free match is at least this close. Wrong fonts were
+ * measured scoring up to 0.84 on small lettering, correct ones 0.85 and up; closer matches below
+ * this are only offered, after a quality check (onTryFont), never substituted silently.
+ */
+const AUTO_MIN_SCORE = 0.85
+/** Closer than this, but below AUTO_MIN_SCORE, a match is handed to onTryFont. */
+const TRY_MIN_SCORE = 0.5
 
 const STEP: Record<FontProgress['step'], string> = {
   reading: 'Reading the text',
@@ -53,7 +66,7 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onTryFont, sharpen }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
@@ -112,7 +125,11 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       // OCR is loaded only when someone asks for fonts.
       const { findText, matchFonts } = await import('../fonts/identify')
       const onProgress = (progress: FontProgress) => live() && setState({ kind: 'busy', progress })
-      const report = await findText(bitmap, colors, onProgress)
+      // Small lettering is read from a sharpened copy when there is one; letters are still
+      // placed in the original image's pixels (the report's scale accounts for the 2×).
+      const sharp = sharpen ? await sharpen().catch(() => null) : null
+      const report = await findText(sharp ?? bitmap, colors, onProgress).finally(() => sharp?.close())
+      if (sharp) report.scale *= sharp.width / bitmap.width
       const lines = await matchFonts(report, includeInstalled ? (installed.current ?? []) : [], onProgress)
       if (live()) {
         setOnline({})
@@ -122,6 +139,7 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
           if (best && best.score >= AUTO_MIN_SCORE) await onUseFont(report, i, best, true)
+          else if (best && best.score >= TRY_MIN_SCORE) onTryFont?.(report, i, best)
         }
     } catch (err) {
       if (!live() || autoApply) return

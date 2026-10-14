@@ -154,18 +154,26 @@ function binarizeAlpha(image: ImageData) {
 }
 
 /**
- * VTracer emits fixed pixel width/height at the traced resolution. Add a viewBox so the SVG
- * scales cleanly, and report its size as the original image's dimensions.
+ * Tracers emit fixed pixel width/height at the traced resolution. Size the root element as
+ * the original image and give it a viewBox in traced pixels, so the SVG scales cleanly.
+ * Only the root <svg> is touched, whatever its attribute order, quoting or units; a viewBox
+ * already there is kept, since it describes the coordinates the paths were written in.
  */
 export function finalizeSvg(svg: string, traced: { width: number; height: number }, original: { width: number; height: number }): string {
-  return svg
-    .replace(/<!--.*?-->\s*/s, '')
-    // VTracer occasionally emits paths with no geometry.
-    .replace(/<path d="\s*"[^>]*\/>\s*/g, '')
-    .replace(
-      /<svg([^>]*?)\swidth="\d+"\s+height="\d+"/,
-      `<svg$1 width="${original.width}" height="${original.height}" viewBox="0 0 ${traced.width} ${traced.height}"`,
-    )
+  const attr = (name: string, flags = 'i') => new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`, flags)
+  return (
+    svg
+      .replace(/<!--[\s\S]*?-->\s*/g, '')
+      // VTracer occasionally emits paths with no geometry.
+      .replace(/<path\b(?=[^>]*\sd\s*=\s*(?:"\s*"|'\s*'))[^>]*?(?:\/>|>\s*<\/path>)\s*/g, '')
+      .replace(/<svg\b([^>]*?)(\/?)>/i, (_, attrs: string, selfClose: string) => {
+        const box = attrs.match(attr('viewBox'))?.[1].slice(1, -1).trim()
+        const nums = box?.split(/[\s,]+/).map(Number) ?? []
+        const valid = nums.length === 4 && nums.every(Number.isFinite) && nums[2] > 0 && nums[3] > 0
+        const rest = attrs.replace(attr('width', 'gi'), '').replace(attr('height', 'gi'), '').replace(attr('viewBox', 'gi'), '')
+        return `<svg${rest} width="${original.width}" height="${original.height}" viewBox="${valid ? box : `0 0 ${traced.width} ${traced.height}`}"${selfClose}>`
+      })
+  )
 }
 
 /** Same SVG, drawn as thin outlines so you can inspect path structure. */

@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { colorName, colorNames } from '../../palette/names'
+import { DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../client'
 import { detectArt } from '../detect'
+import type { LabelMap } from '../../trace'
 import { runFlat, type FlatOptions } from '../pipeline'
 
 class FakeImageData {
@@ -69,6 +71,52 @@ describe('detectArt', () => {
   it('recognizes black ink on paper as line art', () => {
     const d = detectArt(image(300, 200, (x, y) => (Math.abs(y - 100 - 40 * Math.sin(x / 30)) < 4 ? [20, 20, 20, 255] : [245, 243, 238, 255])))
     expect(d.kind).toBe('lineart')
+  })
+
+  it('keeps a dark navy badge with a small orange accent as flat colour', () => {
+    // #2b2d42 is nearly gray by channel spread, and the orange covers ~4%: both used to read as line art.
+    const d = detectArt(image(300, 200, (x, y) => (Math.hypot(x - 150, y - 100) < 70 ? [43, 45, 66, 255] : x > 20 && x < 46 && y > 20 && y < 46 ? [240, 140, 0, 255] : [255, 248, 231, 255])))
+    expect(d.kind).toBe('flat')
+  })
+
+  it('keeps navy lettering on white as flat colour', () => {
+    const d = detectArt(image(400, 100, (x, y) => (y > 40 && y < 60 && x % 12 < 2 ? [31, 42, 92, 255] : [255, 255, 255, 255])))
+    expect(d.kind).toBe('flat')
+  })
+
+  it('keeps a uniform slate-gray logo as flat colour, so it is not turned black', () => {
+    const d = detectArt(image(300, 200, (x, y) => (Math.abs(y - 100 - 40 * Math.sin(x / 30)) < 6 ? [60, 64, 72, 255] : [255, 255, 255, 255])))
+    expect(d.kind).toBe('flat')
+  })
+
+  it('still recognizes a pencil sketch, whose gray tone varies, as line art', () => {
+    const d = detectArt(
+      image(300, 200, (x, y) => {
+        const on = Math.abs(y - 100 - 40 * Math.sin(x / 30)) < 4 || Math.abs(x - 60 - 20 * Math.cos(y / 25)) < 3
+        const tone = 60 + ((x * 37 + y * 91) % 90) // graphite: 60–150
+        return on ? [tone, tone, tone - 4, 255] : [236, 233, 226, 255]
+      }),
+    )
+    expect(d.kind).toBe('lineart')
+  })
+
+  it('measures how much of the artwork is fine strokes', () => {
+    const hairlines = detectArt(image(300, 200, (x, y) => (y % 20 === 10 || (x + y) % 37 === 0 ? [31, 42, 92, 255] : [255, 255, 255, 255])))
+    expect(hairlines.fine).toBeGreaterThan(0.95)
+    expect(detectArt(logo()).fine).toBeLessThan(0.2)
+  })
+
+  it('tightens curves for fine-stroke artwork and specks for tiny images, never colour merging', () => {
+    const fine = detectArt(image(300, 200, (_, y) => (y % 20 === 10 ? [31, 42, 92, 255] : [255, 255, 255, 255])))
+    expect(detailBoost(fine, 300, 200)).toEqual({ curves: 0.25, specks: 0 })
+    const bold = detectArt(logo())
+    expect(detailBoost(bold, 240, 160)).toEqual({ curves: 0, specks: 0 })
+    expect(detailBoost(bold, 120, 80)).toEqual({ curves: 0, specks: 0.25 })
+    const plain = traceParamsFor('flat', DEFAULT_CLIENT)
+    const boosted = traceParamsFor('flat', DEFAULT_CLIENT, { curves: 0.25, specks: 0.25 })
+    expect(boosted.curveTolerance).toBeLessThan(plain.curveTolerance)
+    expect(boosted.filterSpeckle).toBeLessThan(plain.filterSpeckle)
+    expect(boosted.colorMerge).toBe(plain.colorMerge)
   })
 
   it('recognizes small hard-edged images as pixel art', () => {
@@ -188,6 +236,68 @@ describe('runFlat', () => {
     const r = runFlat(ink, opts({ lineArt: true, transparent: true }))
     expect(r.paths).toBe(1)
     expect(r.svg).toContain('fill="#000000"')
+  })
+
+  it('keeps small real detail: a 3×3 letter counter and a 3×3 full stop', () => {
+    // An "o" 11 px wide with a 3×3 counter, and a full stop 3 px wide: normal at 10–12 px text.
+    // Default settings: specks under 16 px² are removed, but these are enclosed, solid and contrasting.
+    const NAVY: RGBA = [31, 42, 92, 255]
+    const WHITE: RGBA = [255, 255, 255, 255]
+    const art = image(60, 30, (x, y) => {
+      if (x >= 10 && x < 21 && y >= 10 && y < 21) return x >= 14 && x < 17 && y >= 14 && y < 17 ? WHITE : NAVY
+      return x >= 30 && x < 33 && y >= 18 && y < 21 ? NAVY : WHITE
+    })
+    let map: LabelMap | null = null
+    runFlat(art, opts({ quantize: { ...opts().quantize, minArea: 16 }, trace: { ...opts().trace, minArea: 2 } }), (m) => (map = m))
+    const m = map as unknown as LabelMap
+    const at = (x: number, y: number) => m.colors[m.labels[y * m.w + x]]
+    expect(at(15, 15)).toBe(at(0, 0))
+    expect(at(31, 19)).toBe(at(12, 12))
+  })
+
+  it('keeps the counter and full stop in print plates too', () => {
+    const NAVY: RGBA = [31, 42, 92, 255]
+    const WHITE: RGBA = [255, 255, 255, 255]
+    const art = image(60, 30, (x, y) => {
+      if (x >= 10 && x < 21 && y >= 10 && y < 21) return x >= 14 && x < 17 && y >= 14 && y < 17 ? WHITE : NAVY
+      return x >= 30 && x < 33 && y >= 18 && y < 21 ? NAVY : WHITE
+    })
+    const r = runFlat(art, opts({ quantize: { ...opts().quantize, minArea: 16 }, trace: { ...opts().trace, minArea: 2, detailArea: 16, mode: 'knockout', spread: 0.15 } }))
+    const navy = r.svg.split('\n').filter((l) => /fill="#1F2A5C"/i.test(l)).join('')
+    // Outline of the "o", its counter, and the full stop.
+    expect((navy.match(/M/g) ?? []).length).toBe(3)
+  })
+
+  it('still removes a compression smudge below the speck size', () => {
+    // A 3×3 half-blend of navy and white inside the white area, as JPEG ringing leaves.
+    const art = image(60, 30, (x, y) => (x >= 10 && x < 30 && y >= 5 && y < 25 ? [31, 42, 92, 255] : x >= 40 && x < 43 && y >= 12 && y < 15 ? [150, 155, 178, 255] : [255, 255, 255, 255]))
+    let map: LabelMap | null = null
+    runFlat(art, opts({ quantize: { ...opts().quantize, minArea: 16 } }), (m) => (map = m))
+    const m = map as unknown as LabelMap
+    expect(m.colors[m.labels[13 * m.w + 41]]).toBe(m.colors[m.labels[0]])
+  })
+
+  it('keeps a 1 px anti-aliased line, at its true position', () => {
+    // A solid navy block, and a 1 px navy line between two pixel rows (each row a 50% blend):
+    // smoothing used to flatten the line below the contour level.
+    const art = image(160, 60, (x, y) => (x >= 120 && x < 150 && y >= 15 && y < 45 ? [31, 42, 92, 255] : x >= 10 && x < 110 && (y === 29 || y === 30) ? [143, 149, 174, 255] : [255, 255, 255, 255]))
+    const r = runFlat(art, opts({ quantize: { ...opts().quantize, minArea: 16 }, trace: { ...opts().trace, smoothing: 0.7, minArea: 2 } }))
+    const navy = r.svg.split('\n').filter((l) => /fill="#1F2A5C"/i.test(l))
+    expect(navy).toHaveLength(2)
+    // The line's outline stays within half a pixel of the true stroke (y 29.5–30.5 in pixel coordinates 29–31).
+    const line = navy.find((l) => !l.includes('M120'))!
+    // On-curve points: the start, and every third point of each curve (the rest are controls).
+    const pts = [...line.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map((m) => Number(m[2]))
+    const ys = pts.filter((_, i) => i === 0 || i % 3 === 0)
+    expect(Math.min(...ys)).toBeGreaterThan(29)
+    expect(Math.max(...ys)).toBeLessThan(31.2)
+  })
+
+  it('does not turn a faint smudge into a line', () => {
+    // Two rows at 15% navy: too faint to be a stroke.
+    const art = image(160, 60, (x, y) => (x >= 120 && x < 150 && y >= 15 && y < 45 ? [31, 42, 92, 255] : x >= 10 && x < 110 && (y === 29 || y === 30) ? [221, 223, 231, 255] : [255, 255, 255, 255]))
+    const r = runFlat(art, opts({ quantize: { ...opts().quantize, minArea: 16 }, trace: { ...opts().trace, smoothing: 0.7, minArea: 2 } }))
+    expect(r.svg.split('\n').filter((l) => /fill="#1F2A5C"/i.test(l))).toHaveLength(1)
   })
 
   it('copes with a single-color image', () => {

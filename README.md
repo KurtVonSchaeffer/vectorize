@@ -89,8 +89,15 @@ VTracer's own color clustering turns every anti-aliased edge into extra shapes (
 ### Checks
 
 - `npm test`: unit tests for color math, parsers, quantizer, tracer, detection, the pipeline and the PDF/DXF writers.
-- `/bench/conditions.html`: 17 kinds of input, run through the app's own functions, with every download validated.
+- `/bench/conditions.html`: 20 kinds of input, run through the app's own functions, with every download validated.
 - `/bench/index.html`: quality benchmark (below).
+- `/bench/diagnose.html`: where detail is lost, stage by stage (input, colour map, vector) for small text, thin lines, dots, corners, similar colours, gradients, transparency and low resolution. See [docs/v6-diagnosis.md](docs/v6-diagnosis.md) and [docs/v6-results.md](docs/v6-results.md).
+- `/bench/real.html`: real-logo acceptance test (`docs/real-logo-acceptance.md`). Drop logos named `category__name` plus their originals (`.svg` or `.truth.png`); each goes through the app's first result and background improver, its downloads are checked, and it's scored against the acceptance criteria, with JSON/CSV export and a saved baseline. Files stay in the browser.
+- `/bench/parity.html`: checks that the simulation used by `/bench/real.html` matches the app. Each synthetic case runs in the real app (in an embedded frame) and in the simulation; first SVGs and improver offers should be identical.
+- `/bench/assess.html`: V7 assessment experiments (`?exp=proxy|typo|lowres|colour|complexity`). See [docs/v7-assessment.md](docs/v7-assessment.md).
+- `PROFILE=1 npx vitest run bench/profile.test.ts`: CPU profile of the flat-colour pipeline.
+- `IDENTITY=save|check npx vitest run bench/identity.test.ts`: byte-identical output check for performance work.
+- `/bench/assess.html?exp=improver`: validates the background improver against ground truth. See [docs/v7-results.md](docs/v7-results.md).
 
 ### Online font search (WhatFontIs)
 
@@ -106,7 +113,17 @@ The API key stays on a server; the browser only talks to `/api/identify-font` (c
 
 ### Quality benchmark
 
-Open `/bench/index.html` on the dev server. It rasterizes ground-truth SVGs to small JPEGs, vectorizes them, and scores the output against the original (mean error, % wrong pixels, paths, curve segments, size). Query params: `cases=logo,badge,scene,ink`, `configs=logo,illustration,lineart,spot`, `set=param:value,...`.
+Open `/bench/index.html` on the dev server. It rasterizes ground-truth SVGs to small JPEGs, vectorizes them, and scores the output against the original. Query params: `cases=logo,badge,scene,ink`, `configs=web,print,spot`, `detail=0.5`, `corners=0.75`, `shapes=0`.
+
+Scores come from `src/quality/compare.ts` (`compareRasters`, or `compareSvg` in the browser), which the conditions suite uses too:
+
+- **mean error / wrong px %**: sRGB difference with both images over white, so the colour of transparent pixels doesn't count. Wrong means a mean R, G, B difference above 48.
+- **wrong beyond edges %**: the same, but a pixel only counts when the other image has no similar colour within 1 px, so anti-aliasing and sub-pixel edge placement are forgiven.
+- **edge F1**: Sobel edges on luminance, matched within 1 px.
+- **missing / artefacts**: connected areas (≥ 4 px) of ground truth the output doesn't show, and of output the ground truth doesn't have. An edge moved more than 1 px shows up in both.
+- **alpha error / flips**: transparency differences, in the comparison result.
+
+Limits: none of these is a quality percentage. Colour error isn't perceptual; edges between equally bright colours and soft gradients produce no Sobel edges; details smaller than 4 px aren't reported. JPEG noise in a reference counts as error against a clean vector, so compare versions on the same input rather than different images against each other.
 
 ### Known limits
 

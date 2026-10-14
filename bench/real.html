@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorize real-logo acceptance test</title>
+    <style>body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111} table{border-collapse:collapse;margin-top:12px} th,td{padding:4px 10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top} small{color:#666} .up{color:#1d8a4b} .down{color:#c0362c} button{margin-right:6px} #summary{margin-top:8px;line-height:1.6}</style>
+  </head>
+  <body>
+    <h1>Real-logo acceptance test</h1>
+    <p>Drop logos here (or choose them). Name each <code>category__name.png</code> (categories: print, lettering, colour, transparent, gradient, complex) and add its original as <code>category__name.svg</code> or <code>category__name.truth.png</code>. Procedure and criteria: <code>docs/real-logo-acceptance.md</code>. Files stay in this browser.</p>
+    <p><input id="files" type="file" multiple accept="image/*,.svg" /> <button id="save">Save as baseline</button><button id="json">Export JSON</button><button id="csv">Export CSV</button></p>
+    <p id="status">Waiting for files.</p>
+    <div id="summary"></div>
+    <table>
+      <thead><tr><th>verdict</th><th>file</th><th>size / kind</th><th>vs original: detail error / edges</th><th>vs original: colour</th><th>vs upload</th><th>improver offer</th><th>colours / segments</th><th>exports</th><th>notes</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p><small>Changes against the saved baseline are shown in brackets: green better, red worse. REVIEW means there's no original to score against, so check it by eye.</small></p>
+    <script type="module" src="./real.ts"></script>
+  </body>
+</html>

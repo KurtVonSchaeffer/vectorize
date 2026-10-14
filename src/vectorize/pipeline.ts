@@ -98,6 +98,9 @@ export type TraceJob =
   | { kind: 'vtracer'; image: ImageData; params: TraceParams; scale: number; background: number | null }
   | { kind: 'flat'; image: ImageData; options: FlatOptions; scale: number }
 
+/** Outlines smaller than this (px²) are dropped by the flat tracer. */
+const TRACE_MIN_AREA = 2
+
 export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSettings): TraceJob {
   const { trace, prep, spot } = s
   const spotOn = !!spot?.settings.enabled
@@ -145,7 +148,10 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       },
       trace: {
         smoothing: trace.smoothing,
-        minArea: speckArea,
+        // Noise is removed from the colour map (which keeps real small detail); the tracer only
+        // drops near-empty outlines left by smoothing.
+        minArea: Math.min(speckArea, TRACE_MIN_AREA),
+        detailArea: speckArea,
         error: trace.curveTolerance,
         cornerAngle: trace.cornerThreshold,
         precision: trace.pathPrecision,
@@ -174,7 +180,8 @@ function textOptions(words: PlacedWord[], scale: number, w: number, h: number): 
 }
 
 /** The flat-color pipeline: quantize, apply the client's color choices, trace. Pure. */
-export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
+/** `inspect` receives the final colour map just before tracing (diagnostics; see bench/diagnose.ts). */
+export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelMap) => void): FlatResult {
   const src = o.lineArt ? grayscale(image) : image
   const regions = o.gradients && !o.lineArt ? findGradients(src) : []
   const apply = o.gradients === 'apply' && regions.length > 0
@@ -212,6 +219,7 @@ export function runFlat(image: ImageData, o: FlatOptions): FlatResult {
   const knockout = o.trace.mode === 'knockout'
   const text = o.text ? applyText(map, o.text, knockout) : null
   if (text) map = text.map
+  inspect?.(map)
   const traced = traceLabels(map, o.trace)
   let { svg } = traced
   const { paths, shapes } = traced

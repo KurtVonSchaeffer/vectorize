@@ -1,3 +1,5 @@
+import { compareRasters } from '../src/quality/compare'
+import { rasterizeSvg } from '../src/quality/render'
 // Ground-truth test artwork for quality benchmarking. Each is a real SVG, so the vectorizer's
 // output can be compared against the exact original.
 
@@ -84,8 +86,15 @@ export async function degrade(svg: string, width: number, height: number, qualit
 export interface Score {
   /** Mean per-pixel RGB error against the ground truth (0–255 scale). */
   meanError: number
-  /** Share of pixels that are clearly wrong (error > 48). */
+  /** Share of pixels that are clearly wrong (error > 48), in percent. */
   wrongPixels: number
+  /** Same, forgiving edges up to 1 px off (anti-aliasing), in percent. */
+  wrongBeyondEdges: number
+  /** Edge agreement within 1 px (0–1). */
+  edgeF1: number
+  /** Ground-truth details (≥ 4 px) the output doesn't show, and things it adds. */
+  missing: number
+  artefacts: number
   paths: number
   /** Total curve/line segments: a proxy for how clean (simple) the geometry is. */
   segments: number
@@ -93,18 +102,15 @@ export interface Score {
 }
 
 export async function score(outputSvg: string, truthSvg: string, width = 1200, height = 800): Promise<Score> {
-  const [a, b] = await Promise.all([rasterize(outputSvg, width, height), rasterize(truthSvg, width, height)])
-  let sum = 0
-  let wrong = 0
-  for (let i = 0; i < a.data.length; i += 4) {
-    const e = (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2])) / 3
-    sum += e
-    if (e > 48) wrong++
-  }
-  const n = a.data.length / 4
+  const [out, truth] = await Promise.all([rasterizeSvg(outputSvg, width, height), rasterizeSvg(truthSvg, width, height)])
+  const r = compareRasters(truth.data, out.data, width, height)
   return {
-    meanError: +(sum / n).toFixed(2),
-    wrongPixels: +((wrong / n) * 100).toFixed(2),
+    meanError: +r.meanError.toFixed(2),
+    wrongPixels: +(r.wrongShare * 100).toFixed(2),
+    wrongBeyondEdges: +(r.tolerantWrongShare * 100).toFixed(2),
+    edgeF1: +r.edgeF1.toFixed(3),
+    missing: r.missingDetails.length,
+    artefacts: r.artefacts.length,
     paths: (outputSvg.match(/<path\b/g) ?? []).length,
     segments: (outputSvg.match(/[CLQ]/g) ?? []).length,
     kb: +(new Blob([outputSvg]).size / 1024).toFixed(1),

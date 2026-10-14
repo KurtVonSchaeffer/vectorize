@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorize diagnostics</title>
+    <style>body{font:12px ui-monospace,monospace;padding:16px;background:#fff;color:#111} img{width:220px;border:1px solid #ccc;background:#fff} table{border-collapse:collapse} td,th{padding:3px 8px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top} small{color:#666}</style>
+  </head>
+  <body>
+    <h1>Where is accuracy lost?</h1>
+    <p>Each stage vs ground truth: mean error · wrong beyond 1px edges · edge F1 · −missing ink +extra ink (share of the artwork's detail).</p>
+    <p id="status">Running…</p>
+    <table id="table"><tr><th>group</th><th>case</th><th>input</th><th>colour map</th><th>vector</th><th>vector 4×</th><th>colours</th><th>paths</th><th>segments</th><th>result</th></tr></table>
+    <script type="module" src="./diagnose.ts"></script>
+  </body>
+</html>

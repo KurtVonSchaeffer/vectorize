@@ -3,7 +3,7 @@ import { Enhancer, type AiProgress, type UpscaleSetting } from './ai/enhancer'
 import { Compare } from './components/Compare'
 import { BrandPanel, type MatchMode } from './components/BrandPanel'
 import { FontPanel } from './components/FontPanel'
-import type { LineLettering } from './fonts/lettering'
+import type { LineLettering, PlacedWord } from './fonts/lettering'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip } from './components/ResultCard'
@@ -15,8 +15,10 @@ import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
-import { DEFAULT_CLIENT, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
+import { useImprover, type Candidate } from './useImprover'
+import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
+import { alternatives, worthSharpening } from './vectorize/improve'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
@@ -33,6 +35,8 @@ export default function App() {
   const [transparent, setTransparent] = useState(false)
   const [removed, setRemoved] = useState<number[]>([])
   const [result, setResult] = useState<TraceResult | null>(null)
+  // The settings (jobKey) the shown result was traced with; during a re-trace it's the old one.
+  const [resultKey, setResultKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [traceError, setTraceError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
@@ -54,17 +58,20 @@ export default function App() {
   // Lettering rebuilt from a matched font, per text line of the current image.
   const [lettering, setLettering] = useState<Record<number, LineLettering>>({})
   const [matchingLettering, setMatchingLettering] = useState(false)
+  // The image whose automatic lettering match has finished (it runs once, after the first result).
+  const [letteringSettled, setLetteringSettled] = useState<string | null>(null)
   const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
   const [importedPalette, setImportedPalette] = useState<Palette | null>(loadSavedPalette)
   const palette = importedPalette ?? DEMO_PALETTE
 
-  const tracers = useRef<{ vtracer: Tracer; flat: FlatTracer; plates: FlatTracer }>(null)
+  const tracers = useRef<{ vtracer: Tracer; flat: FlatTracer; plates: FlatTracer; improve: FlatTracer }>(null)
   useEffect(() => {
-    tracers.current = { vtracer: new Tracer(), flat: new FlatTracer(), plates: new FlatTracer() }
+    tracers.current = { vtracer: new Tracer(), flat: new FlatTracer(), plates: new FlatTracer(), improve: new FlatTracer() }
     return () => {
       tracers.current?.vtracer.dispose()
       tracers.current?.flat.dispose()
       tracers.current?.plates.dispose()
+      tracers.current?.improve.dispose()
     }
   }, [])
   const enhancer = useRef<Enhancer>(null)
@@ -177,9 +184,10 @@ export default function App() {
   const buildJob = useMemo(() => {
     if (!input || !source) return null
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
-    return (knockout: boolean) =>
-      buildTraceJob(input, source.width, {
-        trace: traceParamsFor(kind, c),
+    // `vary` makes an alternative of the current job (used by the background improver).
+    return (knockout: boolean, vary: { detail?: number; input?: InputImage; lettering?: PlacedWord[] } = {}) =>
+      buildTraceJob(vary.input ?? input, source.width, {
+        trace: traceParamsFor(kind, { ...c, detail: vary.detail ?? detail }, detection ? detailBoost(detection, source.width, source.height) : undefined),
         prep: prepFor(kind, c),
         spot: { settings: inks, palette },
         removeColors: removed,
@@ -189,9 +197,9 @@ export default function App() {
         exactShapes,
         gradients,
         brand,
-        lettering: letteringWords,
+        lettering: vary.lettering ?? letteringWords,
       })
-  }, [input, source, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
+  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
   const job = useMemo(() => buildJob?.(false) ?? null, [buildJob])
 
   // Recent results, so going back to a previous setting (e.g. Print → Website → Print) is instant.
@@ -208,6 +216,7 @@ export default function App() {
     const cached = cache.current.get(jobKey)
     if (cached) {
       setResult(cached)
+      setResultKey(jobKey)
       setTraceError(null)
       setBusy(false)
       return
@@ -224,6 +233,7 @@ export default function App() {
           setTraceError(inks.enabled && inks.whiteIsPaper ? 'Every color was treated as paper. Turn off “White is paper” under Brand colors.' : 'No shapes were found. Try more detail under Fine-tune.')
         } else setTraceError(null)
         setResult(res)
+        setResultKey(jobKey)
         setBusy(false)
       } catch (err) {
         if (err instanceof CancelledError) return
@@ -362,7 +372,58 @@ export default function App() {
       onUndo: () => setLettering({}),
     }
   })()
-  const fixNotes = [letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
+  // ---------- Cleaner version, found in the background ----------
+  // Latest values for candidates created before the check starts (rebuilt lettering).
+  const latest = useRef({ buildJob, letteringWords })
+  latest.current = { buildJob, letteringWords }
+  const improver = useImprover({
+    source,
+    result,
+    jobKey,
+    // Only once the shown result is final: traced with the current settings, after the automatic
+    // lettering match (which can rebuild letters and so change the result) has finished.
+    ready:
+      status === 'ready' &&
+      resultKey === jobKey &&
+      !matchingLettering &&
+      (letteringSettled === source?.id || !(kind === 'flat' && !inks.enabled)) &&
+      upscale === 'off' &&
+      job?.kind === 'flat',
+    tracers,
+    candidates: () => {
+      if (!buildJob || !source || !detection) return []
+      const d0 = client.detail
+      return alternatives(detection, source.width, source.height, d0).map((alt): Candidate =>
+        alt.kind === 'detail'
+          ? {
+              label: alt.label,
+              job: async () => buildJob(false, { detail: alt.detail }),
+              apply: () => {
+                setClient((c) => ({ ...c, detail: alt.detail }))
+                return () => setClient((c) => ({ ...c, detail: d0 }))
+              },
+            }
+          : {
+              label: alt.label,
+              job: async () => {
+                const up = await (enhancer.current ??= new Enhancer()).upscale(source.id, bitmapToImageData(source.bitmap), '2x')
+                if (!up) return null
+                const sharp = await imageDataToInput(up)
+                // The job holds its own pixel copy; the temporary bitmap and URL can go.
+                const j = buildJob(false, { input: sharp })
+                URL.revokeObjectURL(sharp.url)
+                sharp.bitmap.close()
+                return j
+              },
+              apply: () => {
+                setUpscale('2x')
+                return () => setUpscale('off')
+              },
+            },
+      )
+    },
+  })
+  const fixNotes = [improver.note, letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
 
   const busyLabel = aiProgress
     ? aiProgress.phase === 'download'
@@ -448,7 +509,10 @@ export default function App() {
                     lettering={lettering}
                     canRebuild={kind === 'flat' && !inks.enabled}
                     auto={kind === 'flat' && !inks.enabled}
-                    onAutoBusy={setMatchingLettering}
+                    onAutoBusy={(busy) => {
+                      setMatchingLettering(busy)
+                      if (!busy) setLetteringSettled(source.id)
+                    }}
                     onUseFont={async (report, index, match, quiet) => {
                       let placed: LineLettering
                       try {
@@ -466,6 +530,29 @@ export default function App() {
                       setLettering((l) => ({ ...l, [index]: placed }))
                     }}
                     onClearFont={(index) => setLettering(({ [index]: _, ...rest }) => rest)}
+                    sharpen={
+                      detection && worthSharpening(detection, source.width, source.height)
+                        ? async () => {
+                            // Shared with the background improver: computed once, then cached.
+                            const up = await (enhancer.current ??= new Enhancer()).upscale(source.id, bitmapToImageData(source.bitmap), '2x')
+                            return up ? createImageBitmap(up) : null
+                          }
+                        : undefined
+                    }
+                    onTryFont={async (report, index, match) => {
+                      // Below the automatic threshold: offered only if it scores clearly better.
+                      const { placeLine } = await import('./fonts/lettering')
+                      const placed = await placeLine(report, report.lines[index], match).catch(() => null)
+                      if (!placed?.words.length) return
+                      improver.consider({
+                        label: `lettering rebuilt from ${match.label}, the closest font match`,
+                        job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.words] }) ?? null,
+                        apply: () => {
+                          setLettering((l) => ({ ...l, [index]: placed }))
+                          return () => setLettering(({ [index]: _, ...rest }) => rest)
+                        },
+                      })
+                    }}
                   />
                 }
                 brandColors={
