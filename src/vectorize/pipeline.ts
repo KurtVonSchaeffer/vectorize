@@ -30,6 +30,8 @@ export interface JobSettings {
   /** Each color covers only its own area (print plates, cut files) instead of stacking. */
   knockout: boolean
   keepBlends?: boolean
+  /** Drop sub-0.5 px seams (default on); false keeps V7's output exactly. */
+  cleanSeams?: boolean
   /** Snap circles, ellipses, stars and polygons to exact geometry (flat art). */
   exactShapes?: boolean
   /** Brand colors to snap to or restrict to (flat art). */
@@ -100,6 +102,8 @@ export type TraceJob =
 
 /** Outlines smaller than this (px²) are dropped by the flat tracer. */
 const TRACE_MIN_AREA = 2
+/** Outlines narrower than this on average (traced px) are dropped as seams (see TraceOptions.minWidth). */
+const MIN_OUTLINE_WIDTH = 0.5
 
 export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSettings): TraceJob {
   const { trace, prep, spot } = s
@@ -158,6 +162,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         mode: s.knockout ? 'knockout' : 'stacked',
         spread: s.knockout ? 0.15 : 0,
         exactShapes: s.exactShapes ?? true,
+        minWidth: s.cleanSeams === false ? 0 : MIN_OUTLINE_WIDTH,
       },
     },
   }

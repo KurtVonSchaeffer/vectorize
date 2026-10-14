@@ -47,6 +47,13 @@ export interface TraceOptions {
    * don't. Defaults to `minArea`.
    */
   detailArea?: number
+  /**
+   * Outlines narrower than this on average (px; twice the area over the perimeter) are seams, not
+   * shapes: a 1 px ring traced from a faint frame along the image's edge, or a sliver a stacked
+   * layer copies under every layer below it. Drawn they show as hairlines, cut they become
+   * slits. A real 1 px rule measures about 1 and stays. 0 or unset keeps them all (V7).
+   */
+  minWidth?: number
 }
 
 /** Exact shapes made, plus how many merged outlines were split into overlapping shapes. */
@@ -234,7 +241,20 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     // Drop fragments of this color that a split shape below already draws in full.
     const kept = loops.filter((l) => !suppressed.some((s) => s.label === label && mostly(sampleOf(l), s.covers)))
     const below: TracedLayer[] = []
+    // A thin outline is real detail (a stroke of small lettering, a hairline rule) when a pixel it
+    // touches is mostly this layer's own colour; a seam is only colour mixes at an edge, or a copy
+    // of a layer above that this stacked layer extends under.
+    const ownPixel = (loop: Point[]) => {
+      const [x0, y0, x1, y1] = bounds(loop)
+      for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(h - 1, Math.floor(y1)); y++)
+        for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(w - 1, Math.floor(x1)); x++) {
+          const p = y * w + x
+          if (labels[p] === label && cov[p] >= 0.5) return true
+        }
+      return false
+    }
     const parts = kept.map((loop) => {
+      if (opts.minWidth && meanWidth(loop) < opts.minWidth && !ownPixel(loop)) return ''
       // The full-image background is a plain rectangle; write it exactly but don't count it.
       if (opts.exactShapes && coversImage(loop, w, h)) return `M0 0L${w} 0L${w} ${h}L0 ${h}Z`
       const exact = opts.exactShapes ? detectShape(loop, { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing }) : null
@@ -260,13 +280,33 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         shapes[exact.kind]++
         return exact.d
       }
-      return toPath(fitClosed(loop, { error: opts.error, cornerAngle: opts.cornerAngle }), fmt)
+      const curves = fitClosed(loop, { error: opts.error, cornerAngle: opts.cornerAngle })
+      // Fitting can also flatten a thin loop into a seam.
+      if (opts.minWidth && meanWidth(curves.flatMap((c) => [0, 0.25, 0.5, 0.75].map((t) => bezierAt(c, t)))) < opts.minWidth && !ownPixel(loop)) return ''
+      return toPath(curves, fmt)
     })
     const d = parts.join('')
     layers.push(...below.filter((b) => b.d && b.color >= 0))
     if (d) layers.push({ color: colors[label], d, shapes: groupShapes(kept, parts), fill: fillOf(label) })
   }
   return { svg: layersToSvg(layers, w, h), paths: layers.length, layers, shapes }
+}
+
+/** Mean width of a closed outline: twice its area over its perimeter. */
+function meanWidth(loop: Point[]): number {
+  let per = 0
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i]
+    const b = loop[(i + 1) % loop.length]
+    per += Math.hypot(b[0] - a[0], b[1] - a[1])
+  }
+  return per ? (2 * Math.abs(area(loop))) / per : 0
+}
+
+function bezierAt([p0, p1, p2, p3]: Cubic, t: number): Point {
+  const u = 1 - t
+  const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
+  return [a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]]
 }
 
 function segDist(p: Point, a: Point, b: Point): number {

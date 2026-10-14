@@ -9,6 +9,8 @@
 // "Save as baseline" keeps the results in this browser; later runs show the change per file.
 import { Enhancer } from '../src/ai/enhancer'
 import { downloadsFor } from '../src/export/files'
+import { shapesFromSvg } from '../src/export/path'
+import { validateShapes, type ExportCheck } from '../src/export/validate'
 import { colourFidelity, compareRasters, inkChange } from '../src/quality/compare'
 import { rasterizeSvg } from '../src/quality/render'
 import { bitmapToImageData, loadImage, type SourceImage } from '../src/vectorize/image'
@@ -81,6 +83,8 @@ interface Result {
   review: Review | null
   /** Fingerprint of the upload and its original; a saved review applies only to this exact content. */
   digest: string
+  /** Geometry checks of the print / cut plates (src/export/validate.ts), at 200 mm wide. */
+  fileChecks: ExportCheck[]
   ms: number
   error?: string
 }
@@ -178,7 +182,7 @@ async function digestOf(file: File, original: File | null): Promise<string> {
 
 async function score(file: File, original: File | null, category: string): Promise<Result> {
   const digest = await digestOf(file, original)
-  const base: Result = { file: file.name, category, original: original?.name ?? null, size: '', kind: '', compressed: false, colours: 0, segments: 0, kb: 0, upload: { error: 0, edgeF1: 0 }, first: null, offer: null, bestPossible: null, exports: {}, gradientsKept: null, font: null, verdict: [], pass: null, structure: null, flags: [], final: 'REVIEW', review: null, digest, ms: 0 }
+  const base: Result = { file: file.name, category, original: original?.name ?? null, size: '', kind: '', compressed: false, colours: 0, segments: 0, kb: 0, upload: { error: 0, edgeF1: 0 }, first: null, offer: null, bestPossible: null, exports: {}, gradientsKept: null, font: null, verdict: [], pass: null, structure: null, flags: [], final: 'REVIEW', review: null, digest, fileChecks: [], ms: 0 }
   try {
     const source: SourceImage = await loadImage(file, file.name)
     const sim = await simulateImprover(source, enhancer, tracer)
@@ -235,6 +239,8 @@ async function score(file: File, original: File | null, category: string): Promi
       colours: colourFidelity(ref1.data, res1.data, W, H).colours,
     })
     r.flags = structureFlags(r.structure)
+    r.fileChecks = validateShapes(shapesFromSvg(plates), { width: W, outputWidthMm: 200, plates: true })
+    for (const c of r.fileChecks) if (c.status !== 'ok') r.flags.push(`print/cut file: ${c.message}`)
     visuals.set(r, {
       file: file.name,
       width: W,
@@ -389,6 +395,7 @@ function reportRows(): ReportRow[] {
       const blocking = Object.entries(r.exports).filter(([, v]) => v !== 'ok').map(([k, v]) => `${k} export ${v}`)
       blocking.push(...r.verdict.filter((x) => x.startsWith('OFFER WORSE')))
       if (r.structure?.openOutlines) blocking.push(`cut file has ${r.structure.openOutlines} open outline(s)`)
+      for (const c of r.fileChecks) if (c.status === 'fail') blocking.push(`print/cut file: ${c.message}`)
       if (r.font && r.review?.checks.lettering === 'fail') blocking.push(`lettering rebuilt as ${r.font} failed review (possible wrong font)`)
       if (r.review?.checks.offer === 'fail') blocking.push('suggested improvement looks worse')
       const metrics: [string, string][] = [['size', r.size], ['colours', `${r.colours}`], ['segments', `${r.segments}`], ['SVG', `${r.kb} KB`], ['vs upload', `${r.upload.error}% / F1 ${r.upload.edgeF1}`]]

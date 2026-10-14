@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorize V8 redraw (experimental)</title>
+    <style>body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111} table{border-collapse:collapse;margin:8px 0} th,td{padding:4px 10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top} small{color:#666;font-weight:normal} .up{color:#1d8a4b} .down{color:#c0362c} section{border-top:2px solid #ddd;margin-top:18px;padding-top:8px} h2{font-size:15px;margin:4px 0} .warn{background:#fff3cd;padding:8px 12px;border:1px solid #f0c36d}</style>
+  </head>
+  <body>
+    <h1>V8 redraw proof of concept</h1>
+    <p class="warn"><b>Experimental.</b> Not part of the app. The test logos were made for this test; each is damaged into a realistic upload (shrunk, blurred, saved as JPEG), traced by V7, redrawn by V8, and both are scored against the clean original. Pink outlines on the V8 picture mark places where the redraw moved the drawing further than the upload can explain: check them.</p>
+    <p>Upload width <input id="width" type="number" value="160" style="width:5em"> px · JPEG quality <input id="quality" type="number" value="0.55" step="0.05" style="width:4em"> <button id="run">Run the test set</button> · or add your own logos <input id="files" type="file" multiple accept="image/*"> <button id="json">Export JSON</button></p>
+    <p id="status">Ready.</p>
+    <p id="summary"></p>
+    <div id="cases"></div>
+    <script type="module" src="./redraw/page.ts"></script>
+  </body>
+</html>

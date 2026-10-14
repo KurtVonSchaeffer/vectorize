@@ -208,3 +208,39 @@ describe('fitClosed robustness', () => {
       }
   })
 })
+
+describe('seams (minWidth)', () => {
+  const opts = { smoothing: 0.8, minArea: 1, error: 0.5, cornerAngle: 60, precision: 2 }
+  /** White with a 40×10 red block; `paint` adds more. */
+  const map = (paint: (labels: Uint8Array, second: Uint8Array, cov: Float32Array, w: number) => void): LabelMap => {
+    const w = 60, h = 40
+    const labels = new Uint8Array(w * h), second = new Uint8Array(w * h).fill(255), cov = new Float32Array(w * h).fill(1)
+    for (let x = 10; x < 50; x++) for (let y = 15; y < 25; y++) labels[y * w + x] = 1
+    paint(labels, second, cov, w)
+    return { w, h, labels, second, cov, colors: [0xffffff, 0xff0000] }
+  }
+  const red = (m: LabelMap, minWidth: number) => traceLabels(m, { ...opts, minWidth }).layers.filter((l) => l.color === 0xff0000).flatMap((l) => l.shapes ?? [l.d])
+
+  it('drops a seam traced from a faint mixed-colour strip along the image edge', () => {
+    // The top row is 60% white, 40% red: a faint frame, not red artwork.
+    const m = map((labels, second, cov, w) => {
+      for (let x = 0; x < w; x++) [labels[x], second[x], cov[x]] = [0, 1, 0.6]
+    })
+    expect(red(m, 0)).toHaveLength(2)
+    expect(red(m, 0.5)).toHaveLength(1)
+  })
+
+  it('keeps a real 1 px rule', () => {
+    const m = map((labels, _s, _c, w) => {
+      for (let x = 10; x < 50; x++) labels[32 * w + x] = 1
+    })
+    expect(red(m, 0.5)).toHaveLength(2)
+  })
+
+  it('keeps a faint thin stroke whose pixels are mostly its own colour (small lettering)', () => {
+    const m = map((labels, second, cov, w) => {
+      for (let x = 10; x < 50; x++) [labels[32 * w + x], second[32 * w + x], cov[32 * w + x]] = [1, 0, 0.6]
+    })
+    expect(red(m, 0.5)).toHaveLength(red(m, 0).length)
+  })
+})

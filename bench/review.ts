@@ -29,7 +29,9 @@ export interface Box {
   y: number
   w: number
   h: number
-  kind: 'merged' | 'broken' | 'missing' | 'extra'
+  kind: 'merged' | 'broken' | 'missing' | 'extra' | 'interpreted'
+  /** Only on this picture (0 upload, 1 first result, 2 offer, 3 original); all vector pictures when unset. */
+  pane?: number
 }
 
 export interface Structure {
@@ -322,20 +324,22 @@ export interface Visual {
   originalIsVector: boolean
   boxes: Box[]
   focus: { x: number; y: number }
+  /** Picture titles, when not the acceptance test's (upload, first result, offer, original). */
+  titles?: [string, string, string, string]
 }
 
 export const svgUrl = (svg: string) => URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
 export const ZOOMS = [1, 4, 8, 16, 32]
 const VIEW = 230
 
-const BOX_COLOURS: Record<Box['kind'], string> = { merged: '#c0362c', broken: '#d97706', missing: '#7c3aed', extra: '#0369a1' }
+const BOX_COLOURS: Record<Box['kind'], string> = { merged: '#c0362c', broken: '#d97706', missing: '#7c3aed', extra: '#0369a1', interpreted: '#db2777' }
 
 function panes(v: Visual) {
   return [
-    { title: 'Upload (raster)', src: v.upload, pixelated: true, note: 'pixels shown as they are' },
-    { title: 'First vector result', src: v.first, pixelated: false, note: '' },
-    { title: 'Suggested improvement', src: v.offer?.src ?? null, pixelated: false, note: v.offer ? v.offer.label : 'none suggested' },
-    { title: 'Original artwork', src: v.original, pixelated: false, note: v.original ? (v.originalIsVector ? 'vector' : 'high-res PNG') : 'not supplied: review by eye' },
+    { title: v.titles?.[0] ?? 'Upload (raster)', src: v.upload, pixelated: true, note: 'pixels shown as they are' },
+    { title: v.titles?.[1] ?? 'First vector result', src: v.first, pixelated: false, note: '' },
+    { title: v.titles?.[2] ?? 'Suggested improvement', src: v.offer?.src ?? null, pixelated: false, note: v.offer ? v.offer.label : 'none suggested' },
+    { title: v.titles?.[3] ?? 'Original artwork', src: v.original, pixelated: false, note: v.original ? (v.originalIsVector ? 'vector' : 'high-res PNG') : 'not supplied: review by eye' },
   ]
 }
 
@@ -365,7 +369,7 @@ export function panesHtml(v: Visual, zoom: number, fx: number, fy: number, bg = 
         : `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#888;text-align:center;padding:12px">${pane.note}</div>`
       const boxes =
         showBoxes && pane.src && (i === 1 || i === 2 || (i === 3 && v.original))
-          ? v.boxes.map((b) => `<div title="${b.kind}" style="position:absolute;left:${p.left + b.x * p.w - 2}px;top:${p.top + b.y * p.h - 2}px;width:${b.w * p.w + 4}px;height:${b.h * p.h + 4}px;border:2px solid ${BOX_COLOURS[b.kind]};pointer-events:none"></div>`).join('')
+          ? v.boxes.filter((b) => b.pane === undefined || b.pane === i).map((b) => `<div title="${b.kind}" style="position:absolute;left:${p.left + b.x * p.w - 2}px;top:${p.top + b.y * p.h - 2}px;width:${b.w * p.w + 4}px;height:${b.h * p.h + 4}px;border:2px solid ${BOX_COLOURS[b.kind]};pointer-events:none"></div>`).join('')
           : ''
       return `<figure style="margin:0;width:${VIEW}px"><div data-pane="${i}" style="position:relative;width:${VIEW}px;height:${VIEW}px;overflow:hidden;border:1px solid #ccc;cursor:crosshair;${BACKGROUNDS[bg]}">${img}${boxes}</div><figcaption style="font-size:11px;margin-top:3px"><b>${pane.title}</b>${pane.src && pane.note ? `<br><small>${pane.note}</small>` : ''}</figcaption></figure>`
     })
