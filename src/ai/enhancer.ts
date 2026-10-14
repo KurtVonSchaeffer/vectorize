@@ -18,32 +18,53 @@ interface Pending {
 }
 
 /**
- * Runs the AI upscaler in a long-lived worker. Unlike the tracer, the worker is never terminated
- * to cancel work: reloading a model costs more than finishing a stale job, so stale results are
- * simply ignored by the caller. Results are cached per source image, so tweaking tracing
- * settings never re-runs the model.
+ * The worker holds the model and its WASM memory (about 250 MB once it has run) for as long as it
+ * lives, and WASM memory can't shrink, so stopping the worker is the only way to give it back. It's
+ * stopped after this long without AI work. The model files stay in the browser's cache, so the
+ * next use reloads them from disk (about 8 s to set the model up again), not from the network.
+ */
+export const IDLE_RELEASE_MS = 3 * 60_000
+
+/**
+ * Runs the AI upscaler in a worker that's kept while it's in use. Unlike the tracer, the worker
+ * is never terminated to cancel work: reloading a model costs more than finishing a stale job, so
+ * stale results are simply ignored by the caller. Results are cached per source image, so tweaking
+ * tracing settings never re-runs the model.
  */
 export class Enhancer {
-  private worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+  private worker: Worker | null = null
+  private idle: ReturnType<typeof setTimeout> | undefined
   private nextId = 1
   private pending = new Map<number, Pending>()
   private cache = new Map<string, ImageData>()
 
-  constructor() {
-    this.worker.onmessage = (e: MessageEvent<AiResponse>) => {
+  constructor(private idleMs = IDLE_RELEASE_MS) {}
+
+  private connect(): Worker {
+    clearTimeout(this.idle)
+    if (this.worker) return this.worker
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (e: MessageEvent<AiResponse>) => {
       const msg = e.data
       const p = this.pending.get(msg.id)
       if (!p) return
       if (msg.type === 'progress') {
         p.onProgress?.({ task: p.task, phase: msg.phase, progress: msg.progress })
-      } else if (msg.type === 'done') {
-        this.pending.delete(msg.id)
-        p.resolve(new ImageData(new Uint8ClampedArray(msg.pixels), msg.width, msg.height))
-      } else {
-        this.pending.delete(msg.id)
-        p.reject(new Error(msg.error))
+        return
       }
+      this.pending.delete(msg.id)
+      if (msg.type === 'done') p.resolve(new ImageData(new Uint8ClampedArray(msg.pixels), msg.width, msg.height))
+      else p.reject(new Error(msg.error))
+      if (!this.pending.size) this.idle = setTimeout(() => this.release(), this.idleMs)
     }
+    return (this.worker = worker)
+  }
+
+  /** Stops the worker (and frees the model's memory) when nothing is running. */
+  private release() {
+    if (this.pending.size) return
+    this.worker?.terminate()
+    this.worker = null
   }
 
   /** Returns null when the image is already too large for this upscale factor. */
@@ -54,7 +75,9 @@ export class Enhancer {
   }
 
   dispose() {
-    this.worker.terminate()
+    clearTimeout(this.idle)
+    this.worker?.terminate()
+    this.worker = null
     for (const p of this.pending.values()) p.reject(new Error('disposed'))
     this.pending.clear()
   }
@@ -79,6 +102,6 @@ export class Enhancer {
   }
 
   private send(msg: AiRequest, transfer: Transferable[] = []) {
-    this.worker.postMessage(msg, transfer)
+    this.connect().postMessage(msg, transfer)
   }
 }
