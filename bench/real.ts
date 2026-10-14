@@ -16,6 +16,7 @@ import { compressionRipple, COMPRESSED_RIPPLE, isLossy } from '../src/vectorize/
 import { Tracer } from '../src/vectorize/tracer'
 import { inkNames } from '../src/vectorize/pipeline'
 import { simulateImprover } from './improver-sim'
+import { finalVerdict, loadReviews, reportHtml, reviewForm, structureChecks, structureFlags, svgUrl, viewer, type ReportRow, type Review, type Structure, type Verdict, type Visual } from './review'
 
 export const CATEGORIES: Record<string, string> = {
   print: 'Print-ready branding',
@@ -72,6 +73,14 @@ interface Result {
   font: string | null
   verdict: string[]
   pass: boolean | null
+  /** Structural checks (bench/review.ts): nodes, outlines, merged / broken / missing shapes, colours, cut pieces. */
+  structure: Structure | null
+  flags: string[]
+  /** Final verdict: automatic criteria plus the manual review. */
+  final: Verdict
+  review: Review | null
+  /** Fingerprint of the upload and its original; a saved review applies only to this exact content. */
+  digest: string
   ms: number
   error?: string
 }
@@ -80,6 +89,10 @@ const BASELINE = 'real-baseline-v2'
 const tracer = new Tracer()
 const enhancer = new Enhancer()
 const results: Result[] = []
+// Per result (not per file name: two jobs can share a name).
+const visuals = new Map<Result, Visual>()
+;(window as unknown as { __visuals: Map<Result, Visual> }).__visuals = visuals
+const reviews = loadReviews()
 ;(window as unknown as { __real: Result[] }).__real = results
 const table = document.getElementById('rows')!
 const status = document.getElementById('status')!
@@ -151,8 +164,21 @@ function judge(r: Result): void {
   r.verdict = v
 }
 
+/** SHA-256 of the upload followed by its original, as hex. */
+async function digestOf(file: File, original: File | null): Promise<string> {
+  const parts = await Promise.all([file, ...(original && original !== file ? [original] : [])].map((f) => f.arrayBuffer()))
+  const all = new Uint8Array(parts.reduce((n, p) => n + p.byteLength + 1, 0))
+  let at = 0
+  for (const p of parts) {
+    all.set(new Uint8Array(p), at)
+    at += p.byteLength + 1
+  }
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', all))].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 async function score(file: File, original: File | null, category: string): Promise<Result> {
-  const base: Result = { file: file.name, category, original: original?.name ?? null, size: '', kind: '', compressed: false, colours: 0, segments: 0, kb: 0, upload: { error: 0, edgeF1: 0 }, first: null, offer: null, bestPossible: null, exports: {}, gradientsKept: null, font: null, verdict: [], pass: null, ms: 0 }
+  const digest = await digestOf(file, original)
+  const base: Result = { file: file.name, category, original: original?.name ?? null, size: '', kind: '', compressed: false, colours: 0, segments: 0, kb: 0, upload: { error: 0, edgeF1: 0 }, first: null, offer: null, bestPossible: null, exports: {}, gradientsKept: null, font: null, verdict: [], pass: null, structure: null, flags: [], final: 'REVIEW', review: null, digest, ms: 0 }
   try {
     const source: SourceImage = await loadImage(file, file.name)
     const sim = await simulateImprover(source, enhancer, tracer)
@@ -190,9 +216,40 @@ async function score(file: File, original: File | null, category: string): Promi
       r.bestPossible = best && best.error < r.first.error ? best : null
     } else if (sim.offered) r.offer = { label: sim.offered.label, uploadError: +sim.offered.proxy.score.toFixed(2), vsOriginal: null }
     judge(r)
+    // Structural checks against the original (or the upload when there is none), and the pictures.
+    const k = Math.min(original ? 2 : 1, 1600 / Math.max(W, H))
+    const w = Math.max(1, Math.round(W * k))
+    const h = Math.max(1, Math.round(H * k))
+    const reference = original ? await originalRaster(original, w, h) : await originalRaster(file, w, h)
+    const resultImg = await rasterizeSvg(sim.first.svg, w, h)
+    const [ref1, res1] = await Promise.all([original ? originalRaster(original, W, H) : originalRaster(file, W, H), rasterizeSvg(sim.first.svg, W, H)])
+    r.structure = structureChecks({
+      svg: sim.first.svg,
+      plateSvg: plates,
+      width: W,
+      height: H,
+      reference,
+      result: resultImg,
+      against: original ? 'original' : 'upload',
+      originalSvg: original && /\.svg$/i.test(original.name) ? await original.text() : null,
+      colours: colourFidelity(ref1.data, res1.data, W, H).colours,
+    })
+    r.flags = structureFlags(r.structure)
+    visuals.set(r, {
+      file: file.name,
+      width: W,
+      height: H,
+      upload: URL.createObjectURL(file),
+      first: svgUrl(sim.first.svg),
+      offer: sim.offered ? { label: sim.offered.label, src: svgUrl(sim.offered.svg) } : null,
+      original: original && original !== file ? URL.createObjectURL(original) : null,
+      originalIsVector: !!original && /\.svg$/i.test(original.name),
+      boxes: r.structure.boxes,
+      focus: r.structure.focus,
+    })
     return r
   } catch (err) {
-    return { ...base, error: err instanceof Error ? err.message : String(err), verdict: ['failed'], pass: false }
+    return { ...base, error: err instanceof Error ? err.message : String(err), verdict: ['failed'], pass: false, final: 'FAIL' }
   }
 }
 
@@ -233,6 +290,26 @@ function render(r: Result, before: Result | undefined) {
       .join('')
   }
   table.append(tr)
+  const v = visuals.get(r)
+  if (!v) return
+  // A saved review counts only for the exact same files; a different file with the same name starts fresh.
+  const saved = reviews[r.file]
+  const review: Review = saved && saved.digest === r.digest ? saved : { checks: {}, notes: '', digest: r.digest }
+  const extra = document.createElement('tr')
+  const td = document.createElement('td')
+  td.colSpan = 10
+  td.style.paddingBottom = '18px'
+  const head = document.createElement('div')
+  const setFinal = () => {
+    r.review = review
+    r.final = finalVerdict(r.pass, review)
+    head.innerHTML = `<b style="font-size:15px" class="${r.final === 'PASS' ? 'up' : r.final === 'FAIL' ? 'down' : ''}">${r.final}</b> ${r.file} <small>(final: automatic + manual review)</small>${r.flags.length ? `<br><span style="color:#b45309">Flags: ${r.flags.join('; ')}</span>` : ''}${r.structure ? `<br><small>nodes ${r.structure.nodes}${r.structure.originalNodes ? ` (original ${r.structure.originalNodes})` : ''} · ${r.structure.nodesPer100px} per 100 px outline · short segments ${Math.round(r.structure.shortSegments * 100)}% · kinked joins ${Math.round(r.structure.kinks * 100)}% · shapes ${r.structure.shapes.result} vs ${r.structure.shapes.reference} in the ${r.structure.against} · cut pieces ${r.structure.cutPieces}, open ${r.structure.openOutlines}${r.font ? ` · font rebuilt: ${r.font}` : ''}</small>` : ''}`
+    summarize()
+  }
+  td.append(head, viewer(v), reviewForm(r.file, review, setFinal))
+  extra.append(td)
+  table.append(extra)
+  setFinal()
 }
 
 function summarize() {
@@ -249,12 +326,16 @@ function summarize() {
   }
   const exportFails = results.filter((r) => Object.values(r.exports).some((x) => x !== 'ok'))
   if (exportFails.length) lines.push(`<span class="down">Export problems: ${exportFails.map((r) => r.file).join(', ')}</span>`)
+  const finals = (v: Verdict) => results.filter((r) => r.final === v).length
+  lines.unshift(`<b>Final (with manual review): ${finals('PASS')} PASS, ${finals('REVIEW')} REVIEW, ${finals('FAIL')} FAIL.</b>`)
   summaryEl.innerHTML = lines.join('<br>')
 }
 
 async function run(files: File[]) {
   results.length = 0
   table.innerHTML = ''
+  for (const v of visuals.values()) for (const u of [v.upload, v.first, v.offer?.src, v.original]) if (u) URL.revokeObjectURL(u)
+  visuals.clear()
   const key = (name: string) => name.replace(/\.(truth|original)(?=\.)/i, '').replace(/\.[^.]+$/, '').toLowerCase()
   const groups = new Map<string, File[]>()
   for (const f of files) groups.set(key(f.name), [...(groups.get(key(f.name)) ?? []), f])
@@ -300,9 +381,31 @@ document.getElementById('save')!.addEventListener('click', () => {
     status.textContent = 'Could not save in this browser.'
   }
 })
+function reportRows(): ReportRow[] {
+  return results.map((r): ReportRow => {
+      // Not tested (it failed to run) is a failure; photos and pixel art are outside this test.
+      if (r.error) return { file: r.file, category: r.category, verdict: 'FAIL', auto: false, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [`could not be tested: ${r.error}`] }
+      if (!visuals.has(r)) return { file: r.file, category: r.category, verdict: 'REVIEW', auto: null, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [], excluded: `${r.kind}: not covered by this test` }
+      const blocking = Object.entries(r.exports).filter(([, v]) => v !== 'ok').map(([k, v]) => `${k} export ${v}`)
+      blocking.push(...r.verdict.filter((x) => x.startsWith('OFFER WORSE')))
+      if (r.structure?.openOutlines) blocking.push(`cut file has ${r.structure.openOutlines} open outline(s)`)
+      if (r.font && r.review?.checks.lettering === 'fail') blocking.push(`lettering rebuilt as ${r.font} failed review (possible wrong font)`)
+      if (r.review?.checks.offer === 'fail') blocking.push('suggested improvement looks worse')
+      const metrics: [string, string][] = [['size', r.size], ['colours', `${r.colours}`], ['segments', `${r.segments}`], ['SVG', `${r.kb} KB`], ['vs upload', `${r.upload.error}% / F1 ${r.upload.edgeF1}`]]
+      if (r.first) metrics.push(['vs original', `${r.first.error}% / F1 ${r.first.edgeF1}`], ['colour ΔE', `${r.first.meanDE}`])
+      if (r.offer) metrics.push(['suggestion', r.offer.label])
+      if (r.font) metrics.push(['font rebuilt', r.font])
+      return { file: r.file, category: r.category, verdict: r.final, auto: r.pass, notes: r.verdict, flags: r.flags, metrics, review: r.review ?? undefined, visual: visuals.get(r)!, blocking }
+    })
+}
+document.getElementById('report')!.addEventListener('click', async () => {
+  status.textContent = 'Building report…'
+  download('vectorize-acceptance-report.html', await reportHtml(reportRows(), CATEGORIES, { version: 'V7 (v7-assessment)' }), 'text/html')
+  status.textContent = `Report saved (${results.length} logos).`
+})
 document.getElementById('json')!.addEventListener('click', () => download('vectorize-acceptance.json', JSON.stringify(results, null, 2), 'application/json'))
 document.getElementById('csv')!.addEventListener('click', () => {
-  const head = ['verdict', 'file', 'category', 'original', 'size', 'kind', 'compressed', 'colours', 'segments', 'kb', 'upload_error', 'upload_f1', 'orig_error', 'orig_f1', 'orig_de', 'orig_merged', 'orig_alpha_flips', 'offer', 'offer_vs_orig', 'best_possible', 'best_possible_error', 'gradients_kept', 'font', 'exports_failed', 'notes']
-  const rows = results.map((r) => [r.pass === true ? 'PASS' : r.pass === false ? 'FAIL' : 'REVIEW', r.file, r.category, r.original ?? '', r.size, r.kind, r.compressed, r.colours, r.segments, r.kb, r.upload.error, r.upload.edgeF1, r.first?.error ?? '', r.first?.edgeF1 ?? '', r.first?.meanDE ?? '', r.first?.merged ?? '', r.first?.alphaFlips ?? '', r.offer?.label ?? '', r.offer?.vsOriginal?.error ?? '', r.bestPossible?.label ?? '', r.bestPossible?.error ?? '', r.gradientsKept ?? '', r.font ?? '', Object.entries(r.exports).filter(([, v]) => v !== 'ok').map(([k]) => k).join('; '), [...r.verdict, r.error ?? ''].filter(Boolean).join('; ')])
+  const head = ['final', 'manual', 'flags', 'verdict', 'file', 'category', 'original', 'size', 'kind', 'compressed', 'colours', 'segments', 'kb', 'upload_error', 'upload_f1', 'orig_error', 'orig_f1', 'orig_de', 'orig_merged', 'orig_alpha_flips', 'offer', 'offer_vs_orig', 'best_possible', 'best_possible_error', 'gradients_kept', 'font', 'exports_failed', 'notes']
+  const rows = results.map((r) => [r.final, r.review?.overall ?? '', r.flags.join('; '), r.pass === true ? 'PASS' : r.pass === false ? 'FAIL' : 'REVIEW', r.file, r.category, r.original ?? '', r.size, r.kind, r.compressed, r.colours, r.segments, r.kb, r.upload.error, r.upload.edgeF1, r.first?.error ?? '', r.first?.edgeF1 ?? '', r.first?.meanDE ?? '', r.first?.merged ?? '', r.first?.alphaFlips ?? '', r.offer?.label ?? '', r.offer?.vsOriginal?.error ?? '', r.bestPossible?.label ?? '', r.bestPossible?.error ?? '', r.gradientsKept ?? '', r.font ?? '', Object.entries(r.exports).filter(([, v]) => v !== 'ok').map(([k]) => k).join('; '), [...r.verdict, r.error ?? ''].filter(Boolean).join('; ')])
   download('vectorize-acceptance.csv', [head, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv')
 })

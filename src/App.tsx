@@ -15,6 +15,7 @@ import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
+import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
@@ -60,6 +61,8 @@ export default function App() {
   const [matchingLettering, setMatchingLettering] = useState(false)
   // The image whose automatic lettering match has finished (it runs once, after the first result).
   const [letteringSettled, setLetteringSettled] = useState<string | null>(null)
+  // Lines the automatic match found but couldn't rebuild confidently, for the image with this id.
+  const [unmatchedLettering, setUnmatchedLettering] = useState<{ id: string; lines: { line: number; text: string; closest: { label: string; score: number } | null }[] } | null>(null)
   const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
   const [importedPalette, setImportedPalette] = useState<Palette | null>(loadSavedPalette)
   const palette = importedPalette ?? DEMO_PALETTE
@@ -253,6 +256,22 @@ export default function App() {
   )
 
   const flatKind = kind === 'flat' || kind === 'lineart' || inks.enabled
+
+  // Whether the result flattened visible shading (e.g. gradients the tracer couldn't keep), so the
+  // summary doesn't call it ready for print. Line art is left out: it becomes solid ink on purpose.
+  const [shadingLost, setShadingLost] = useState<{ svg: string; lost: boolean } | null>(null)
+  useEffect(() => {
+    const svg = result?.svg
+    if (!svg || !source || kind !== 'flat') return
+    let live = true
+    shadingLossOf(source.bitmap, svg)
+      .then((s) => live && setShadingLost({ svg, lost: lostShading(s) }))
+      .catch(() => live && setShadingLost({ svg, lost: false }))
+    return () => {
+      live = false
+    }
+  }, [result?.svg, source, kind])
+  const flattened = kind === 'flat' && !!result && shadingLost?.svg === result.svg && shadingLost.lost
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
   const downloads = useMemo(() => {
@@ -305,7 +324,9 @@ export default function App() {
   const colorCount = chips?.length ?? null
   const summary = status === 'working' && !result
     ? 'Finding colors and tracing edges…'
-    : `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}, clean edges` : `${(result?.paths ?? 0).toLocaleString()} shapes`}, ready for ${{ print: 'print', web: 'the web', cut: 'cutting' }[client.purpose]}.`
+    : flattened
+      ? `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}` : `${(result?.paths ?? 0).toLocaleString()} shapes`}. Some shading in your image became flat color, so zoom in and check it before you ${{ print: 'print', web: 'publish', cut: 'cut' }[client.purpose]} it.`
+      : `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}, clean edges` : `${(result?.paths ?? 0).toLocaleString()} shapes`}, ready for ${{ print: 'print', web: 'the web', cut: 'cutting' }[client.purpose]}.`
   const headline = {
     flat: 'Your artwork is now a sharp vector',
     photo: 'Your image is now a vector',
@@ -361,13 +382,20 @@ export default function App() {
   const letteringNote = (() => {
     const lines = Object.values(lettering)
     if (matchingLettering && result) return { text: 'Matching the lettering to fonts, to rebuild it cleanly…' }
+    // Lines found but not rebuilt (no font close enough, and none chosen since).
+    const unmatched = (unmatchedLettering && unmatchedLettering.id === source?.id ? unmatchedLettering.lines : []).filter((u) => !lettering[u.line])
+    const howTo = 'If you know the font, choose it under More options → Fonts in this artwork → Use a font you know.'
+    const kept = unmatched.length
+      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} couldn't be rebuilt from a font automatically${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
+      : ''
+    if (!lines.length && result && kept) return { text: `Kept the lettering as traced: ${kept}. ${howTo}` }
     if (!lines.length || !result) return null
     const words = lines.reduce((n, l) => n + l.words.length, 0)
     const skipped = lines.reduce((n, l) => n + l.skipped, 0)
-    const fonts = [...new Set(lines.map((l) => l.font))]
+    const fonts = [...new Set(lines.flatMap((l) => l.words.map((w) => w.font)))]
     const fontsUsed = fonts.join(' and ')
     return {
-      text: `Matched the lettering to ${fontsUsed} and rebuilt ${words === 1 ? '1 word' : `${words} words`} from ${fonts.length > 1 ? 'those fonts' : 'the font'}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}`,
+      text: `Matched the lettering to ${fontsUsed} and rebuilt ${words === 1 ? '1 word' : `${words} words`} from ${fonts.length > 1 ? 'those fonts' : 'the font'}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}${kept ? ` ${kept}, so it stays as traced. ${howTo}` : ''}`,
       undoLabel: 'Use traced letters',
       onUndo: () => setLettering({}),
     }
@@ -513,21 +541,36 @@ export default function App() {
                       setMatchingLettering(busy)
                       if (!busy) setLetteringSettled(source.id)
                     }}
-                    onUseFont={async (report, index, match, quiet) => {
+                    onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
+                    onUseFont={async (report, index, match, quiet, only, named) => {
+                      const line = report.lines[index]
+                      // Only some words (e.g. the bold word of a bold + light wordmark), by position in the line.
+                      const picked = only ?? line.shapes.map((_, k) => k)
+                      const part = only ? { ...line, shapes: picked.map((k) => line.shapes[k]) } : line
                       let placed: LineLettering
                       try {
                         const { placeLine } = await import('./fonts/lettering')
-                        placed = await placeLine(report, report.lines[index], match)
+                        placed = await placeLine(report, part, match, { named })
                       } catch (err) {
                         if (!quiet) showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
-                        return
+                        return false
                       }
                       if (!placed.words.length) {
-                        if (quiet) return
-                        showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
-                        return
+                        if (!quiet) showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
+                        return false
                       }
-                      setLettering((l) => ({ ...l, [index]: placed }))
+                      // Positions within the part → positions within the line.
+                      const words = placed.words.map((w) => ({ ...w, index: picked[w.index ?? 0] }))
+                      setLettering((l) => {
+                        const prev = l[index]
+                        if (!only || !prev) return { ...l, [index]: { ...placed, words, tried: picked } }
+                        // Keep the line's other words as they were rebuilt; replace the chosen ones.
+                        const all = [...prev.words.filter((w) => !picked.includes(w.index ?? -1)), ...words].sort((a, b) => a.box.x0 - b.box.x0)
+                        const tried = [...new Set([...(prev.tried ?? line.shapes.map((_, k) => k)), ...picked])]
+                        const skipped = tried.filter((k) => !all.some((w) => w.index === k)).length
+                        return { ...l, [index]: { font: [...new Set(all.map((w) => w.font))].join(' + '), words: all, skipped, tried } }
+                      })
+                      return true
                     }}
                     onClearFont={(index) => setLettering(({ [index]: _, ...rest }) => rest)}
                     sharpen={
