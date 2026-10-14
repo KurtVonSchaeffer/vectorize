@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareShapes, finalVerdict } from './review'
+import { compareShapes, finalVerdict, recommendation, type ReportRow, type Visual } from './review'
 
 /** A white w×h image with black rectangles [x, y, w, h]. */
 function image(w: number, h: number, rects: number[][]): ImageData {
@@ -36,5 +36,26 @@ describe('finalVerdict', () => {
     expect(finalVerdict(true, { checks: { enlarged: 'fail' }, overall: 'yes', notes: '' })).toBe('FAIL')
     expect(finalVerdict(false, { checks: {}, overall: 'yes', notes: '' })).toBe('FAIL')
     expect(finalVerdict(true, { checks: {}, overall: 'minor', notes: '' })).toBe('REVIEW')
+  })
+})
+
+describe('recommendation', () => {
+  const visual = { file: 'x', width: 10, height: 10, upload: '', first: '', offer: null, original: null, originalIsVector: false, boxes: [], focus: { x: 0.5, y: 0.5 } } as Visual
+  const passing = (i: number): ReportRow => ({ file: `print__${i}.png`, category: 'print', verdict: 'PASS', auto: true, notes: [], flags: [], metrics: [], review: { checks: {}, overall: 'yes', notes: '' }, visual, blocking: [] })
+  const ten = Array.from({ length: 10 }, (_, i) => passing(i))
+  it('releases when every logo passes', () => {
+    expect(recommendation(ten, { print: 'Print' }).decision).toBe('RELEASE')
+  })
+  it('never releases when a logo could not be tested', () => {
+    const failed: ReportRow = { file: 'print__crash.png', category: 'print', verdict: 'FAIL', auto: false, notes: ['failed'], flags: [], metrics: [], review: undefined, visual: null, blocking: ['could not be tested: boom'] }
+    const r = recommendation([...ten, failed], { print: 'Print' })
+    expect(r.decision).toBe('REVISE')
+    expect(r.reasons.join(' ')).toContain('print__crash.png')
+  })
+  it('lists photos and pixel art without counting them', () => {
+    const photo: ReportRow = { file: 'complex__photo.jpg', category: 'complex', verdict: 'REVIEW', auto: null, notes: [], flags: [], metrics: [], review: undefined, visual: null, blocking: [], excluded: 'photo: not covered' }
+    const r = recommendation([...ten, photo], { print: 'Print', complex: 'Complex' })
+    expect(r.decision).toBe('RELEASE')
+    expect(r.reasons.join(' ')).toContain('complex__photo.jpg')
   })
 })

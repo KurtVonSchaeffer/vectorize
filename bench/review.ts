@@ -442,6 +442,8 @@ export interface Review {
   notes: string
   reviewer?: string
   at?: string
+  /** Fingerprint of the files reviewed (upload and original), so a review is never carried over to different artwork with the same name. */
+  digest?: string
 }
 
 const STORE = 'real-review-v1'
@@ -512,13 +514,20 @@ export interface ReportRow {
   flags: string[]
   metrics: [string, string][]
   review: Review | undefined
-  visual: Visual
-  /** Release-blocking problems (worse offer, invalid export, wrong font, open cut outlines). */
+  /** Null when the logo couldn't be tested or isn't flat artwork. */
+  visual: Visual | null
+  /** Release-blocking problems (worse offer, invalid export, wrong font, open cut outlines, a test that failed to run). */
   blocking: string[]
+  /** Why the logo is outside the test (photos, pixel art); it's listed but not counted. */
+  excluded?: string
 }
 
-export function recommendation(rows: ReportRow[], categories: Record<string, string>): { decision: 'RELEASE' | 'REVISE' | 'HOLD BACK' | 'INCOMPLETE'; reasons: string[] } {
+export function recommendation(all: ReportRow[], categories: Record<string, string>): { decision: 'RELEASE' | 'REVISE' | 'HOLD BACK' | 'INCOMPLETE'; reasons: string[] } {
   const reasons: string[] = []
+  const excluded = all.filter((r) => r.excluded)
+  // Logos that failed to run stay in (as blocking FAIL rows); only out-of-scope artwork is left out.
+  const rows = all.filter((r) => !r.excluded)
+  if (excluded.length) reasons.push(`${excluded.length} logo(s) left out, not flat artwork: ${excluded.map((r) => r.file).join(', ')}`)
   const blocking = rows.filter((r) => r.blocking.length)
   if (blocking.length) reasons.push(...blocking.map((r) => `${r.file}: ${r.blocking.join('; ')}`))
   const unreviewed = rows.filter((r) => !r.review?.overall)
@@ -560,6 +569,14 @@ export async function reportHtml(rows: ReportRow[], categories: Record<string, s
   const count = (v: Verdict) => rows.filter((r) => r.verdict === v).length
   const parts: string[] = []
   for (const r of rows) {
+    if (!r.visual) {
+      parts.push(`<section style="border-top:2px solid #ddd;padding-top:10px;margin-top:18px">
+      <h2 style="margin:0"><span style="color:${VERDICT_COLOUR[r.verdict]}">${r.verdict}</span> · ${esc(r.file)} <small style="font-weight:normal;color:#666">${esc(categories[r.category] ?? r.category)}</small></h2>
+      ${r.blocking.length ? `<p style="margin:4px 0;color:#c0362c"><b>Release-blocking:</b> ${r.blocking.map(esc).join('; ')}</p>` : ''}
+      ${r.excluded ? `<p style="margin:4px 0"><b>Not counted:</b> ${esc(r.excluded)}</p>` : ''}
+    </section>`)
+      continue
+    }
     const v: Visual = { ...r.visual, upload: (await toDataUrl(r.visual.upload))!, first: (await toDataUrl(r.visual.first))!, original: await toDataUrl(r.visual.original), offer: r.visual.offer ? { ...r.visual.offer, src: (await toDataUrl(r.visual.offer.src))! } : null }
     const b = v.boxes[0]
     const fx = b ? b.x + b.w / 2 : v.focus.x

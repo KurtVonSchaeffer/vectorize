@@ -79,6 +79,8 @@ interface Result {
   /** Final verdict: automatic criteria plus the manual review. */
   final: Verdict
   review: Review | null
+  /** Fingerprint of the upload and its original; a saved review applies only to this exact content. */
+  digest: string
   ms: number
   error?: string
 }
@@ -161,8 +163,21 @@ function judge(r: Result): void {
   r.verdict = v
 }
 
+/** SHA-256 of the upload followed by its original, as hex. */
+async function digestOf(file: File, original: File | null): Promise<string> {
+  const parts = await Promise.all([file, ...(original && original !== file ? [original] : [])].map((f) => f.arrayBuffer()))
+  const all = new Uint8Array(parts.reduce((n, p) => n + p.byteLength + 1, 0))
+  let at = 0
+  for (const p of parts) {
+    all.set(new Uint8Array(p), at)
+    at += p.byteLength + 1
+  }
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', all))].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 async function score(file: File, original: File | null, category: string): Promise<Result> {
-  const base: Result = { file: file.name, category, original: original?.name ?? null, size: '', kind: '', compressed: false, colours: 0, segments: 0, kb: 0, upload: { error: 0, edgeF1: 0 }, first: null, offer: null, bestPossible: null, exports: {}, gradientsKept: null, font: null, verdict: [], pass: null, structure: null, flags: [], final: 'REVIEW', review: null, ms: 0 }
+  const digest = await digestOf(file, original)
+  const base: Result = { file: file.name, category, original: original?.name ?? null, size: '', kind: '', compressed: false, colours: 0, segments: 0, kb: 0, upload: { error: 0, edgeF1: 0 }, first: null, offer: null, bestPossible: null, exports: {}, gradientsKept: null, font: null, verdict: [], pass: null, structure: null, flags: [], final: 'REVIEW', review: null, digest, ms: 0 }
   try {
     const source: SourceImage = await loadImage(file, file.name)
     const sim = await simulateImprover(source, enhancer, tracer)
@@ -233,7 +248,7 @@ async function score(file: File, original: File | null, category: string): Promi
     })
     return r
   } catch (err) {
-    return { ...base, error: err instanceof Error ? err.message : String(err), verdict: ['failed'], pass: false }
+    return { ...base, error: err instanceof Error ? err.message : String(err), verdict: ['failed'], pass: false, final: 'FAIL' }
   }
 }
 
@@ -276,7 +291,9 @@ function render(r: Result, before: Result | undefined) {
   table.append(tr)
   const v = visuals.get(r.file)
   if (!v) return
-  const review: Review = reviews[r.file] ?? { checks: {}, notes: '' }
+  // A saved review counts only for the exact same files; a different file with the same name starts fresh.
+  const saved = reviews[r.file]
+  const review: Review = saved && saved.digest === r.digest ? saved : { checks: {}, notes: '', digest: r.digest }
   const extra = document.createElement('tr')
   const td = document.createElement('td')
   td.colSpan = 10
@@ -364,9 +381,10 @@ document.getElementById('save')!.addEventListener('click', () => {
   }
 })
 function reportRows(): ReportRow[] {
-  return results
-    .filter((r) => visuals.has(r.file))
-    .map((r) => {
+  return results.map((r): ReportRow => {
+      // Not tested (it failed to run) is a failure; photos and pixel art are outside this test.
+      if (r.error) return { file: r.file, category: r.category, verdict: 'FAIL', auto: false, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [`could not be tested: ${r.error}`] }
+      if (!visuals.has(r.file)) return { file: r.file, category: r.category, verdict: 'REVIEW', auto: null, notes: r.verdict, flags: [], metrics: [], review: undefined, visual: null, blocking: [], excluded: `${r.kind}: not covered by this test` }
       const blocking = Object.entries(r.exports).filter(([, v]) => v !== 'ok').map(([k, v]) => `${k} export ${v}`)
       blocking.push(...r.verdict.filter((x) => x.startsWith('OFFER WORSE')))
       if (r.structure?.openOutlines) blocking.push(`cut file has ${r.structure.openOutlines} open outline(s)`)
