@@ -140,5 +140,5 @@ All of this runs in workers, so the interface stays responsive.
 - **AI time:** sharpening takes 4–10 s per small image, plus a one-time download. The first result isn't delayed, but the offer, and for small text the font match, arrive after it.
 - **The enhancer worker isn't stopped on a new upload** (reloading the model costs more than finishing). A stale sharpening run can delay the next image's sharpening by a few seconds. Its result is never used for the new image.
 - **Fonts:** at 6 px, OCR still splits or misreads words. 8 px serif matched Georgia at only 0.62–0.80, so it's offered, not rebuilt automatically.
-- **AI memory:** the AI worker keeps its model (and about 0.5 GB of WASM memory at peak) for the rest of the session after the first sharpening. On low-memory devices it may be worth releasing it after a period of inactivity.
+- **AI memory (addressed):** the AI worker is now stopped after 5 minutes without AI work, which frees 250–385 MB. The next sharpening sets the model up again from the browser cache in about 8 s, with no download. Not yet tested on low-memory devices. See `docs/v7-ai-memory.md`.
 - **Mixed-content images:** where OCR mistakes shapes for text, a lettering alternative may be scored. It was rejected in every validation case, but it adds background time.

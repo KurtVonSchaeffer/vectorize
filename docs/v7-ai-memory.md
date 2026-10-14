@@ -20,7 +20,9 @@ Desktop app browser pane (Chromium), 8-core Mac with 8 GB of memory, 200–300 p
 | Model session disposed, worker kept (`pipeline.dispose()`) | 549 MB RSS (−6 MB) |
 | Worker stopped | 305 MB RSS (**−244 MB**) |
 | In the app: model loaded, after 3 uploads | 1,045 MB footprint, 25 threads |
-| In the app: after the 3-minute idle release | 660 MB footprint (**−385 MB**), 20 threads |
+| In the app: after a 3-minute idle release (first trial) | 660 MB footprint (**−385 MB**), 20 threads |
+| In the app: model loaded, after 2 uploads (5-minute version) | 842 MB footprint, 27 threads |
+| In the app: after the 5-minute idle release | 507 MB footprint (**−335 MB**), 20 threads; released about 300 s after the last job |
 
 **Disposing the model session frees almost nothing:** WebAssembly memory can grow but never shrink. Stopping the worker is the only way to give the memory back.
 
@@ -46,18 +48,27 @@ The same 220 px logo (one that gets an AI-sharpening offer) uploaded three times
 | 2nd, 30 s later | Already loaded | 10.7 s |
 | 3rd, after the 3-minute idle release | Set up from the cache again | 18.1 s (+7.4 s) |
 
+Repeated with the final 5-minute timeout: 18.3 s (fresh page), 10.7 s (warm), then **19.7 s (+9.0 s)** for an upload 308 s later, after the release.
+
 The model wasn't downloaded again. The 3rd upload pays the same set-up as the 1st.
 
-## Change (uncommitted, awaiting approval)
+## Change
 
-`Enhancer` now stops its worker after **3 minutes without AI work** (`IDLE_RELEASE_MS`) and starts a new one on the next request:
+`Enhancer` now stops its worker after **5 minutes without AI work** (`IDLE_RELEASE_MS`; 3 minutes in the first version) and starts a new one on the next request:
 
-- The release timer starts only when no AI job is running, and any new request cancels it. A running job is never cut off.
+- The release timer starts only when no AI job is running. Any new request cancels it, and each finished job restarts it. A running job is never cut off.
+- **Failures:** if the worker crashes (for example, out of memory) or can't start, its jobs fail with an error, which the app already handles (silent fallback for the background check and font matching, a message for the manual AI setting). The next request starts a fresh worker.
+- **Stale results:** messages from a stopped worker are ignored, and request ids never repeat, so an old worker can't answer a newer request. The app also checks each result belongs to the current image.
 - Sharpened results stay in the existing per-image cache on the main thread, so "Use it", going back, or changing settings never needs the worker again for the same image.
 - Nothing else changes: no new dependency, same worker, same model, same results.
-- Tests: `src/ai/__tests__/enhancer.test.ts` (4 tests). The worker starts only when needed, stops after the idle time, never stops while a job is running, a new job cancels a pending release, and cached results don't restart it.
+- Tests: `src/ai/__tests__/enhancer.test.ts` (9 tests):
+  - the 5-minute default, and the timer restarting when a job finishes;
+  - no stop while a job runs, and one worker through a run of uploads;
+  - restart after release, after a crash, and after a failed start;
+  - cancellation, and a stopped worker unable to answer a newer request;
+  - cached results served without the worker.
 
-**Trade-off:** a customer who pauses for more than 3 minutes and then uploads another small logo waits about 8 s longer for the offer. For small lettering, the automatic font match also waits, since it reads the sharpened copy. The first SVG is never delayed. Customers working through several logos in a row keep the warm model.
+**Trade-off:** a customer who pauses for more than 5 minutes and then uploads another small logo waits about 8 s longer for the offer. For small lettering, the automatic font match also waits, since it reads the sharpened copy. The first SVG is never delayed. Customers working through several logos in a row keep the warm model.
 
 ### Not pursued
 
