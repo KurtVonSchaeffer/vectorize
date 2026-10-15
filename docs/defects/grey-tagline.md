@@ -1,6 +1,6 @@
 # Defect: thin lettering in its own colour is merged into a neighbouring colour
 
-**Status:** open, root cause confirmed, fix proposed (not implemented).
+**Status:** fix in review, in the pull request stacked on this one (`fix/grey-tagline-blend`). Results: `docs/defects/grey-tagline-fix.md`.
 **Severity:** a brand colour is lost silently, the affected lettering breaks up, and the logo isn't print-ready.
 **Since:** before V7. The colour code is byte-identical to V6's (`bench/identity.test.ts`).
 
@@ -11,7 +11,7 @@ A navy wordmark over a 10 px grey tagline (`#495057`) comes out with only white 
 ## Reproduce
 
 - **In the browser:** the `wordmark with tiny tagline` case in `VALIDATION` (`bench/cases.ts`), saved as PNG. Trace it with the defaults. The palette is `#ffffff #212c5d`.
-- **In a unit test:** `src/palette/__tests__/quantize.test.ts`, "thin lettering in its own colour (known defect)". It uses an image built pixel by pixel (navy blocks, 1 px grey letter outlines with anti-aliased sides). Default palette: `#ffffff #1f2a5c`. With blend clusters kept: `#ffffff #1f2a5c #495057 …`. The test is marked `it.fails`; flip it to `it` once fixed.
+- **In a unit test:** `src/palette/__tests__/quantize.test.ts`, "thin lettering in its own colour (known defect)". It uses an image built pixel by pixel (navy blocks, 1 px grey letter outlines with anti-aliased sides). Default palette: `#ffffff #1f2a5c`. With blend clusters kept: `#ffffff #1f2a5c #495057 …`. It was marked `it.fails` while the defect was open. The fix branch converts it to a normal passing test.
 
 ## Root cause
 

@@ -117,10 +117,11 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
 
   const k = Math.max(1, Math.min(opts.maxColors, labs.length))
   const clustered = labs.length ? kmeans(labs, weights, k) : { centers: [], assign: new Int32Array(0) }
-  const interior = interiorShare(src, bins, clustered.assign, clustered.centers.length, paper)
-  const pruned = opts.keepBlends ? clustered : dropBlendClusters(clustered.centers, clustered.assign, labs, weights, opts.whiteIsPaper, interior)
+  const pixelClusters = clusterMap(src, bins, clustered.assign, paper)
+  const interior = interiorShare(pixelClusters, src.width, src.height, clustered.centers.length)
+  const pruned: { centers: Lab[]; assign: Int32Array; folded?: Uint8Array } = opts.keepBlends ? clustered : dropBlendClusters(clustered.centers, clustered.assign, labs, weights, opts.whiteIsPaper, interior, { src, cl: pixelClusters, minArea: opts.minArea })
   const apart = separateRegions(src, bins, pruned.assign, pruned.centers, paper, opts.mergeDelta, fixed)
-  const merged = mergeSimilar(pruned.centers, labs, weights, opts.mergeDelta, opts.maxColors, apart)
+  const merged = mergeSimilar(pruned.centers, labs, weights, opts.mergeDelta, opts.maxColors, apart, pruned.folded)
   const centers = pureCenters(merged.centers, merged.assign, bins, sum, count)
   // Final assignment by nearest color in RGB, consistent with how edges blend.
   const assign = nearestRgb(centers, bins, sum, count)
@@ -410,7 +411,7 @@ function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Fl
  * Merges the closest pair of clusters (CIEDE2000) while they're closer than `delta` or there
  * are more than `maxCount`, then reassigns every color to its nearest center.
  */
-function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: number, maxCount: number, apart?: (i: number, j: number) => boolean): { centers: Lab[]; assign: Int32Array } {
+function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: number, maxCount: number, apart?: (i: number, j: number) => boolean, folded?: Uint8Array): { centers: Lab[]; assign: Int32Array } {
   let cs = centers.map((c) => [...c] as Lab)
   // The original clusters each current one stands for, to ask `apart` about.
   let groups = centers.map((_, i) => [i])
@@ -464,9 +465,11 @@ function mergeSimilar(centers: Lab[], points: Lab[], weights: number[], delta: n
       assign = nearest()
     }
   }
-  // Recompute each center as the weighted mean of its members, so colors are accurate.
+  // Recompute each center as the weighted mean of its members, so colors are accurate, leaving
+  // out fringe folded into a rescued thin colour (see dropBlendClusters).
   const acc = cs.map(() => [0, 0, 0, 0])
   assign.forEach((a, i) => {
+    if (folded?.[i]) return
     acc[a][0] += points[i][0] * weights[i]
     acc[a][1] += points[i][1] * weights[i]
     acc[a][2] += points[i][2] * weights[i]
@@ -750,17 +753,23 @@ const BLEND_MAX_INTERIOR = 0.25
 /** Max distance (sRGB units) from the mix of two colors to count as a blend of them. */
 const BLEND_TOLERANCE = 14
 
-/** Per cluster: share of its pixels whose 4 neighbors are all in the same cluster. */
-function interiorShare(src: ImageData, bins: number[], assign: Int32Array, k: number, paper: Uint8Array): number[] {
+/** Each pixel's cluster: -1 transparent, PAPER_CLUSTER for paper. */
+const PAPER_CLUSTER = -2
+function clusterMap(src: ImageData, bins: number[], assign: Int32Array, paper: Uint8Array): Int16Array {
   const clusterOfBin = new Int16Array(BINS).fill(-1)
   bins.forEach((b, i) => (clusterOfBin[b] = assign[i]))
-  const { width: w, height: h, data: d } = src
-  const cl = new Int16Array(w * h).fill(-1)
+  const d = src.data
+  const cl = new Int16Array(src.width * src.height).fill(-1)
   for (let p = 0, i = 0; p < cl.length; p++, i += 4) {
     if (d[i + 3] === 0) continue
     const b = binOf(d[i], d[i + 1], d[i + 2])
-    if (!paper[b]) cl[p] = clusterOfBin[b]
+    cl[p] = paper[b] ? PAPER_CLUSTER : clusterOfBin[b]
   }
+  return cl
+}
+
+/** Per cluster: share of its pixels whose 4 neighbors are all in the same cluster. */
+function interiorShare(cl: Int16Array, w: number, h: number, k: number): number[] {
   const total = new Float64Array(k)
   const inner = new Float64Array(k)
   for (let y = 0; y < h; y++)
@@ -775,10 +784,160 @@ function interiorShare(src: ImageData, bins: number[], assign: Int32Array, k: nu
 }
 
 /**
+ * A fringe lies between the two colours it blends: at least this share of its pixels have both
+ * within FRINGE_REACH px. Thin artwork in its own colour (a grey tagline beside navy lettering)
+ * touches only the background, however much its colour resembles a navy–white mix.
+ */
+const FRINGE_BETWEEN = 0.5
+const FRINGE_REACH = 2
+/**
+ * Between its partners, a colour is still real when it's a band of its own: at least this share
+ * of its pixels have a same-colour neighbour across both axes (2 px or wider, which an
+ * anti-aliased edge never is)…
+ */
+const BAND_THICK = 0.5
+/**
+ * …and consistent: at least this share of its pixels in its most common colour bin. A blurred
+ * edge two pixels wide is thick too, but each column is a different mix (about half each).
+ */
+const BAND_CONSISTENT = 0.7
+/**
+ * Not between its partners, a colour is real artwork when it's a distinct colour, at least this
+ * far (ΔE2000) from both colours it supposedly mixes (a JPEG halo is a faint tint of the
+ * background, about 10 away; a grey tagline beside navy is about 18–20)…
+ */
+const ART_DISTINCT = 15
+/**
+ * …at least this share of its pixels lie in connected strokes of meaningful size (lettering,
+ * outlines), not scattered specks. Strokes are the colour together with its own anti-aliased
+ * edge (pixels mostly of it, mixed with a partner), since small text is split across both…
+ */
+const ART_CONNECTED = 0.5
+/** …of at least this many pixels (or the speck size, if larger)… */
+const ART_MIN_PIECE = 8
+/** …and consistent in colour (compression noise scatters over many colours). */
+const ART_CONSISTENT = 0.2
+
+interface ClusterPixels {
+  src: ImageData
+  cl: Int16Array
+  minArea: number
+}
+
+/** Whether sRGB `c` is a straight mix of `a` and `b` (as anti-aliasing makes), not just JPEG-like. */
+function isLinearMix(c: number[], a: number[], b: number[]): boolean {
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+  if (!len2) return false
+  const t = ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2
+  return Math.hypot(c[0] - a[0] - t * ab[0], c[1] - a[1] - t * ab[1], c[2] - a[2] - t * ab[2]) < BLEND_TOLERANCE
+}
+
+/** Spatial evidence for one cluster: is it fringe between its partners, or artwork of its own? */
+function clusterShape(c: number, px: ClusterPixels) {
+  const { cl, src } = px
+  const w = src.width
+  const h = src.height
+  const d = src.data
+  const own: number[] = []
+  for (let p = 0; p < cl.length; p++) if (cl[p] === c) own.push(p)
+  const n = Math.max(1, own.length)
+  let thick = 0
+  const binCount = new Map<number, number>()
+  for (const p of own) {
+    const x = p % w
+    const y = (p - x) / w
+    const horiz = (x > 0 && cl[p - 1] === c) || (x < w - 1 && cl[p + 1] === c)
+    const vert = (y > 0 && cl[p - w] === c) || (y < h - 1 && cl[p + w] === c)
+    if (horiz && vert) thick++
+    const b = binOf(d[p * 4], d[p * 4 + 1], d[p * 4 + 2])
+    binCount.set(b, (binCount.get(b) ?? 0) + 1)
+  }
+  let mode = 0
+  for (const v of binCount.values()) mode = Math.max(mode, v)
+  /**
+   * Share of the cluster's pixels in connected strokes of meaningful size, where a stroke is the
+   * cluster plus pixels that are mostly its colour mixed with partner `a` or `b` (its own edge).
+   */
+  const connected = (ca: number[], cb: number[], self: number[]) => {
+    const minPiece = Math.max(ART_MIN_PIECE, px.minArea)
+    const near = (p: number) => {
+      if (cl[p] === c) return true
+      const q = [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
+      for (const o of [ca, cb]) {
+        const ab = [o[0] - self[0], o[1] - self[1], o[2] - self[2]]
+        const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+        if (!len2) continue
+        const t = ((q[0] - self[0]) * ab[0] + (q[1] - self[1]) * ab[1] + (q[2] - self[2]) * ab[2]) / len2
+        if (t >= 0 && t <= 0.6 && Math.hypot(q[0] - self[0] - t * ab[0], q[1] - self[1] - t * ab[1], q[2] - self[2] - t * ab[2]) < BLEND_TOLERANCE) return true
+      }
+      return false
+    }
+    const seen = new Uint8Array(cl.length)
+    let inStrokes = 0
+    for (const s0 of own) {
+      if (seen[s0]) continue
+      const stack = [s0]
+      seen[s0] = 1
+      let size = 0
+      let mine = 0
+      while (stack.length) {
+        const p = stack.pop()!
+        size++
+        if (cl[p] === c) mine++
+        const x = p % w
+        const y = (p - x) / w
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx
+            const ny = y + dy
+            if (!(dx || dy) || nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+            const q = ny * w + nx
+            if (!seen[q] && near(q)) {
+              seen[q] = 1
+              stack.push(q)
+            }
+          }
+      }
+      if (size >= minPiece) inStrokes += mine
+    }
+    return inStrokes / n
+  }
+  /** Share of the cluster's pixels with both partner clusters within FRINGE_REACH px. */
+  const between = (a: number, b: number) => {
+    let both = 0
+    for (const p of own) {
+      const x = p % w
+      const y = (p - x) / w
+      let sa = false
+      let sb = false
+      for (let dy = -FRINGE_REACH; dy <= FRINGE_REACH && !(sa && sb); dy++)
+        for (let dx = -FRINGE_REACH; dx <= FRINGE_REACH; dx++) {
+          const nx = x + dx
+          const ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+          const q = cl[ny * w + nx]
+          if (q === a) sa = true
+          else if (q === b) sb = true
+        }
+      if (sa && sb) both++
+    }
+    return both / n
+  }
+  return { thick: thick / n, consistent: mode / n, connected, between }
+}
+
+/**
  * Anti-aliased edges and JPEG fringes produce in-between colors (blue fading into white paper,
  * red into blue) that k-means happily turns into extra inks. Each such ink would be a whole
  * extra screen at the printer, so drop small clusters that sit on the line between two other
  * colors (or a color and paper) and hand their pixels to the nearest remaining cluster.
+ *
+ * A colour can match a mix of two others without being one: thin lettering in a dark grey reads
+ * as "dark like navy, neutral like white" to the JPEG test in blendInfo. So the colour must also
+ * be placed like a fringe (between the two colours it supposedly blends), and it's kept when it
+ * isn't: when it forms connected, colour-consistent strokes of its own, or a consistent band
+ * 2 px or wider even where it does lie between them.
  */
 function dropBlendClusters(
   centers: Lab[],
@@ -787,7 +946,8 @@ function dropBlendClusters(
   weights: number[],
   paper: boolean,
   interior: number[],
-): { centers: Lab[]; assign: Int32Array } {
+  pixels?: ClusterPixels,
+): { centers: Lab[]; assign: Int32Array; folded?: Uint8Array } {
   const share = centers.map(() => 0)
   let total = 0
   assign.forEach((c, i) => {
@@ -795,27 +955,53 @@ function dropBlendClusters(
     total += weights[i]
   })
   const alive = centers.map(() => true)
+  // Colours kept as artwork although they match a mix (see below).
+  const rescued = centers.map(() => false)
   // Smallest first, so a fringe is judged against the real colors, not other fringes.
   const order = centers.map((_, i) => i).sort((a, b) => share[a] - share[b])
   for (const c of order) {
     // Fringes are thin: hardly any of their pixels are surrounded by the same color. A real
     // color, however small (a tree trunk, a dot), has an interior.
     if (share[c] / total > BLEND_MAX_SHARE || interior[c] > BLEND_MAX_INTERIOR) continue
-    const others: number[][] = centers.filter((_, i) => i !== c && alive[i]).map((o) => labToRgb(o))
-    if (paper) others.push([255, 255, 255])
+    const others: { id: number; rgb: number[] }[] = centers.flatMap((o, i) => (i !== c && alive[i] ? [{ id: i, rgb: labToRgb(o) }] : []))
+    if (paper) others.push({ id: PAPER_CLUSTER, rgb: [255, 255, 255] })
     const self = labToRgb(centers[c])
-    let blend = false
-    for (let i = 0; i < others.length && !blend; i++)
-      for (let j = i + 1; j < others.length && !blend; j++) {
-        const info = blendInfo(self, others[i], others[j], BLEND_TOLERANCE)
-        blend = !!info && info.mix > 0.05 && info.mix < 0.95
+    const pairs: { a: number; b: number; linear: boolean }[] = []
+    for (let i = 0; i < others.length; i++)
+      for (let j = i + 1; j < others.length; j++) {
+        const info = blendInfo(self, others[i].rgb, others[j].rgb, BLEND_TOLERANCE)
+        if (info && info.mix > 0.05 && info.mix < 0.95) pairs.push({ a: others[i].id, b: others[j].id, linear: isLinearMix(self, others[i].rgb, others[j].rgb) })
       }
-    if (blend && alive.filter(Boolean).length > 1) alive[c] = false
+    if (!pairs.length || alive.filter(Boolean).length <= 1) continue
+    let fringe = true
+    if (pixels) {
+      const shape = clusterShape(c, pixels)
+      const band = shape.thick >= BAND_THICK && shape.consistent >= BAND_CONSISTENT
+      const rgbOf = (id: number) => (id === PAPER_CLUSTER ? [255, 255, 255] : labToRgb(centers[id]))
+      const labOf = (id: number) => (id === PAPER_CLUSTER ? rgbToLab([255, 255, 255]) : centers[id])
+      const art = (a: number, b: number) =>
+        Math.min(deltaE2000(centers[c], labOf(a)), deltaE2000(centers[c], labOf(b))) >= ART_DISTINCT &&
+        shape.consistent >= ART_CONSISTENT &&
+        shape.connected(rgbOf(a), rgbOf(b), self) >= ART_CONNECTED
+      // Between its two colours: a fringe, unless it's a consistent band 2 px or wider.
+      // Elsewhere, an exact anti-aliasing mix is still most likely a thin line of one colour
+      // drawn across pixel boundaries over the other; but a colour that only matches the JPEG
+      // chroma test can't be a JPEG fringe away from the edge it would come from, so connected,
+      // consistent strokes of it are artwork.
+      fringe = pairs.some(({ a, b, linear }) => (shape.between(a, b) >= FRINGE_BETWEEN ? !band : linear || !art(a, b)))
+    }
+    if (fringe) alive[c] = false
+    else rescued[c] = true
   }
   if (alive.every(Boolean)) return { centers, assign }
 
-  const kept = centers.filter((_, i) => alive[i])
+  const keptIds = centers.flatMap((_, i) => (alive[i] ? [i] : []))
+  const kept = keptIds.map((i) => centers[i])
   const out = new Int32Array(assign.length)
+  // Fringe folded into a rescued colour joins it but mustn't shift it: thin lettering has as
+  // many anti-aliased edge pixels as solid ones, which would pull its colour toward the
+  // background. Every other colour averages its fringe as before.
+  const folded = new Uint8Array(assign.length)
   points.forEach((p, i) => {
     let best = 0
     let bd = Infinity
@@ -827,8 +1013,9 @@ function dropBlendClusters(
       }
     })
     out[i] = best
+    if (!alive[assign[i]] && rescued[keptIds[best]]) folded[i] = 1
   })
-  return { centers: kept, assign: out }
+  return { centers: kept, assign: out, folded }
 }
 
 const toYcc = (c: number[]) => [
