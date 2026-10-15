@@ -16,6 +16,7 @@ import { simulateImprover } from '../improver-sim'
 import { svgUrl, viewer, type Visual } from '../review'
 import { REDRAW_CASES } from './cases'
 import { DEFAULT_REDRAW, redraw, type RedrawResult } from './engine'
+import { evaluate, type Evaluation } from './evaluate'
 
 interface Scores {
   /** Detail missing + added against the clean original, % of its ink (lower is better). */
@@ -33,8 +34,8 @@ export interface RedrawRow {
   name: string
   tests: string
   upload: string
-  v7: { scores: Scores | null; geometry: Geometry; fileProblems: string[]; ms: number }
-  v8: { scores: Scores | null; geometry: Geometry; fileProblems: string[]; ms: number; heapMb: number | null; stats: RedrawResult['stats']; interpreted: number }
+  v7: { scores: Scores | null; quality: Evaluation | null; geometry: Geometry; fileProblems: string[]; ms: number }
+  v8: { scores: Scores | null; quality: Evaluation | null; geometry: Geometry; fileProblems: string[]; ms: number; heapMb: number | null; stats: RedrawResult['stats']; interpreted: number }
   verdict: 'better' | 'same' | 'worse' | 'n/a'
   svgs: { v7: string; v8: string }
 }
@@ -97,6 +98,13 @@ async function scores(original: string, svg: string, w: number, h: number): Prom
   return { error: +((missing + extra) * 100).toFixed(2), edgeF1: +r.edgeF1.toFixed(3), meanDE: +colourFidelity(o.data, c.data, w, h).meanDeltaE.toFixed(2) }
 }
 
+/** Region, edge, corner, halo and topology checks against the original, at its own size (evaluate.ts). */
+async function quality(original: string, svg: string, uploadWidth: number): Promise<Evaluation> {
+  const m = original.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)!
+  const w = Math.round(Number(m[1])), h = Math.round(Number(m[2]))
+  return evaluate(original, svg, w, h, { scale: w / uploadWidth })
+}
+
 const problems = (svg: string, width: number) =>
   validateShapes(shapesFromSvg(svg), { width, outputWidthMm: 200, plates: true })
     .filter((c) => c.status !== 'ok')
@@ -147,8 +155,8 @@ async function runOne(name: string, tests: string, upload: Blob, original: strin
     name,
     tests,
     upload: `${source.width}×${source.height}`,
-    v7: { scores: original ? await scores(original, sim.first.svg, W, H) : null, geometry: geometry(sim.first.svg), fileProblems: problems(plates7, source.width), ms: ms7 },
-    v8: { scores: original ? await scores(original, v8.svg, W, H) : null, geometry: geometry(v8.svg), fileProblems: problems(v8.svg, source.width), ms: ms8, heapMb: h0 !== null && h1 !== null ? +((h1 - h0) / 1e6).toFixed(1) : null, stats: v8.stats, interpreted: v8.interpreted.length },
+    v7: { scores: original ? await scores(original, sim.first.svg, W, H) : null, quality: original ? await quality(original, sim.first.svg, source.width) : null, geometry: geometry(sim.first.svg), fileProblems: problems(plates7, source.width), ms: ms7 },
+    v8: { scores: original ? await scores(original, v8.svg, W, H) : null, quality: original ? await quality(original, v8.svg, source.width) : null, geometry: geometry(v8.svg), fileProblems: problems(v8.svg, source.width), ms: ms8, heapMb: h0 !== null && h1 !== null ? +((h1 - h0) / 1e6).toFixed(1) : null, stats: v8.stats, interpreted: v8.interpreted.length },
     verdict: 'n/a',
     svgs: { v7: sim.first.svg, v8: v8.svg },
   }
@@ -173,15 +181,19 @@ async function runOne(name: string, tests: string, upload: Blob, original: strin
   summarize()
 }
 
-const cell = (s: Scores | null, g: Geometry, files: string[], ms: number) =>
-  `${s ? `error <b>${s.error}%</b> · edges ${s.edgeF1} · ΔE ${s.meanDE}<br>` : ''}${g.segments} segments · kinked joins ${Math.round(g.kinks * 100)}%<br>files: ${files.length ? `<span class="down">${files.join(', ')}</span>` : 'clean'} · ${ms} ms`
+const qualityCell = (q: Evaluation | null) =>
+  q
+    ? `quality: <b class="${q.pass ? 'up' : 'down'}">${q.pass ? 'PASS' : `${q.defects.length} defect(s)`}</b> · worst region ${Math.round(Math.min(...q.regions.map((r) => r.iou)) * 100)}% · edges p95 ${q.edges.p95} px · corners ${q.corners.kept}/${q.corners.total}${q.defects.length ? `<br><small>${q.defects.slice(0, 6).map((d) => `${d.kind}: ${d.note}`).join('<br>')}${q.defects.length > 6 ? `<br>… ${q.defects.length - 6} more` : ''}</small>` : ''}<br>`
+    : ''
+const cell = (s: Scores | null, g: Geometry, files: string[], ms: number, q: Evaluation | null = null) =>
+  `${qualityCell(q)}${s ? `error <b>${s.error}%</b> · edges ${s.edgeF1} · ΔE ${s.meanDE}<br>` : ''}${g.segments} segments · kinked joins ${Math.round(g.kinks * 100)}%<br>files: ${files.length ? `<span class="down">${files.join(', ')}</span>` : 'clean'} · ${ms} ms`
 
 function render(r: RedrawRow, v: Visual, res: RedrawResult) {
   const el = document.createElement('section')
   const s = res.stats.segments
   el.innerHTML = `<h2>${r.name} <small>${r.tests} · upload ${r.upload}</small> <b class="${r.verdict === 'better' ? 'up' : r.verdict === 'worse' ? 'down' : ''}">${r.verdict === 'n/a' ? '' : `V8 ${r.verdict}`}</b></h2>
     <table><tr><th></th><th>V7 trace</th><th>V8 redraw (experimental)</th></tr>
-    <tr><td>vs clean original · geometry · files · time</td><td>${cell(r.v7.scores, r.v7.geometry, r.v7.fileProblems, r.v7.ms)}</td><td>${cell(r.v8.scores, r.v8.geometry, r.v8.fileProblems, r.v8.ms)}</td></tr>
+    <tr><td>vs clean original · geometry · files · time</td><td>${cell(r.v7.scores, r.v7.geometry, r.v7.fileProblems, r.v7.ms, r.v7.quality)}</td><td>${cell(r.v8.scores, r.v8.geometry, r.v8.fileProblems, r.v8.ms, r.v8.quality)}</td></tr>
     <tr><td>redraw</td><td></td><td>${s.line} lines · ${s.arc} arcs · ${s.circle} circles · ${s.bezier} curves (${Math.round(res.stats.primitiveShare * 100)}% of the outline as lines and arcs) · ${res.stats.edges} shared edges · symmetry: ${res.stats.symmetry} · ${res.interpreted.length} interpreted${r.v8.heapMb !== null ? ` · heap +${r.v8.heapMb} MB` : ''}</td></tr></table>`
   el.append(viewer(v))
   list.append(el)
@@ -192,6 +204,7 @@ function summarize() {
   const mean = (f: (r: RedrawRow) => number) => (scored.length ? +(scored.reduce((s, r) => s + f(r), 0) / scored.length).toFixed(2) : 0)
   const segs = (k: 'v7' | 'v8') => rows.reduce((s, r) => s + r[k].geometry.segments, 0)
   summary.innerHTML = `${rows.length} logos (${scored.length} with originals) · V8 better ${scored.filter((r) => r.verdict === 'better').length}, same ${scored.filter((r) => r.verdict === 'same').length}, <b class="${scored.some((r) => r.verdict === 'worse') ? 'down' : ''}">worse ${scored.filter((r) => r.verdict === 'worse').length}</b><br>
+    quality checks passed: V7 ${rows.filter((r) => r.v7.quality?.pass).length} → V8 ${rows.filter((r) => r.v8.quality?.pass).length} of ${scored.length} · defects V7 ${rows.reduce((t, r) => t + (r.v7.quality?.defects.length ?? 0), 0)} → V8 ${rows.reduce((t, r) => t + (r.v8.quality?.defects.length ?? 0), 0)}<br>
     mean error vs original: V7 ${mean((r) => r.v7.scores!.error)}% → V8 ${mean((r) => r.v8.scores!.error)}% · edges ${mean((r) => r.v7.scores!.edgeF1)} → ${mean((r) => r.v8.scores!.edgeF1)}<br>
     segments: V7 ${segs('v7')} → V8 ${segs('v8')} · files with problems: V7 ${rows.filter((r) => r.v7.fileProblems.length).length} → V8 ${rows.filter((r) => r.v8.fileProblems.length).length} · mean time: V7 ${Math.round(rows.reduce((s, r) => s + r.v7.ms, 0) / Math.max(1, rows.length))} ms, V8 ${Math.round(rows.reduce((s, r) => s + r.v8.ms, 0) / Math.max(1, rows.length))} ms`
 }

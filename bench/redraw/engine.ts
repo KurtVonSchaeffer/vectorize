@@ -28,9 +28,11 @@ export interface RedrawOptions {
   /** Report a node moved further than this (source px) by the rules. */
   flagDistance: number
   symmetry: boolean
+  /** Angle snapping and symmetry may move a node at most this far (source px) from where the upload puts it. */
+  guard: number
 }
 
-export const DEFAULT_REDRAW: RedrawOptions = { tolerance: 0.6, scale: 4, minArea: 4, snapDegrees: 2.5, flagDistance: 0.9, symmetry: true }
+export const DEFAULT_REDRAW: RedrawOptions = { tolerance: 0.6, scale: 4, minArea: 4, snapDegrees: 2.5, flagDistance: 0.9, symmetry: true, guard: 0.6 }
 
 export interface Interpreted {
   x: number
@@ -53,6 +55,10 @@ export interface RedrawResult {
     regions: number
     symmetry: 'vertical' | 'horizontal' | 'both' | 'none'
     ms: number
+    /** Shapes joined by colour reconciliation: split flat areas, and shade bands. */
+    reconciled: { soft: number; bands: number }
+    /** Design-rule moves undone by the guard. */
+    guarded: number
   }
   interpreted: Interpreted[]
 }
@@ -92,8 +98,15 @@ export function redraw(image: ImageData, map: LabelMap, o: RedrawOptions = DEFAU
   const W = image.width * K
   const H = image.height * K
   const { labels, big } = refineLabels(image, map, K)
-  resolveBlends(labels, big, W, H, map.colors, K * 2.5)
+  // Colour bleed from JPEG's half-resolution colour is a few source px wide whatever the image
+  // size, so it only dominates small uploads; on larger ones the same widths are real design
+  // (thin bands, soft tones), and the repairs below stay off.
+  const small = Math.max(image.width, image.height) <= 256
+  resolveBlends(labels, big, W, H, map.colors, K * (small ? 3 : 2.5), small)
   const merged = cleanSmall(labels, W, H, o.minArea * K * K, K * 0.8)
+  reconciled.soft = reconciled.bands = 0
+  if (small) reconcileShapes(labels, big, W, H, map.colors, K, merged)
+  const colors = map.colors
   const { edges, nodePos } = planarMap(labels, W, H, K)
   const nodes: Pt[] = nodePos.map((p) => [p[0], p[1]])
   const observed: Pt[] = nodePos.map((p) => [p[0], p[1]])
@@ -108,9 +121,21 @@ export function redraw(image: ImageData, map: LabelMap, o: RedrawOptions = DEFAU
   snapAngles(edges, nodes, o)
   equalizeArcs(edges, o)
   rebuildCorners(edges, nodes)
-  const sym = o.symmetry ? findSymmetry(labels, W, H, K, map.colors) : { vertical: null as number | null, horizontal: null as number | null }
+  let guarded = 0
+  const sym = o.symmetry ? findSymmetry(labels, W, H, K, colors) : { vertical: null as number | null, horizontal: null as number | null }
   if (sym.vertical !== null) symmetrize(edges, nodes, sym.vertical, 'x', o)
   if (sym.horizontal !== null) symmetrize(edges, nodes, sym.horizontal, 'y', o)
+  // A design rule may tidy the drawing, not redraw it: a node moved further than the guard from
+  // where the upload put it goes back (corners rebuilt from the edges' own lines are evidence, not
+  // a rule, and may move further).
+  for (let i = 0; i < nodes.length; i++) {
+    const why = moveReason.get(i)
+    if ((why === 'angle' || why === 'symmetry') && Math.hypot(nodes[i][0] - observed[i][0], nodes[i][1] - observed[i][1]) > o.guard) {
+      nodes[i] = [observed[i][0], observed[i][1]]
+      moveReason.delete(i)
+      guarded++
+    }
+  }
   conformArcs(edges, nodes)
 
   // What the rules moved further than the upload explains.
@@ -124,7 +149,7 @@ export function redraw(image: ImageData, map: LabelMap, o: RedrawOptions = DEFAU
   }
   moveReason.clear()
 
-  const { svg, regions } = assemble(edges, nodes, map.colors, image.width, image.height)
+  const { svg, regions } = assemble(edges, nodes, colors, image.width, image.height)
   const count = { line: 0, arc: 0, circle: 0, bezier: 0 }
   let primLen = 0, allLen = 0
   for (const e of edges) {
@@ -155,6 +180,8 @@ export function redraw(image: ImageData, map: LabelMap, o: RedrawOptions = DEFAU
     height: image.height,
     stats: {
       segments: count,
+      reconciled: { ...reconciled },
+      guarded,
       primitiveShare: allLen ? +(primLen / allLen).toFixed(3) : 0,
       nodes: nodes.length,
       edges: edges.length,
@@ -232,7 +259,7 @@ function refineLabels(image: ImageData, map: LabelMap, K: number): { labels: Uin
  * leave these as colours of their own) is given back to those two colours, pixel by pixel to
  * whichever the upload is closer to. A band in a colour of its own (a real outline) stays.
  */
-function resolveBlends(labels: Uint8Array, big: Uint8ClampedArray, W: number, H: number, colors: number[], maxWidth: number) {
+function resolveBlends(labels: Uint8Array, big: Uint8ClampedArray, W: number, H: number, colors: number[], maxWidth: number, bleed: boolean) {
   const rgb = (l: number) => (l >= 254 || colors[l] === undefined || colors[l] < 0 ? [255, 255, 255] : [(colors[l] >> 16) & 255, (colors[l] >> 8) & 255, colors[l] & 255])
   const comp = new Int32Array(W * H).fill(-1)
   const stack: number[] = []
@@ -268,13 +295,172 @@ function resolveBlends(labels: Uint8Array, big: Uint8ClampedArray, W: number, H:
     if (len2 < 1) continue
     const t = ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2
     const off = Math.hypot(c[0] - a[0] - t * ab[0], c[1] - a[1] - t * ab[1], c[2] - a[2] - t * ab[2])
-    if (t < 0.1 || t > 0.9 || off > 24) continue
+    // JPEG colour bleed pushes a blend off the straight mix (more saturated): allow slack on small uploads.
+    if (t < 0.1 || t > (bleed ? 0.92 : 0.9) || off > (bleed ? 36 : 24)) continue
     for (const p of members) {
       const i = p * 4
       const da = (big[i] - a[0]) ** 2 + (big[i + 1] - a[1]) ** 2 + (big[i + 2] - a[2]) ** 2
       const db = (big[i] - b[0]) ** 2 + (big[i + 1] - b[1]) ** 2 + (big[i + 2] - b[2]) ** 2
       labels[p] = da <= db ? A : B
     }
+  }
+}
+
+const labOf = (r: number, g: number, b: number): [number, number, number] => {
+  const f = (v: number) => {
+    v /= 255
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  }
+  const R = f(r), G = f(g), B = f(b)
+  const t = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116)
+  const x = t((R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047), y = t(R * 0.2126 + G * 0.7152 + B * 0.0722), z = t((R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883)
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)]
+}
+const deltaE = (a: [number, number, number], b: [number, number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+/**
+ * Shapes that JPEG split or fringed, joined back up (small uploads only; see redraw). Each shape
+ * is compared by the median of the upload inside it, at least a source pixel from its edge (where
+ * blur and JPEG don't reach):
+ * - neighbouring shapes whose inside colours are close, with no sharp edge between them in the
+ *   upload (one flat area that JPEG colour bleed split into two shades), become one;
+ * - a thin band in a shade of a neighbour (JPEG ringing: a dark rim along a bright stripe), or an
+ *   island in a close shade of the shape around it, joins that neighbour.
+ * Labels are changed in place; the colours stay V7's (re-measuring them from the shapes' insides
+ * was worse on the test set). Joined bands are added to `merged`.
+ */
+const reconciled = { soft: 0, bands: 0 }
+function reconcileShapes(labels: Uint8Array, big: Uint8ClampedArray, W: number, H: number, colors: number[], K: number, merged: { x: number; y: number; area: number }[]) {
+  const n = W * H
+  const comp = new Int32Array(n).fill(-1)
+  const shapes: { label: number; px: number[]; inner: [number, number, number] | null; rim: number; nb: Map<number, number> }[] = []
+  for (let s = 0; s < n; s++) {
+    if (comp[s] >= 0) continue
+    const l = labels[s]
+    const id = shapes.length
+    const sh = { label: l, px: [] as number[], inner: null as [number, number, number] | null, rim: 0, nb: new Map<number, number>() }
+    shapes.push(sh)
+    const stack = [s]
+    comp[s] = id
+    while (stack.length) {
+      const p = stack.pop()!
+      sh.px.push(p)
+      const x = p % W
+      for (const q of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p >= W ? p - W : -1, p < n - W ? p + W : -1]) {
+        if (q < 0) continue
+        if (labels[q] === l) {
+          if (comp[q] < 0) {
+            comp[q] = id
+            stack.push(q)
+          }
+        }
+      }
+    }
+  }
+  // Distance from the edge of its shape, per pixel (chessboard, in fine px), capped at K.
+  const depth = new Uint8Array(n)
+  for (let p = 0; p < n; p++) {
+    const x = p % W
+    const edge = x === 0 || x === W - 1 || p < W || p >= n - W || labels[p - 1] !== labels[p] || labels[p + 1] !== labels[p] || labels[p - W] !== labels[p] || labels[p + W] !== labels[p]
+    depth[p] = edge ? 1 : 0
+  }
+  for (let d = 1; d < K; d++)
+    for (let p = W; p < n - W; p++)
+      if (!depth[p] && (depth[p - 1] === d || depth[p + 1] === d || depth[p - W] === d || depth[p + W] === d)) depth[p] = d + 1
+  const median = (px: number[]): [number, number, number] => {
+    const ch = [0, 1, 2].map((c) => px.map((p) => big[p * 4 + c]).sort((a, b) => a - b)[px.length >> 1])
+    return [ch[0], ch[1], ch[2]]
+  }
+  for (const sh of shapes) {
+    for (const p of sh.px) {
+      const x = p % W
+      for (const q of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p >= W ? p - W : -1, p < n - W ? p + W : -1])
+        if (q >= 0 && comp[q] !== comp[p]) {
+          sh.nb.set(comp[q], (sh.nb.get(comp[q]) ?? 0) + 1)
+          sh.rim++
+        }
+    }
+    if (sh.label >= 254 || colors[sh.label] < 0) continue
+    const deep = sh.px.filter((p) => depth[p] === 0 || depth[p] >= K)
+    sh.inner = deep.length >= K * K ? median(deep) : null
+  }
+  const colourOf = (sh: (typeof shapes)[number]): [number, number, number] => sh.inner ?? [(colors[sh.label] >> 16) & 255, (colors[sh.label] >> 8) & 255, colors[sh.label] & 255]
+  const drawn = (sh: (typeof shapes)[number]) => sh.label < 254 && colors[sh.label] >= 0
+  /**
+   * Whether the upload changes gradually between two touching shapes: across their shared edge,
+   * the colour step over ±1 source px is under half the step over ±3 px (a drawn edge, even
+   * blurred, makes most of its change within a pixel or so).
+   */
+  const softBetween = (a: number, b: number) => {
+    let near = 0, far = 0, m = 0
+    const at = (p: number) => labOf(big[p * 4], big[p * 4 + 1], big[p * 4 + 2])
+    for (const p of shapes[a].px) {
+      const x = p % W
+      for (const [q, step] of [[p + 1, 1], [p - 1, -1], [p + W, W], [p - W, -W]] as [number, number][]) {
+        if (q < 0 || q >= n || comp[q] !== b || (Math.abs(step) === 1 && Math.floor(q / W) !== Math.floor(p / W))) continue
+        const p1 = p - step * K, q1 = q + step * K, p3 = p - step * 3 * K, q3 = q + step * 3 * K
+        if (p3 < 0 || q3 < 0 || p3 >= n || q3 >= n) continue
+        if (Math.abs(step) === 1 && (x - 3 * K < 0 || x + 3 * K >= W)) continue
+        near += deltaE(at(p1), at(q1))
+        far += deltaE(at(p3), at(q3))
+        m++
+      }
+    }
+    return m >= 4 * K && far > 0 && near / far < 0.5
+  }
+  /**
+   * Whether a band's colour lies beyond its two main neighbours (darker or lighter than both: JPEG
+   * ringing) rather than between them (a real band, or a blend that resolveBlends handles).
+   */
+  const overshoots = (i: number) => {
+    const nb = [...shapes[i].nb].filter(([j]) => drawn(shapes[j]) || shapes[j].label >= 254).sort((a, b) => b[1] - a[1])
+    if (nb.length < 2) return false
+    const c = colourOf(shapes[i])
+    const a = drawn(shapes[nb[0][0]]) ? colourOf(shapes[nb[0][0]]) : [255, 255, 255]
+    const b = drawn(shapes[nb[1][0]]) ? colourOf(shapes[nb[1][0]]) : [255, 255, 255]
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+    if (len2 < 1) return true
+    const t = ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2
+    return t < 0.05 || t > 0.95
+  }
+  // Union shapes: same flat colour split by noise, and thin shade bands into their neighbour.
+  const parent = shapes.map((_, i) => i)
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])))
+  const absorb = (from: number, into: number) => {
+    const a = find(from), b = find(into)
+    if (a !== b) parent[a] = b
+  }
+  for (let i = 0; i < shapes.length; i++) {
+    const sh = shapes[i]
+    if (!drawn(sh)) continue
+    const mine = labOf(...colourOf(sh))
+    const thin = (2 * sh.px.length) / Math.max(1, sh.rim) < 3 * K
+    let best = -1, bestD = Infinity
+    for (const [j] of sh.nb) {
+      const o = shapes[j]
+      if (!drawn(o) || o.label === sh.label) continue
+      const d = deltaE(mine, labOf(...colourOf(o)))
+      if (d < bestD) [best, bestD] = [j, d]
+    }
+    if (best < 0) continue
+    const other = shapes[best]
+    if (sh.inner && other.inner && !thin && bestD < 20 && softBetween(i, best)) {
+      absorb(sh.px.length < other.px.length ? i : best, sh.px.length < other.px.length ? best : i)
+      reconciled.soft++
+    } else if (((thin && sh.nb.size >= 2 && bestD < 28 && overshoots(i)) || (sh.nb.size === 1 && bestD < 15)) && other.px.length > sh.px.length) {
+      absorb(i, best)
+      reconciled.bands++
+      if (sh.px.length >= 4 * K * K) {
+        const c = sh.px[sh.px.length >> 1]
+        merged.push({ x: c % W, y: Math.floor(c / W), area: sh.px.length })
+      }
+    }
+  }
+  // Each group takes the label of its largest member.
+  for (let i = 0; i < shapes.length; i++) {
+    const r = find(i)
+    if (r !== i && drawn(shapes[i])) for (const p of shapes[i].px) labels[p] = shapes[r].label
   }
 }
 

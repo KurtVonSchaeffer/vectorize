@@ -128,3 +128,105 @@ The leaf was earlier drawn as 152 straight steps: its pixel staircase was being 
    - vinyl cut: minimum width, weeding size, merged plates
    - embroidery: minimum satin width, no tiny islands
    - print: plates with spread
+
+---
+
+# Round 2: quality evaluator and heavy-damage fixes (uncommitted, for review)
+
+Still experimental and bench only; nothing is wired into the app. This work sits on top of commit `4d993c4` on `v8-reconstruction`.
+
+## 1. Quality evaluator (`bench/redraw/evaluate.ts`)
+
+The pixel score let a visibly wrong logo pass: it gave the warped 64 px chevron 0.3%. The evaluator compares a result with the clean original by **geometry and colour independently**. Every tolerance is in upload pixels.
+
+| Check | Fails when |
+|---|---|
+| Region overlap | any colour region overlaps the original by less than 90% |
+| Edge position | 5% of edges are more than 1 upload px from the original's |
+| Corners | a sharp corner of the original is rounded, cut or filled by more than 15% |
+| Halos | a thin band of a colour the original doesn't use there, or of an off-shade |
+| Shades | one flat colour is drawn as 2 or more visibly different shades (blotchy) |
+| Bulges and notches | an edge is pushed out or cut in by more than 2 upload px |
+| Topology | shapes are merged, split, missing or added |
+| Colour accuracy | a region's colour is ΔE > 10 off; this is measured separately and doesn't count as a shape error |
+
+**What it catches:**
+- the warped 64 px chevron
+- the shield's dark halos and its rounded top corners
+- the Venn's two shades
+- the speech bubble's lavender halo
+- the ring-and-bar T-junction notches
+- the 64 px leaf, whose stem became a grey teardrop while the pixel score said 0.05%
+
+**What it gets wrong:**
+- it passes the 64 px speech bubble although the white bars have rounded ends, because the bars are only 3 upload px tall and below what it can judge
+- early versions counted one colour shift several times (as region, missing and halo); fixed by judging geometry against the nearest original colour
+
+The evaluator is separate from the SVG/PDF/DXF file checks (`src/export/validate.ts`), which are unchanged.
+
+## 2. V7 vs V8 by the evaluator (10 synthetic logos, clean originals)
+
+| Damage | Logos passing V7 / V8 before / V8 now | Defects V7 / V8 before / V8 now | Mean pixel error V7 / V8 before / V8 now |
+|---|---|---|---|
+| 160 px, q 0.55 | **8** / 7 / 7 | 4 / 4 / 4 | 0.30% / 0.33% / 0.33% |
+| 96 px, q 0.35 | **7** / 5 / 5 | 16 / 17 / 17 | 0.80% / 0.39% / 0.39% |
+| 64 px, q 0.30 | 2 / 2 / **3** | 71 / 39 / **24** | 2.35% / 0.80% / **0.58%** |
+
+**On light and medium damage, V8 is worse than V7 by this measure, even where its pixel error is lower.** V8's failures there are mostly corners:
+- 160 px: the shield's stripe ends, the leaf's tip and the speech bubble's tail
+- 96 px: the shield's six corners, the arc's square end and the speech bubble's tail
+
+V8 rebuilds corners from fitted lines, and on a fairly clean upload that moves them more than V7's faithful trace does. **On heavy damage V8 is much better:** 24 defects against 71, and 3 logos pass against 2.
+
+Before and after: [`docs/v8/round2-64px.png`](v8/round2-64px.png), [`docs/v8/round2-160px.png`](v8/round2-160px.png).
+
+## 3. Fixes made (heavy damage)
+
+**Colour reconciliation**, for uploads of 256 px a side or less:
+- **Thin JPEG ringing bands** (darker or lighter than both neighbours) join their neighbour. This removed the shield's dark bands: 64 px error 0.90% → 0.78%, with halo and shades cleared.
+- **Islands of a close shade** join the shape around them. This removed the Venn's second green.
+- **Blends** may sit somewhat further off the straight mix of their neighbours (JPEG colour bleed is more saturated), up to 3 source px wide. This removed the speech bubble's lavender halo: 2.8% → 0.6%, and it now passes.
+- **Neighbouring shapes merge** when their inside colours are within ΔE 20 and the upload changes gradually between them. Shapes separated by a drawn edge are never merged.
+
+**Restricted to small uploads, because it damaged real art:**
+- The first version ran on every image. On the 740 px bird it merged a real coral band into the orange head, plus 17 other merges.
+- Those widths are JPEG damage only on small uploads; on larger images they are design. Large images now come out **byte-identical** to the committed V8 (bird and harbour checked).
+
+**Design-correction guard:**
+- Angle snapping and symmetry may not move a node more than 0.6 source px from where the upload puts it.
+- It changed no result on this set: the rules never moved a node that far.
+- So the 160 px regressions are not caused by snapping or symmetry. They come from corner reconstruction and the colour map. It is kept as a safeguard.
+
+## 4. Tried and rejected (measured)
+
+- **Re-measuring colours from each shape's inside:** the orange dot got worse than V7's colour. V7's cluster colours are kept.
+- **Corner lines measured from the middle of each edge:**
+  - better: 160 px shield 0.97% → 0.70%, 96 px speech bubble now passes
+  - worse: 64 px shield 0.78% → 1.64%, with a yellow strip along the top
+  - still worse when limited to long lines, so reverted
+- **Collapsing short bevels at corners:** no effect on any case, so removed.
+- **A noise-tolerant line test for wobbly straight sides:** the chevron got worse (0.30% → 0.41%), so reverted. The chevron warp is in the colour regions, not in the line fitting.
+
+## 5. Still wrong (confirmed by the evaluator and by eye)
+
+- **Chevron at 64 px:** the orange chevron is warped, with 89% region overlap. V7 traces it cleanly. The cause is in V8's colour regions at 4× refinement; not fixed.
+- **Ring-and-bar at 64 px:** notches where the bar meets the ring (4 corner defects), and the red region at 88% overlap.
+- **Corners on light damage:** see section 2.
+- **Colour drift:** on the arc-mark, target, leaf stem and ring-and-bar red, colours are ΔE 10–22 off. This comes from the colour step V7 and V8 share, not from reconstruction.
+- **Topology on the bird:** V8 still writes 2 zero-area pieces and 10 self-intersecting pieces. Not addressed this round.
+
+## 6. Performance and editability
+
+- **Time:** V8 takes 0.14–0.6 s on the synthetic set, still 2–6× faster than the V7 job. The colour step adds about 50–250 ms. The bird takes 2.6 s, unchanged.
+- **Memory:** heap growth was +10 to +60 MB, which is noisy.
+- **Editability:** unchanged. 89–100% of outline length is lines, arcs and circles on geometric art. Segment counts are 360–444 at 64 px (V7: 362) and 318 at 160 px (V7: 235).
+
+## 7. Recommendation
+
+- **Don't offer V8 for light or medium damage yet.** By the evaluator it is worse than V7 there.
+- **Next V8 work:**
+  1. Make corner reconstruction evidence-based: only move a corner when the move brings the edges closer to the upload.
+  2. Investigate the warped colour regions (chevron, ring-and-bar).
+  3. Fix zero-area and self-intersecting output.
+- **A possible product rule, once real-logo validation allows it:** run both V7 and V8, score each against the *upload* (no original is available in the app), and offer V8 only when it wins clearly. Heavy-damage uploads are where it does.
+- **Real-logo validation is still needed:** the evaluator needs clean originals, and only 3 of the real logos have them (acme, harbour and leaf SVGs). It should run on 10–15 real logos with originals before any customer use.
