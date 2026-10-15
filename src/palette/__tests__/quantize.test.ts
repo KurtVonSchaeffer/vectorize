@@ -178,5 +178,48 @@ describe('quantize: edge colours come from around the edge', () => {
         expect(map.labels[p]).not.toBe(black)
         if ((map.cov?.[p] ?? 1) < 1) expect(map.second?.[p]).not.toBe(black)
       }
+describe('quantize: thin lettering in its own colour (known defect)', () => {
+  // A navy wordmark over a 10 px grey tagline, as in bench/cases.ts "wordmark with tiny tagline".
+  // The tagline's strokes are 1 px wide with anti-aliased sides, so its grey cluster is small
+  // and has almost no interior; dropBlendClusters then treats it as navy→white edge fringe,
+  // through blendInfo's JPEG chroma-subsampling test (brightness near navy, neutral hue near
+  // white), although it is 29–31 sRGB units from any navy–white mix. The grey becomes navy.
+  // See docs/defects/grey-tagline.md. Flip `it.fails` to `it` once fixed.
+  const NAVY = [31, 42, 92]
+  const GREY = [73, 80, 87]
+  const WHITE = [255, 255, 255]
+  const TAGLINE_OPTS: QuantizeOptions = { ...OPTS, maxColors: 12, minArea: 16 }
+  function wordmark(): ImageData {
+    return image(240, 80, (x, y) => {
+      // Wordmark: solid navy blocks with a half-blended edge column, like anti-aliased glyphs.
+      for (const x0 of [10, 60, 110, 160]) {
+        if (y >= 8 && y < 40 && x >= x0 && x < x0 + 40) return [...NAVY, 255] as [number, number, number, number]
+        if (y >= 8 && y < 40 && (x === x0 - 1 || x === x0 + 40)) return [...mix(NAVY, WHITE, 0.5), 255] as [number, number, number, number]
+      }
+      // Tagline: 1 px grey letter outlines (6×9), each side blended 60% into white.
+      if (y >= 55 && y < 64) {
+        const i = (x - 12) % 9
+        if (x >= 12 && x < 228 && i >= 0 && i < 6) {
+          const edge = y === 55 || y === 63 || i === 0 || i === 5
+          if (edge) return [...GREY, 255] as [number, number, number, number]
+        }
+        if (x >= 12 && x < 228 && (i === 6 || i === 8 || ((y === 56 || y === 62) && i > 0 && i < 5))) return [...mix(GREY, WHITE, 0.6), 255] as [number, number, number, number]
+      }
+      return [...WHITE, 255] as [number, number, number, number]
+    })
+  }
+  const colours = (q: ReturnType<typeof quantize>) => q.map.colors.map((c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255])
+  const near = (a: number[], b: number[], d: number) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < d
+
+  it('keeps navy and white', () => {
+    const cs = colours(quantize(wordmark(), TAGLINE_OPTS))
+    expect(cs.some((c) => near(c, NAVY, 12))).toBe(true)
+    expect(cs.some((c) => near(c, WHITE, 12))).toBe(true)
+  })
+  it('the grey survives with blend clusters kept, so it is the blend filter that drops it', () => {
+    expect(colours(quantize(wordmark(), { ...TAGLINE_OPTS, keepBlends: true })).some((c) => near(c, GREY, 24))).toBe(true)
+  })
+  it.fails('keeps the tagline grey as its own colour', () => {
+    expect(colours(quantize(wordmark(), TAGLINE_OPTS)).some((c) => near(c, GREY, 24))).toBe(true)
   })
 })
