@@ -178,13 +178,17 @@ describe('quantize: edge colours come from around the edge', () => {
         expect(map.labels[p]).not.toBe(black)
         if ((map.cov?.[p] ?? 1) < 1) expect(map.second?.[p]).not.toBe(black)
       }
-describe('quantize: thin lettering in its own colour (known defect)', () => {
+  })
+})
+
+describe('quantize: thin lettering in its own colour (grey-tagline regression)', () => {
   // A navy wordmark over a 10 px grey tagline, as in bench/cases.ts "wordmark with tiny tagline".
   // The tagline's strokes are 1 px wide with anti-aliased sides, so its grey cluster is small
-  // and has almost no interior; dropBlendClusters then treats it as navy→white edge fringe,
+  // and has almost no interior; dropBlendClusters used to treat it as navy→white edge fringe,
   // through blendInfo's JPEG chroma-subsampling test (brightness near navy, neutral hue near
-  // white), although it is 29–31 sRGB units from any navy–white mix. The grey becomes navy.
-  // See docs/defects/grey-tagline.md. Flip `it.fails` to `it` once fixed.
+  // white), although it is 29–31 sRGB units from any navy–white mix, and the grey became navy.
+  // See docs/defects/grey-tagline.md; fixed by the spatial checks in dropBlendClusters
+  // (docs/defects/grey-tagline-fix.md). This was it.fails while the defect was open.
   const NAVY = [31, 42, 92]
   const GREY = [73, 80, 87]
   const WHITE = [255, 255, 255]
@@ -216,10 +220,95 @@ describe('quantize: thin lettering in its own colour (known defect)', () => {
     expect(cs.some((c) => near(c, NAVY, 12))).toBe(true)
     expect(cs.some((c) => near(c, WHITE, 12))).toBe(true)
   })
-  it('the grey survives with blend clusters kept, so it is the blend filter that drops it', () => {
+  it('the grey survives with blend clusters kept (the blend filter is where it was lost)', () => {
     expect(colours(quantize(wordmark(), { ...TAGLINE_OPTS, keepBlends: true })).some((c) => near(c, GREY, 24))).toBe(true)
   })
-  it.fails('keeps the tagline grey as its own colour', () => {
+  it('keeps the tagline grey as its own colour', () => {
     expect(colours(quantize(wordmark(), TAGLINE_OPTS)).some((c) => near(c, GREY, 24))).toBe(true)
+  })
+})
+
+describe('quantize: thin artwork versus edge fringes', () => {
+  // dropBlendClusters folds away small colours that look like a mix of two others. It must also
+  // check where they are: a fringe lies between the colours it blends; thin lettering or an
+  // outline in its own colour doesn't, or is a consistent band of its own.
+  const NAVY = [31, 42, 92]
+  const GREY = [73, 80, 87]
+  const WHITE = [255, 255, 255]
+  const ORANGE = [235, 120, 30]
+  const PURPLE = [120, 45, 120]
+  const O = { ...OPTS, maxColors: 12, minArea: 16 }
+  const px = (c: number[]) => [...c.map((v) => Math.max(0, Math.min(255, Math.round(v)))), 255] as [number, number, number, number]
+  const rgbList = (q: ReturnType<typeof quantize>) => q.map.colors.map((c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255])
+  const has = (q: ReturnType<typeof quantize>, c: number[], d = 24) => rgbList(q).some((x) => Math.hypot(x[0] - c[0], x[1] - c[1], x[2] - c[2]) < d)
+  let seed = 7
+  const noise = (amp: number) => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * amp
+
+  /** Navy wordmark over a 10 px grey tagline: 1 px grey letter outlines, sides blended 60% into white. */
+  const tagline = () =>
+    image(240, 80, (x, y) => {
+      for (const x0 of [10, 60, 110, 160]) {
+        if (y >= 8 && y < 40 && x >= x0 && x < x0 + 40) return px(NAVY)
+        if (y >= 8 && y < 40 && (x === x0 - 1 || x === x0 + 40)) return px(mix(NAVY, WHITE, 0.5))
+      }
+      if (y >= 55 && y < 64 && x >= 12 && x < 228) {
+        const i = (x - 12) % 9
+        if (i < 6 && (y === 55 || y === 63 || i === 0 || i === 5)) return px(GREY)
+        if (i === 6 || i === 8 || ((y === 56 || y === 62) && i > 0 && i < 5)) return px(mix(GREY, WHITE, 0.6))
+      }
+      return px(WHITE)
+    })
+
+  it('keeps a thin grey tagline beside navy lettering as its own colour, and adds nothing else', () => {
+    const q = quantize(tagline(), O)
+    expect(has(q, GREY)).toBe(true)
+    expect(has(q, NAVY, 12)).toBe(true)
+    expect(q.map.colors.length).toBe(3)
+  })
+
+  it('still folds anti-aliased edge colours into the colours they blend', () => {
+    const q = quantize(tagline(), O)
+    // The navy→white and grey→white edge mixes are gone.
+    expect(has(q, mix(NAVY, WHITE, 0.5), 12)).toBe(false)
+    expect(has(q, mix(GREY, WHITE, 0.6), 12)).toBe(false)
+  })
+
+  it('still folds JPEG chroma fringes (dark like navy, tinted like orange), with noise', () => {
+    const toYcc = (c: number[]) => [0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2], -0.1687 * c[0] - 0.3313 * c[1] + 0.5 * c[2], 0.5 * c[0] - 0.4187 * c[1] - 0.0813 * c[2]]
+    const fromYcc = ([y, cb, cr]: number[]) => [y + 1.402 * cr, y - 0.344136 * cb - 0.714136 * cr, y + 1.772 * cb]
+    const [yn] = toYcc(NAVY)
+    const [yo, cbo, cro] = toYcc(ORANGE)
+    const fringe = fromYcc([yn + 0.3 * (yo - yn), cbo * 0.7, cro * 0.7])
+    seed = 7
+    const src = image(200, 80, (x, y) => {
+      const n = noise(8)
+      const c = y < 10 || y >= 70 ? WHITE : x < 60 ? NAVY : x === 60 ? fringe : x < 140 ? ORANGE : WHITE
+      return px(c.map((v) => v + n))
+    })
+    const q = quantize(src, O)
+    expect(has(q, NAVY, 16)).toBe(true)
+    expect(has(q, ORANGE, 16)).toBe(true)
+    expect(q.map.colors.length).toBe(3)
+  })
+
+  it('keeps a 2 px outline in its own colour between two colours it happens to mix', () => {
+    // Purple is exactly half red, half blue, and touches both, but it's a consistent band.
+    const src = image(120, 60, (x) => px(x < 50 ? RED : x < 52 ? PURPLE : BLUE))
+    const q = quantize(src, O)
+    expect(has(q, PURPLE, 12)).toBe(true)
+    expect(q.map.colors.length).toBe(3)
+  })
+
+  it('still treats a thin line drawn across pixel boundaries as anti-aliasing, not a new colour', () => {
+    // A 1 px navy line between two pixel rows: each row is an exact 50% navy/white mix, far from
+    // the navy block. An exact anti-aliasing mix like this is the line's own colour, blended.
+    const src = image(160, 60, (x, y) => px(x >= 120 && x < 150 && y >= 15 && y < 45 ? NAVY : x >= 10 && x < 110 && (y === 29 || y === 30) ? mix(NAVY, WHITE, 0.5) : WHITE))
+    expect(quantize(src, O).map.colors.length).toBe(2)
+  })
+
+  it('still folds a blurred two-pixel edge between two colours', () => {
+    const src = image(120, 60, (x) => px(x < 50 ? RED : x === 50 ? mix(RED, BLUE, 1 / 3) : x === 51 ? mix(RED, BLUE, 2 / 3) : BLUE))
+    const q = quantize(src, O)
+    expect(q.map.colors.length).toBe(2)
   })
 })
