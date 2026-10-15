@@ -64,6 +64,7 @@ They are compared with the original, or with the upload when there's no original
 | Lumpy curves likely when enlarged | More than 5% of curve-to-curve joins bend 15–60° |
 | Merged / broken / missing / extra shapes | Letters or marks joined together, split apart, lost or invented, found by matching separate shapes by overlap |
 | Incorrect colours | An original colour shown more than ΔE 3 off |
+| Missing colours | An original colour (at least 0.1% of the artwork) with nothing in the result within ΔE 10, and not an anti-aliased mix of two result colours: for example thin grey lettering turned navy. Not checked against a JPEG upload when there's no original. |
 | Cut file | Open outlines, or pieces under 1 mm at 200 mm wide (hard to weed) |
 
 ### Does the harness match the app?
@@ -78,6 +79,7 @@ They are compared with the original, or with the upload when there's no original
 | Edge agreement (F1) | ≥ 0.95 | Outlines sit where the original's do. |
 | Mean colour difference (CIEDE2000) over the original's flat colours | ≤ 2 (≤ 3 for compressed uploads) | ΔE ≤ 2 is barely visible side by side. |
 | Merged brand colours | 0 | Two distinct brand colours must not become one. |
+| Missing colours | 0 | A colour lost altogether, which the solid-area comparison above can't see in thin lettering. See `docs/defects/grey-tagline.md`. |
 | Transparency changes (`transparent__`) | ≤ 0.5% of pixels | The background stays transparent, holes stay open. |
 | Gradients (when the original SVG has them) | Kept as gradients | Not flattened into bands. |
 | Exports | All 6 files valid | SVG parses and renders; PDF is complete with filled plates; DXF has outlines; PNG is valid. |
