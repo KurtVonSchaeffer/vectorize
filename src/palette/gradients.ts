@@ -14,6 +14,11 @@
  *    meet, so step 1 can join several of them into one region that no single gradient explains.
  *    A large region that fails is split again with tighter color steps, and each large enough
  *    piece is fitted on its own. When no piece fits, the region is left exactly as it was.
+ * 6. Two gradients (prototype): two feathers whose gradients meet without any colour step can't be
+ *    split by colour steps. A large piece that still fails is fitted as two gradients, each pixel
+ *    going to the one that explains it better, kept only when both pass the normal tolerances,
+ *    together they're clearly better than one, each is one coherent shape, and the two agree along
+ *    their shared boundary (no seam where the original is continuous).
  *
  * Colors are fitted in sRGB, which is how SVG interpolates gradients.
  */
@@ -71,6 +76,20 @@ const STAIR_FLAT = 0.3
 /** ...and a staircase has at least this share of the change in jumps, and of the length flat. */
 const STAIR_JUMP_SHARE = 0.6
 const STAIR_FLAT_SHARE = 0.7
+/** Two gradients (twoGradients): tried on failed pieces at least this large (each part SPLIT_MIN). */
+const TWO_MIN = 2 * SPLIT_MIN
+/** ...when one gradient's residual is at least this (below it, one is already faithful), */
+const TWO_MIN_RMS = 3
+/** ...kept only when their combined residual is at most this share of the single gradient's, */
+const TWO_GAIN = 0.75
+/** ...each part's largest connected piece holds this share of it, */
+const TWO_COHERENT = 0.9
+/** ...and along the shared boundary the two differ from the original's own change by at most this (RMS). */
+const TWO_SEAM = 6
+/** Gradients grow at most this many pixels into what a split left over (growIntoEdges). */
+const LEFTOVER_RINGS = 16
+/** Prototype diagnostics: one entry per two-gradient attempt. */
+export const twoGradientLog: Record<string, unknown>[] = []
 
 export function findGradients(img: ImageData, opts: GradientOptions = {}): GradientRegion[] {
   const { width: w, height: h, data: d } = img
@@ -126,6 +145,9 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
 
   const regions: GradientRegion[] = []
   const rejected: Uint32Array[] = []
+  // Pixels a split left over (thin tips and edges of the pieces): gradients may grow into them.
+  const leftover = new Int32Array(n) // leftover piece number + 1; 0 = none
+  const leftoverCount: number[] = []
   roots.forEach((r, i) => {
     if (size[r] < minArea) return
     const diag = { explained: 0 }
@@ -137,10 +159,14 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
       // background (along the image border, often chained to shapes by their soft edges), which
       // splitting can't turn into gradients and which is slow to split.
       const splittable = diag.explained >= SPLIT_MIN_EXPLAINED && borderShare(lists[i], w, h) < SPLIT_MAX_BORDER
-      const found = splittable ? splitAndFit(lists[i], w, h, R, G, B) : null
+      const found = splittable ? splitAndFit(lists[i], w, h, R, G, B, d) : null
       if (found) {
         regions.push(...found.regions)
         rejected.push(...found.rest)
+        for (const piece of found.rest) {
+          leftoverCount.push(piece.length)
+          for (const p of piece) leftover[p] = leftoverCount.length
+        }
       } else rejected.push(lists[i])
     }
   })
@@ -150,7 +176,7 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
   // gradient) are too small to show the gradient on their own; they join it when it explains them.
   roots.forEach((r, i) => size[r] < minArea && rejected.push(lists[i]))
   const joined = joinPieces(kept, rejected, w, R, G, B)
-  return growIntoEdges(joined, w, h, d, valid, (p) => root[p] >= 0 && size[root[p]] >= minArea)
+  return growIntoEdges(joined, w, h, d, valid, (p) => root[p] >= 0 && size[root[p]] >= minArea, { piece: leftover, sizes: leftoverCount })
 }
 
 /** The gradient's color at a point (sRGB). */
@@ -211,12 +237,14 @@ function joinPieces(regions: GradientRegion[], pieces: Uint32Array[], w: number,
  * gradients found and the leftover pieces, or null when nothing fits (the region then stays whole,
  * so its leftovers can't be absorbed into a neighboring gradient).
  */
-function splitAndFit(list: Uint32Array, w: number, h: number, R: Float32Array, G: Float32Array, B: Float32Array): { regions: GradientRegion[]; rest: Uint32Array[] } | null {
+function splitAndFit(list: Uint32Array, w: number, h: number, R: Float32Array, G: Float32Array, B: Float32Array, d: Uint8ClampedArray): { regions: GradientRegion[]; rest: Uint32Array[] } | null {
   const regions: GradientRegion[] = []
   const rest: Uint32Array[] = []
   // Pixel → position in the piece being split (+1; 0 = not in it), shared by every split.
   const index = new Int32Array(w * h)
   let todo = [list]
+  // Each failed piece's single-gradient residual (0: flat, or a staircase).
+  const oneRms = new Map<Uint32Array, number>()
   for (const step of SPLIT_STEPS) {
     const next: Uint32Array[] = []
     for (const part of todo)
@@ -225,15 +253,257 @@ function splitAndFit(list: Uint32Array, w: number, h: number, R: Float32Array, G
           rest.push(piece)
           continue
         }
-        const g = fitRegion(piece, w, R, G, B)
+        const dg: { explained: number; rms?: number } = { explained: 0 }
+        const g = fitRegion(piece, w, R, G, B, dg)
         // A piece of flat colors joined by their soft edges (a green and a blue shape) fits as a
         // staircase "gradient"; it stays flat.
         if (g && !isStaircase(g, w, R, G, B)) regions.push(g)
-        else next.push(piece)
+        else {
+          next.push(piece)
+          oneRms.set(piece, g ? 0 : (dg.rms ?? 0))
+        }
       }
     todo = next
   }
-  return regions.length ? { regions, rest: [...rest, ...todo] } : null
+  // Pieces still unexplained: two gradients that meet without a colour step (two feathers).
+  const left: Uint32Array[] = []
+  for (const piece of todo) {
+    // One gradient already this close is faithful: the piece failed for being nearly flat (like a
+    // background, which would also be the slowest to try).
+    const two = piece.length >= TWO_MIN && (oneRms.get(piece) ?? 0) >= TWO_MIN_RMS ? twoGradients(piece, w, h, R, G, B, d, index) : null
+    if (two) regions.push(...two)
+    else left.push(piece)
+  }
+  return regions.length ? { regions, rest: [...rest, ...left] } : null
+}
+
+/**
+ * Two gradients for a piece that no single gradient explains and colour steps can't split (two
+ * feathers meeting without a step). Starting from a few splits, each part is fitted and every pixel
+ * goes to the gradient that explains it better (smoothed, so the parts stay whole shapes), until
+ * stable. Kept only when both parts pass the normal tolerances and aren't staircases, together they
+ * cut the single gradient's residual to TWO_GAIN or less, each is one coherent shape, and the two
+ * agree along their shared boundary (TWO_SEAM). Otherwise null, and the piece stays as it was.
+ */
+function twoGradients(list: Uint32Array, w: number, h: number, R: Float32Array, G: Float32Array, B: Float32Array, d: Uint8ClampedArray, index: Int32Array): GradientRegion[] | null {
+  const m = list.length
+  const oneDiag = { explained: 0, rms: 0 }
+  const one = fitRegion(list, w, R, G, B, oneDiag, true)
+  if (!one) return null
+  const log: Record<string, unknown> = { pixels: m, oneRms: round(oneDiag.rms), oneExplained: round(oneDiag.explained) }
+  twoGradientLog.push(log)
+  const t0 = performance.now()
+  list.forEach((p, i) => (index[p] = i + 1))
+  const at = (p: number) => [(p % w) + 0.5, Math.floor(p / w) + 0.5]
+  const errOf = (f: GradientFill, p: number) => {
+    const [x, y] = at(p)
+    const c = colorAt(f, x, y)
+    return (R[p] - c[0]) ** 2 + (G[p] - c[1]) ** 2 + (B[p] - c[2]) ** 2
+  }
+  // In-piece neighbours of pixel i (indices into list), 4- or 8-connected.
+  const around = (i: number, eight: boolean, visit: (j: number) => void) => {
+    const p = list[i], x = p % w, y = (p - x) / w
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if ((!dx && !dy) || (!eight && dx && dy)) continue
+        const xx = x + dx, yy = y + dy
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue
+        const j = index[yy * w + xx] - 1
+        if (j >= 0) visit(j)
+      }
+  }
+  // Connected pieces of each label: component id per pixel and sizes.
+  const components = (lab: Uint8Array) => {
+    const comp = new Int32Array(m).fill(-1)
+    const sizes: number[] = [], labels: number[] = []
+    const stack: number[] = []
+    for (let s = 0; s < m; s++) {
+      if (comp[s] >= 0) continue
+      const id = sizes.length
+      let n = 0
+      comp[s] = id
+      stack.push(s)
+      while (stack.length) {
+        const i = stack.pop()!
+        n++
+        around(i, false, (j) => {
+          if (comp[j] < 0 && lab[j] === lab[s]) {
+            comp[j] = id
+            stack.push(j)
+          }
+        })
+      }
+      sizes.push(n)
+      labels.push(lab[s])
+    }
+    return { comp, sizes, labels }
+  }
+  const tidy = (lab: Uint8Array) => {
+    // Majority of the 8 neighbours, twice, then fragments of a part flip to the other.
+    for (let pass = 0; pass < 2; pass++) {
+      const next = lab.slice()
+      for (let i = 0; i < m; i++) {
+        let ones = 0, all = 0
+        around(i, true, (j) => {
+          all++
+          ones += lab[j]
+        })
+        if (ones * 2 > all + 1) next[i] = 1
+        else if (ones * 2 < all - 1) next[i] = 0
+      }
+      lab.set(next)
+    }
+    const { comp, sizes, labels } = components(lab)
+    const total = [0, 0], biggest = [0, 0]
+    sizes.forEach((n, c) => {
+      total[labels[c]] += n
+      biggest[labels[c]] = Math.max(biggest[labels[c]], n)
+    })
+    for (let i = 0; i < m; i++) {
+      const c = comp[i], l = labels[c]
+      if (sizes[c] < biggest[l] && sizes[c] < Math.max(20, total[l] * 0.05)) lab[i] = 1 - l
+    }
+  }
+  const partsOf = (lab: Uint8Array) => [0, 1].map((k) => Uint32Array.from(list.filter((_, i) => lab[i] === k)))
+  // One reassignment round: fit both parts, give each pixel to the better one, tidy. Null when a
+  // part gets too small or flat.
+  const step = (lab: Uint8Array) => {
+    const parts = partsOf(lab)
+    if (parts.some((pt) => pt.length < SPLIT_MIN)) return null
+    const fits = parts.map((pt) => fitRegion(pt, w, R, G, B, undefined, true))
+    if (!fits[0] || !fits[1]) return null
+    const next = new Uint8Array(m)
+    for (let i = 0; i < m; i++) next[i] = errOf(fits[1].fill, list[i]) < errOf(fits[0].fill, list[i]) ? 1 : 0
+    tidy(next)
+    let changed = 0
+    for (let i = 0; i < m; i++) if (next[i] !== lab[i]) changed++
+    return { lab: next, changed }
+  }
+  const finish = (lab: Uint8Array) => {
+    const parts = partsOf(lab)
+    if (parts.some((pt) => pt.length < SPLIT_MIN)) return null
+    const diags = [{ explained: 0, rms: 0 }, { explained: 0, rms: 0 }]
+    const fits = parts.map((pt, k) => fitRegion(pt, w, R, G, B, diags[k], true))
+    if (!fits[0] || !fits[1]) return null
+    const rms = Math.sqrt((diags[0].rms ** 2 * parts[0].length + diags[1].rms ** 2 * parts[1].length) / m)
+    return { lab, fits: fits as GradientRegion[], diags, rms }
+  }
+  // A few rounds from each start; then only the most promising start continues until stable.
+  const refine = (starts: Uint8Array[]) => {
+    const runs = starts.map((lab) => {
+      let cur: Uint8Array | null = lab
+      for (let it = 0; it < 3 && cur; it++) {
+        const r = step(cur)
+        cur = r ? r.lab : null
+        if (r && r.changed < m * 0.002) break
+      }
+      return cur ? finish(cur) : null
+    })
+    log.starts = runs.map((r) => (r ? round(r.rms) : -1))
+    let best = runs.reduce<(typeof runs)[number]>((b, r) => (r && (!b || r.rms < b.rms) ? r : b), null)
+    if (!best) return null
+    let lab = best.lab
+    for (let it = 0; it < 6; it++) {
+      const r = step(lab)
+      if (!r) break
+      lab = r.lab
+      if (r.changed < m * 0.002) break
+    }
+    const last = finish(lab)
+    if (last && last.rms <= best.rms) best = last
+    return best
+  }
+
+  try {
+    // Starting splits: by the colour the single gradient leaves unexplained (two feathers differ in
+    // hue), and by halves along and across the single gradient's direction.
+    const starts: Uint8Array[] = []
+    const rv: number[][] = []
+    let mr = 0, mg = 0, mb = 0
+    for (const p of list) {
+      const [x, y] = at(p)
+      const c = colorAt(one.fill, x, y)
+      const v = [R[p] - c[0], G[p] - c[1], B[p] - c[2]]
+      rv.push(v)
+      mr += v[0]; mg += v[1]; mb += v[2]
+    }
+    mr /= m; mg /= m; mb /= m
+    const cov = [0, 0, 0, 0, 0, 0]
+    for (const [a0, b0, c0] of rv) {
+      const a = a0 - mr, b = b0 - mg, c = c0 - mb
+      cov[0] += a * a; cov[1] += a * b; cov[2] += a * c; cov[3] += b * b; cov[4] += b * c; cov[5] += c * c
+    }
+    let e = [1, 0.5, 0.25]
+    for (let it = 0; it < 30; it++) {
+      const v = [cov[0] * e[0] + cov[1] * e[1] + cov[2] * e[2], cov[1] * e[0] + cov[3] * e[1] + cov[4] * e[2], cov[2] * e[0] + cov[4] * e[1] + cov[5] * e[2]]
+      const len = Math.hypot(v[0], v[1], v[2]) || 1
+      e = [v[0] / len, v[1] / len, v[2] / len]
+    }
+    starts.push(Uint8Array.from(rv, (v) => ((v[0] - mr) * e[0] + (v[1] - mg) * e[1] + (v[2] - mb) * e[2] > 0 ? 1 : 0)))
+    let cx = 0, cy = 0
+    for (const p of list) {
+      const [x, y] = at(p)
+      cx += x; cy += y
+    }
+    cx /= m; cy /= m
+    const f = one.fill
+    const dir = f.kind === 'linear' ? [f.x2 - f.x1, f.y2 - f.y1] : [1, 0]
+    for (const [dx, dy] of [dir, [-dir[1], dir[0]]])
+      starts.push(Uint8Array.from(list, (p) => {
+        const [x, y] = at(p)
+        return (x - cx) * dx + (y - cy) * dy > 0 ? 1 : 0
+      }))
+    const best = refine(starts)
+    if (!best) return (log.verdict = 'no two-part fit', null)
+    const { lab, fits, diags, rms } = best
+    log.parts = fits.map((g, k) => ({ pixels: g.pixels.length, kind: g.fill.kind, rms: round(diags[k].rms), explained: round(diags[k].explained), stops: g.fill.stops.length }))
+    log.twoRms = round(rms)
+    // Coherence: each part mostly one connected shape.
+    const { sizes, labels } = components(lab)
+    const coherent = [0, 1].map((k) => {
+      const mine = sizes.filter((_, c) => labels[c] === k)
+      return Math.max(...mine) / mine.reduce((a, b) => a + b, 0)
+    })
+    log.coherent = coherent.map((v) => round(v))
+    // Seam: along the shared boundary, the change between the two drawn gradients against the
+    // original's own change there (unblurred, so real steps count in full), averaged over 8 px
+    // cells so JPEG noise cancels and only a systematic jump remains.
+    const cells = new Map<number, number[]>()
+    let pairs = 0
+    for (let i = 0; i < m; i++) {
+      const p = list[i]
+      for (const q of [(p + 1) % w ? p + 1 : -1, p + w < w * h ? p + w : -1]) {
+        const j = q >= 0 ? index[q] - 1 : -1
+        if (j < 0 || lab[j] === lab[i]) continue
+        const [px, py] = at(p), [qx, qy] = at(q)
+        const a = colorAt(fits[lab[i]].fill, px, py), b = colorAt(fits[lab[j]].fill, qx, qy)
+        const key = Math.floor(py / 8) * 4096 + Math.floor(px / 8)
+        const c = cells.get(key) ?? [0, 0, 0, 0]
+        for (let k = 0; k < 3; k++) c[k] += a[k] - b[k] - (d[p * 4 + k] - d[q * 4 + k])
+        c[3]++
+        cells.set(key, c)
+        pairs++
+      }
+    }
+    let seam = 0
+    for (const c of cells.values()) seam += ((c[0] / c[3]) ** 2 + (c[1] / c[3]) ** 2 + (c[2] / c[3]) ** 2) / 3
+    const seamRms = Math.sqrt(seam / Math.max(1, cells.size))
+    log.seam = round(seamRms)
+    log.boundary = pairs
+    log.boundaryPerSide = round(pairs / Math.sqrt(m))
+    const fail = [
+      diags.some((dg) => dg.rms > MAX_RMS || dg.explained < MIN_EXPLAINED) && 'a part fails the gradient tolerances',
+      fits.some((g) => isStaircase(g, w, R, G, B)) && 'a part is flat colours in steps',
+      rms > TWO_GAIN * oneDiag.rms && 'not clearly better than one gradient',
+      coherent.some((c) => c < TWO_COHERENT) && 'a part is in pieces',
+      seamRms > TWO_SEAM && !(globalThis as { __TWO_NOSEAM?: boolean }).__TWO_NOSEAM && 'visible seam', // prototype switch, for pictures only
+    ].filter(Boolean)
+    log.verdict = fail.length ? fail.join('; ') : 'two gradients'
+    return fail.length ? null : fits
+  } finally {
+    list.forEach((p) => (index[p] = 0))
+    log.ms = Math.round(performance.now() - t0)
+  }
 }
 
 /** Share of the image's border pixels that belong to a region. */
@@ -315,21 +585,52 @@ function splitPixels(list: Uint32Array, w: number, h: number, R: Float32Array, G
 /**
  * Blurring pulls a region's outline about a pixel inside its real edge. Give each gradient the
  * edge pixels next to it that belong to no large region, so its shape reaches the real edge.
+ * Pixels a split left over (`leftover`: the thin tip of a feather, too small to be a piece) are
+ * grown into ring by ring, so the gradient keeps the shape's full outline. Only small leftovers
+ * (under SPLIT_MIN); growing into large failed pieces would cut them into slivers.
  */
-function growIntoEdges(regions: GradientRegion[], w: number, h: number, d: Uint8ClampedArray, valid: Uint8Array, inLarge: (p: number) => boolean): GradientRegion[] {
+function growIntoEdges(regions: GradientRegion[], w: number, h: number, d: Uint8ClampedArray, valid: Uint8Array, inLarge: (p: number) => boolean, leftover?: { piece: Int32Array; sizes: number[] }): GradientRegion[] {
   const owner = new Int16Array(w * h).fill(-1)
   regions.forEach((r, k) => r.pixels.forEach((p) => (owner[p] = k)))
   const extra: number[][] = regions.map(() => [])
+  const grow = (p: number, x: number, y: number) => {
+    const k = [x > 0 ? p - 1 : -1, x + 1 < w ? p + 1 : -1, y > 0 ? p - w : -1, y + 1 < h ? p + w : -1].map((q) => (q >= 0 ? owner[q] : -1)).find((o) => o >= 0)
+    if (k === undefined) return -1
+    // Only pixels that look like the gradient there; a neighbor's own edge pixels stay its own.
+    const c = colorAt(regions[k].fill, x + 0.5, y + 0.5)
+    return Math.max(Math.abs(d[p * 4] - c[0]), Math.abs(d[p * 4 + 1] - c[1]), Math.abs(d[p * 4 + 2] - c[2])) <= EDGE_MATCH ? k : -1
+  }
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const p = y * w + x
       if (owner[p] >= 0 || !valid[p] || inLarge(p)) continue
-      const k = [x > 0 ? p - 1 : -1, x + 1 < w ? p + 1 : -1, y > 0 ? p - w : -1, y + 1 < h ? p + w : -1].map((q) => (q >= 0 ? owner[q] : -1)).find((o) => o >= 0)
-      if (k === undefined) continue
-      // Only pixels that look like the gradient there; a neighbor's own edge pixels stay its own.
-      const c = colorAt(regions[k].fill, x + 0.5, y + 0.5)
-      if (Math.max(Math.abs(d[p * 4] - c[0]), Math.abs(d[p * 4 + 1] - c[1]), Math.abs(d[p * 4 + 2] - c[2])) <= EDGE_MATCH) extra[k].push(p)
+      const k = grow(p, x, y)
+      if (k >= 0) extra[k].push(p)
     }
+  if (leftover) {
+    // The first ring above doesn't claim pixels yet (as before); the leftover rings do, in turn.
+    const { piece } = leftover
+    let todo: number[] = []
+    for (let p = 0; p < w * h; p++) if (piece[p] && owner[p] < 0 && valid[p] && leftover.sizes[piece[p] - 1] < SPLIT_MIN) todo.push(p)
+    const taken: [number, number][] = []
+    for (let ring = 0; ring < LEFTOVER_RINGS && todo.length; ring++) {
+      const found: [number, number][] = []
+      const rest: number[] = []
+      for (const p of todo) {
+        const x = p % w
+        const k = grow(p, x, (p - x) / w)
+        if (k >= 0) found.push([p, k])
+        else rest.push(p)
+      }
+      if (!found.length) break
+      for (const [p, k] of found) {
+        owner[p] = k
+        taken.push([p, k])
+      }
+      todo = rest
+    }
+    for (const [p, k] of taken) extra[k].push(p)
+  }
   return regions.map((r, k) => (extra[k].length ? { ...r, pixels: Uint32Array.from([...r.pixels, ...extra[k]]) } : r))
 }
 
@@ -362,7 +663,7 @@ function blurred(d: Uint8ClampedArray, w: number, h: number): [Float32Array, Flo
   return [out[0], out[1], out[2], valid]
 }
 
-function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number }): GradientRegion | null {
+function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number; rms?: number }, loose = false): GradientRegion | null {
   const m = pixels.length
   // Mean color and position.
   let mr = 0, mg = 0, mb = 0, mx = 0, my = 0
@@ -435,8 +736,12 @@ function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Ar
   const best = useRadial ? radial : linear
   if (!best) return null
   const explained = 1 - (best.rms * best.rms * 3) / Math.max(1e-6, variance)
-  if (diag) diag.explained = explained
-  if (best.rms > MAX_RMS || explained < MIN_EXPLAINED) return null
+  if (diag) {
+    diag.explained = explained
+    diag.rms = best.rms
+  }
+  // Loose: any fit, for comparing candidates (twoGradients); the tolerances are applied after.
+  if (!loose && (best.rms > MAX_RMS || explained < MIN_EXPLAINED)) return null
 
   const stops = simplifyStops(best.colors)
   const color = rgbInt(mr, mg, mb)

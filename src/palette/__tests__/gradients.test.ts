@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findGradients, isStaircase } from '../gradients'
+import { colorAt, findGradients, isStaircase } from '../gradients'
 
 type RGB = [number, number, number]
 function image(w: number, h: number, paint: (x: number, y: number) => RGB): ImageData {
@@ -183,5 +183,88 @@ describe('findGradients: overlapping gradient shapes', () => {
     const g = findGradients(img)
     expect(g).toHaveLength(1)
     expect([...g[0].pixels].every((p) => p % 240 >= 76 && p % 240 < 164)).toBe(true)
+  })
+})
+
+describe('findGradients: two gradients in one region (prototype)', () => {
+  const VIOLET: RGB = [164, 56, 169]
+  const DARK: RGB = [73, 15, 118]
+  // A square split along its diagonal: above it the colour runs left to right, below it top to
+  // bottom, with the same colours, so the two meet without any step (two feathers that blend).
+  const corner = (end: RGB = DARK, grain = false) =>
+    image(240, 200, (x, y) => {
+      if (x < 40 || x >= 200 || y < 20 || y >= 180) return CREAM
+      const c = x - 40 >= y - 20 ? lerp(VIOLET, DARK, (x - 40) / 159) : lerp(VIOLET, end, (y - 20) / 159)
+      return grain ? (c.map((v) => v + noise(x, y)) as RGB) : c
+    })
+  const errOver = (g: ReturnType<typeof findGradients>, img: ImageData) => {
+    let e = 0, n = 0
+    for (const r of g)
+      for (const p of r.pixels) {
+        const c = colorAt(r.fill, (p % img.width) + 0.5, Math.floor(p / img.width) + 0.5)
+        for (let k = 0; k < 3; k++) e += Math.abs(c[k] - img.data[p * 4 + k])
+        n += 3
+      }
+    return e / n
+  }
+
+  for (const [label, end, grain] of [
+    ['clean', DARK, false],
+    ['hues drifting apart', [60, 31, 128] as RGB, false],
+    ['with JPEG-like grain', DARK, true],
+  ] as [string, RGB, boolean][])
+    it(`fits two gradients that meet without a step as two gradients (${label})`, () => {
+      const img = corner(end, grain)
+      const g = findGradients(img)
+      expect(g).toHaveLength(2)
+      // One runs left to right, the other top to bottom, each about half of the square.
+      const dirs = g.map((r) => (r.fill.kind === 'linear' ? Math.abs(r.fill.x2 - r.fill.x1) > Math.abs(r.fill.y2 - r.fill.y1) : null))
+      expect(dirs.sort()).toEqual([false, true])
+      for (const r of g) expect(r.pixels.length).toBeGreaterThan(160 * 160 * 0.35)
+      expect(errOver(g, img)).toBeLessThan(3)
+    })
+
+  // Negative cases: the right answer is one gradient (or none), never two.
+  it('keeps a single linear gradient whole', () => {
+    const g = findGradients(image(200, 120, (x, y) => (x >= 40 && x < 160 && y >= 30 && y < 90 ? lerp(PINK, PURPLE, (x - 40) / 119) : CREAM)))
+    expect(g).toHaveLength(1)
+  })
+
+  it('keeps a single radial gradient whole', () => {
+    const g = findGradients(image(200, 200, (x, y) => {
+      const r = Math.hypot(x + 0.5 - 100, y + 0.5 - 100)
+      return r < 80 ? lerp([255, 220, 80], [200, 40, 20], r / 80) : CREAM
+    }))
+    expect(g).toHaveLength(1)
+    expect(g[0].fill.kind).toBe('radial')
+  })
+
+  it('keeps a gently curved gradient that one gradient already explains whole', () => {
+    // Half a ring, pink to purple around it: one linear gradient left to right is faithful.
+    const g = findGradients(image(300, 200, (x, y) => {
+      const r = Math.hypot(x - 150, y - 170)
+      if (r < 70 || r > 130 || y > 170) return CREAM
+      return lerp(PINK, PURPLE, Math.atan2(170 - y, 150 - x) / Math.PI)
+    }))
+    expect(g).toHaveLength(1)
+  })
+
+  it('does not cut a strongly curved gradient into two where the cut would show', () => {
+    // Three quarters of a ring: two straight gradients would explain it, but disagree by about
+    // 10 units along their shared edge, a visible seam. It stays as it was.
+    const g = findGradients(image(300, 260, (x, y) => {
+      const r = Math.hypot(x - 150, y - 130)
+      const a = Math.atan2(130 - y, x - 150) * (180 / Math.PI)
+      const t = ((a + 45 + 360) % 360) / 270
+      if (r < 60 || r > 110 || t > 1) return CREAM
+      return lerp([244, 150, 70], [40, 110, 200], t)
+    }))
+    expect(g.length).toBeLessThan(2)
+  })
+
+  it('does not fit flat colours in steps as two gradients', () => {
+    const steps: RGB[] = [[11, 114, 133], [21, 128, 143], [31, 141, 154]]
+    const g = findGradients(image(300, 140, (x, y) => (y >= 30 && y < 110 && x >= 30 && x < 270 ? steps[Math.floor((x - 30) / 80)] : CREAM)))
+    expect(g.length).toBeLessThan(2)
   })
 })
