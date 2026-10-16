@@ -1,5 +1,6 @@
 import { MODELS, type AiTask } from './models'
 import type { AiRequest, AiResponse } from './worker'
+import { JOB_TIMEOUT_MS, TimeoutError } from '../vectorize/tracer'
 
 export type UpscaleSetting = 'off' | '2x' | '4x'
 
@@ -15,6 +16,8 @@ interface Pending {
   reject: (e: Error) => void
   task: AiTask
   onProgress?: (p: AiProgress) => void
+  /** Stops a run that never answers (see JOB_TIMEOUT_MS). */
+  timer?: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -55,6 +58,7 @@ export class Enhancer {
         return
       }
       this.pending.delete(msg.id)
+      clearTimeout(p.timer)
       if (msg.type === 'done') p.resolve(new ImageData(new Uint8ClampedArray(msg.pixels), msg.width, msg.height))
       else p.reject(new Error(msg.error))
       this.settle()
@@ -89,7 +93,10 @@ export class Enhancer {
     this.worker = null
     const jobs = [...this.pending.values()]
     this.pending.clear()
-    for (const p of jobs) p.reject(reason)
+    for (const p of jobs) {
+      clearTimeout(p.timer)
+      p.reject(reason)
+    }
   }
 
   /** Returns null when the image is already too large for this upscale factor. */
@@ -118,10 +125,14 @@ export class Enhancer {
     const pixels = input.data.slice().buffer
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, task, onProgress })
+      // A run that never answers (the first model download included) blocks the worker's queue:
+      // stop the worker and fail its jobs, so callers fall back to the original image.
+      this.pending.get(id)!.timer = setTimeout(() => this.pending.has(id) && this.stop(new TimeoutError()), JOB_TIMEOUT_MS)
       try {
         this.send({ type: 'run', id, task, pixels, width: input.width, height: input.height }, [pixels])
       } catch (err) {
         // The worker couldn't be started: nothing is running, so the next request tries again.
+        clearTimeout(this.pending.get(id)?.timer)
         this.pending.delete(id)
         this.settle()
         reject(err instanceof Error ? err : new Error(String(err)))

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Enhancer, IDLE_RELEASE_MS } from '../enhancer'
+import { JOB_TIMEOUT_MS, TimeoutError } from '../../vectorize/tracer'
 
 // A stand-in for the AI worker: answers each request with a 2× blank image when told to.
 class FakeWorker {
@@ -116,7 +117,8 @@ describe('Enhancer idle release', () => {
     await first
     vi.advanceTimersByTime(4 * 60_000)
     const second = e.upscale('b', img(10), '2x')
-    vi.advanceTimersByTime(10 * 60_000)
+    // Still running after 90 s (under the stuck-job limit): the idle release waits for it.
+    vi.advanceTimersByTime(90_000)
     expect(FakeWorker.all[0].terminated).toBe(false)
     FakeWorker.all[0].finish()
     await second
@@ -175,5 +177,16 @@ describe('Enhancer idle release', () => {
     stale.finish()
     FakeWorker.all[1].finish()
     expect((await fresh)!.width).toBe(24)
+  })
+
+  it('a sharpening run that never answers fails after the stuck-job limit, and the next one restarts', async () => {
+    const e = new Enhancer()
+    const stuck = e.upscale('a', img(10), '2x')
+    vi.advanceTimersByTime(JOB_TIMEOUT_MS)
+    await expect(stuck).rejects.toBeInstanceOf(TimeoutError)
+    expect(FakeWorker.all[0].terminated).toBe(true)
+    const next = e.upscale('b', img(10), '2x')
+    FakeWorker.all[1].finish()
+    expect((await next)!.width).toBe(20)
   })
 })
