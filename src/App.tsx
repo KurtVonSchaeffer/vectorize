@@ -19,7 +19,7 @@ import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
-import { alternatives, worthSharpening } from './vectorize/improve'
+import { alternatives, LETTERING_RATIO, worthSharpening } from './vectorize/improve'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
@@ -27,6 +27,12 @@ import { buildTraceJob, inkNames, runTraceJob, type TraceJob, type TraceResult }
 import { CancelledError, Tracer } from './vectorize/tracer'
 
 const DEBOUNCE_MS = 180
+
+/** "1898" (8 could be 9), for a warning about a reading the image doesn't clearly support. */
+function describeDoubt(w: PlacedWord): string {
+  const parts = (w.doubts ?? []).map((d) => (d.at < 0 ? `also read as "${d.rival}"` : `"${d.char}" could be "${d.rival}"`))
+  return `"${w.text}" (${[...new Set(parts)].join(', ')})`
+}
 
 export default function App() {
   const [source, setSource] = useState<SourceImage | null>(null)
@@ -559,6 +565,14 @@ export default function App() {
                         if (!quiet) showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
                         return false
                       }
+                      // Text the image doesn't clearly support (a look-alike fits as well, or the OCR
+                      // readings disagree) is never rebuilt automatically: those words stay traced.
+                      // When the client picks the font themselves, it's rebuilt, with a warning.
+                      const doubtful = placed.words.filter((w) => w.doubts?.length)
+                      if (quiet && doubtful.length) {
+                        placed = { ...placed, words: placed.words.filter((w) => !w.doubts?.length), skipped: placed.skipped + doubtful.length }
+                        if (!placed.words.length) return false
+                      } else if (doubtful.length) showToast(`Check the wording: ${doubtful.map(describeDoubt).join('; ')}.`)
                       // Positions within the part → positions within the line.
                       const words = placed.words.map((w) => ({ ...w, index: picked[w.index ?? 0] }))
                       setLettering((l) => {
@@ -583,16 +597,41 @@ export default function App() {
                         : undefined
                     }
                     onTryFont={async (report, index, match) => {
-                      // Below the automatic threshold: offered only if it scores clearly better.
+                      // Below the automatic threshold: offered only if it scores clearly better, and
+                      // only words whose text the image supports (never an unverified reading).
                       const { placeLine } = await import('./fonts/lettering')
-                      const placed = await placeLine(report, report.lines[index], match).catch(() => null)
+                      const found = await placeLine(report, report.lines[index], match).catch(() => null)
+                      const placed = found && { ...found, words: found.words.filter((w) => !w.doubts?.length) }
                       if (!placed?.words.length) return
                       improver.consider({
                         label: `lettering rebuilt from ${match.label}, the closest font match`,
+                        ratio: LETTERING_RATIO,
                         job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.words] }) ?? null,
                         apply: () => {
                           setLettering((l) => ({ ...l, [index]: placed }))
                           return () => setLettering(({ [index]: _, ...rest }) => rest)
+                        },
+                      })
+                    }}
+                    onTryLines={async (report, tries) => {
+                      // Lines of one piece of lettering (a tagline split into lines by OCR) rebuilt
+                      // together: each line alone may change too little to be offered.
+                      const { placeLine } = await import('./fonts/lettering')
+                      const placed = (
+                        await Promise.all(tries.map(async ({ line, match }) => ({ line, found: await placeLine(report, report.lines[line], match).catch(() => null) })))
+                      ).flatMap(({ line, found }) => {
+                        const words = found?.words.filter((w) => !w.doubts?.length) ?? []
+                        return found && words.length ? [{ line, lettering: { ...found, words } }] : []
+                      })
+                      if (placed.length < 2) return
+                      const fonts = [...new Set(placed.map((p) => p.lettering.font))]
+                      improver.consider({
+                        label: `lettering in ${placed.length} lines rebuilt from the closest font matches (${fonts.join(', ')})`,
+                        ratio: LETTERING_RATIO,
+                        job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.flatMap((p) => p.lettering.words)] }) ?? null,
+                        apply: () => {
+                          setLettering((l) => ({ ...l, ...Object.fromEntries(placed.map((p) => [p.line, p.lettering])) }))
+                          return () => setLettering((l) => Object.fromEntries(Object.entries(l).filter(([k]) => !placed.some((p) => p.line === Number(k)))))
                         },
                       })
                     }}

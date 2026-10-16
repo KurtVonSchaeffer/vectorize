@@ -35,8 +35,16 @@ export const EDGE_SLACK = 0.01
  * validation set (docs/v7-results.md) applying these checks to every image, not only to files
  * detected as compressed, kept the offers that were truly better and removed the one that wasn't.
  */
-export function isImprovement(first: Scored, alternative: Scored): boolean {
-  if (alternative.score > first.score * IMPROVE_RATIO) return false
+/**
+ * The ratio applied to lettering rebuilds. Experimental: kept at IMPROVE_RATIO until the 89-pair
+ * benchmark and lettering cases show a different value gains genuine improvements without worse
+ * offers (see docs/defects/lettering-safeguard.md). Text the image doesn't support is never a
+ * candidate in the first place, whatever its score.
+ */
+export const LETTERING_RATIO = IMPROVE_RATIO
+
+export function isImprovement(first: Scored, alternative: Scored, ratio = IMPROVE_RATIO): boolean {
+  if (alternative.score > first.score * ratio) return false
   if (first.score - alternative.score < IMPROVE_MIN_GAIN) return false
   if (alternative.segments > first.segments * MAX_SEGMENT_GROWTH) return false
   if (alternative.colours > first.colours) return false

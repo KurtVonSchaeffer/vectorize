@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorize text safety</title>
+    <style>body{font:13px/1.5 system-ui,sans-serif;padding:16px 20px;background:#fff;color:#111;max-width:1200px} .up{color:#1d8a4b} .down{color:#c0362c} small{color:#555}</style>
+  </head>
+  <body>
+    <h1>Text safety: misread characters are never rebuilt</h1>
+    <p>Real lettering, read by OCR; then every digit (and common letter look-alikes) is swapped in what OCR reported, with the pixels unchanged, as when OCR misreads. Every forged word must be flagged as doubtful, so it's never rebuilt or offered automatically. See <code>docs/defects/lettering-safeguard.md</code>.</p>
+    <p id="status">Starting…</p>
+    <div id="out"></div>
+    <script type="module" src="./text-safety.ts"></script>
+  </body>
+</html>
