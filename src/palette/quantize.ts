@@ -174,13 +174,17 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
     const c = [sum[b * 3] / count[b], sum[b * 3 + 1] / count[b], sum[b * 3 + 2] / count[b]]
     const P = anchors.find((a) => a.label === primary)
     if (!P) continue
+    // The partner is the color the pixel is actually a mix of: the one whose straight line from
+    // the primary passes closest to it. The nearest other color can be unrelated: a grey edge of
+    // black lettering sits nearer a dark purple than white paper, and would place purple slivers
+    // along the letters.
     let S: (typeof anchors)[number] | null = null
     let sd = Infinity
     for (const a of anchors) {
       if (a.label === primary) continue
-      const dd = (c[0] - a.lab[0]) ** 2 + (c[1] - a.lab[1]) ** 2 + (c[2] - a.lab[2]) ** 2
-      if (dd < sd) {
-        sd = dd
+      const off = lineOffset(c, P.lab, a.lab)
+      if (off < sd) {
+        sd = off
         S = a
       }
     }
@@ -404,6 +408,14 @@ function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Fl
     assign[i] = Math.sqrt(bd) > BLEND_MIN_DISTANCE ? blendEnd(rgbs, [r, g, bl], best, Math.sqrt(bd)) : best
   })
   return assign
+}
+
+/** Distance from `c` to the segment from `a` to `b` (RGB); beyond the ends, to the nearer end. */
+function lineOffset(c: number[], a: number[], b: number[]): number {
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+  const t = len2 ? Math.min(1, Math.max(0, ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2)) : 0
+  return Math.hypot(c[0] - a[0] - t * ab[0], c[1] - a[1] - t * ab[1], c[2] - a[2] - t * ab[2])
 }
 
 /** A color at least this far (RGB) from its nearest cluster may be an edge blend of two others. */

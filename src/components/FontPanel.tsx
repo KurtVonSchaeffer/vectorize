@@ -33,8 +33,10 @@ interface Props {
   /** The shortest text line found, in source pixels (null when there's no text). */
   onTextSize?: (px: number | null) => void
   onAutoUnmatched?: (lines: { line: number; text: string; closest: FontCandidate & { score: number } | null }[]) => void
-  /** A line's best match is below the automatic threshold: worth trying, if it scores better. */
+  /** A line's best match is worth trying, if it scores better (offered in the background). */
   onTryFont?: (report: FontReport, line: number, match: FontCandidate) => void
+  /** A line's best match is close enough to suggest by name; the customer decides. */
+  onSuggestFont?: (report: FontReport, line: number, match: FontCandidate & { score: number }) => void
   /** Every line handed to onTryFont, together, when there are several (one piece of lettering split into lines). */
   onTryLines?: (report: FontReport, tries: { line: number; match: FontCandidate }[]) => void
   /**
@@ -59,6 +61,8 @@ const USE = 'col-span-full mt-1 justify-self-start'
  * accepts the offer or picks a font.
  */
 const TRY_MIN_SCORE = 0.5
+/** At least this close, a match is suggested to the customer by name (onSuggestFont), still never applied by itself. */
+const SUGGEST_MIN_SCORE = 0.85
 
 const STEP: Record<FontProgress['step'], string> = {
   reading: 'Reading the text',
@@ -76,7 +80,7 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTextSize, onTryFont, onTryLines, sharpen }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTextSize, onTryFont, onSuggestFont, onTryLines, sharpen }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
@@ -155,7 +159,8 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
           unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
-          if (best && best.score >= TRY_MIN_SCORE) {
+          if (best && best.score >= SUGGEST_MIN_SCORE) onSuggestFont?.(report, i, best)
+          else if (best && best.score >= TRY_MIN_SCORE) {
             onTryFont?.(report, i, best)
             tries.push({ line: i, match: best })
           }
