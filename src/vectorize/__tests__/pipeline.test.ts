@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { colorName, colorNames } from '../../palette/names'
-import { DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../client'
+import { COLOR_LIMITS, DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../client'
 import { detectArt } from '../detect'
 import type { LabelMap } from '../../trace'
 import { runFlat, type FlatOptions } from '../pipeline'
@@ -117,6 +117,26 @@ describe('detectArt', () => {
     expect(boosted.curveTolerance).toBeLessThan(plain.curveTolerance)
     expect(boosted.filterSpeckle).toBeLessThan(plain.filterSpeckle)
     expect(boosted.colorMerge).toBe(plain.colorMerge)
+  })
+
+  it('never limits flat artwork to one colour, which merged artwork and background into one blob', () => {
+    expect(COLOR_LIMITS).not.toContain(1)
+    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors).toBe(2)
+    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 3 }).colors).toBe(3)
+    expect(traceParamsFor('flat', DEFAULT_CLIENT).colors).toBe(12)
+    // At the lowest limit a navy mark on cream still traces as a dark mark, not a pale silhouette.
+    const lowest = traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors
+    const r = runFlat(logo(), {
+      lineArt: false,
+      removeColors: [],
+      transparent: false,
+      quantize: { maxColors: lowest, mergeDelta: 10, whiteIsPaper: false, palette: null, overrides: {}, minArea: 9, upscale: 1, smoothing: 0 },
+      trace: { smoothing: 0.8, minArea: 9, error: 0.5, cornerAngle: 60, precision: 2 },
+    })
+    const fills = [...r.svg.matchAll(/fill="#([0-9a-f]{6})"/gi)].map((m) => parseInt(m[1], 16))
+    const luma = (c: number) => 0.299 * (c >> 16) + 0.587 * ((c >> 8) & 255) + 0.114 * (c & 255)
+    expect(fills.length).toBeGreaterThanOrEqual(2)
+    expect(Math.min(...fills.map(luma))).toBeLessThan(100)
   })
 
   it('recognizes small hard-edged images as pixel art', () => {
