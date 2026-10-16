@@ -141,11 +141,14 @@ describe('quantize: edge blends go to the colours they blend', () => {
       const r = c >> 16, g = (c >> 8) & 255, b = c & 255
       return b > g + 40 && r > g + 30
     }
-    // No pixel of the lettering band is given a purple or magenta label.
+    // No pixel of the lettering band is given a purple or magenta label, nor a purple or magenta
+    // edge partner (which would place purple slivers along the letters when edges are traced).
     for (let y = 30; y < 50; y++)
       for (let x = 0; x < W; x++) {
         const label = map.labels[y * W + x]
         if (label !== EMPTY) expect(isPurplish(colours[label])).toBe(false)
+        const partner = map.second?.[y * W + x] ?? EMPTY
+        if (partner !== EMPTY && partner !== label && (map.cov?.[y * W + x] ?? 1) < 0.98) expect(isPurplish(colours[partner])).toBe(false)
       }
   })
 })
