@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findGradients } from '../gradients'
+import { findGradients, isStaircase } from '../gradients'
 
 type RGB = [number, number, number]
 function image(w: number, h: number, paint: (x: number, y: number) => RGB): ImageData {
@@ -126,6 +126,50 @@ describe('findGradients: overlapping gradient shapes', () => {
   it('keeps the gradients under lettering', () => {
     const g = findGradients(feathers({ letters: true }))
     expect(g.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not turn flat shapes joined by soft edges into a staircase gradient when splitting', () => {
+    // A vertical gradient feather (left) whose bottom flows into a flat green shape, which in turn
+    // meets a flat blue shape through a soft 6 px edge: one region, no single gradient. Splitting
+    // must keep the feather and leave green and blue flat (not a green→blue "gradient").
+    const GREEN: RGB = [168, 198, 134]
+    const BLUEF: RGB = [102, 155, 188]
+    const img = image(300, 200, (x, y) => {
+      if (x >= 20 && x < 110 && y >= 20 && y < 120) return lerp([226, 70, 140], GREEN, (y - 20) / 99)
+      if (x >= 20 && x < 280 && y >= 120 && y < 180) return x < 147 ? GREEN : x < 153 ? lerp(GREEN, BLUEF, (x - 147) / 6) : BLUEF
+      return CREAM
+    })
+    const g = findGradients(img)
+    // No gradient may span both flat colours (a green→blue staircase); the feather may extend
+    // into the green it ends in, which renders the same.
+    for (const r of g) {
+      const xs = [...r.pixels].filter((p) => Math.floor(p / 300) >= 130 && Math.floor(p / 300) < 170).map((p) => p % 300)
+      expect(xs.some((x) => x < 140) && xs.some((x) => x > 160)).toBe(false)
+    }
+    expect(g.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('tells flat colours in steps from real gradients', () => {
+    const channels = (img: ImageData) => {
+      const n = img.width * img.height
+      const [R, G, B] = [new Float32Array(n), new Float32Array(n), new Float32Array(n)]
+      for (let p = 0; p < n; p++) [R[p], G[p], B[p]] = [img.data[p * 4], img.data[p * 4 + 1], img.data[p * 4 + 2]]
+      return [R, G, B] as const
+    }
+    // Three flat teal panels 11 units apart (soft 3 px edges): today read as one gradient.
+    const soft = (x: number, edge: number) => Math.max(0, Math.min(1, (x - edge + 1.5) / 3))
+    const TEALS: RGB[] = [[42, 157, 143], [52, 168, 154], [63, 179, 165]]
+    const panels = image(300, 120, (x) => lerp(lerp(TEALS[0], TEALS[1], soft(x, 100)), TEALS[2], soft(x, 200)))
+    const stepped = findGradients(panels)
+    expect(stepped).toHaveLength(1)
+    expect(isStaircase(stepped[0], 300, ...channels(panels))).toBe(true)
+    // Real gradients: a linear blend, and one with JPEG-like grain.
+    for (const grain of [false, true]) {
+      const img = image(300, 120, (x, y) => lerp(PINK, PURPLE, x / 299).map((v) => v + (grain ? noise(x, y) : 0)) as RGB)
+      const g = findGradients(img)
+      expect(g).toHaveLength(1)
+      expect(isStaircase(g[0], 300, ...channels(img))).toBe(false)
+    }
   })
 
   it('keeps near-identical flat colours side by side flat', () => {

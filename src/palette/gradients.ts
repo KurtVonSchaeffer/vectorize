@@ -61,6 +61,16 @@ const EDGE_MATCH = 24
 const SPLIT_STEPS = [3, 2]
 /** Pieces of a split region at least this large (pixels) are fitted on their own. */
 const SPLIT_MIN = 400
+/** A failed region is split only when its best gradient still explains this share of its color. */
+const SPLIT_MIN_EXPLAINED = 0.5
+/** ...and only when it holds less than this share of the image's border pixels (more is background). */
+const SPLIT_MAX_BORDER = 0.5
+/** Staircase test (isStaircase): a jump is a step this many times the mean, flat under this share of it. */
+const STAIR_JUMP = 3
+const STAIR_FLAT = 0.3
+/** ...and a staircase has at least this share of the change in jumps, and of the length flat. */
+const STAIR_JUMP_SHARE = 0.6
+const STAIR_FLAT_SHARE = 0.7
 
 export function findGradients(img: ImageData, opts: GradientOptions = {}): GradientRegion[] {
   const { width: w, height: h, data: d } = img
@@ -118,10 +128,16 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
   const rejected: Uint32Array[] = []
   roots.forEach((r, i) => {
     if (size[r] < minArea) return
-    const g = fitRegion(lists[i], w, R, G, B)
+    const diag = { explained: 0 }
+    const g = fitRegion(lists[i], w, R, G, B, diag)
     if (g) regions.push(g)
     else {
-      const found = splitAndFit(lists[i], w, R, G, B)
+      // Only regions that look like gradients joined together are split: a fit that still
+      // explains much of the color (several feathers: 0.69–0.76), not flat regions, and not the
+      // background (along the image border, often chained to shapes by their soft edges), which
+      // splitting can't turn into gradients and which is slow to split.
+      const splittable = diag.explained >= SPLIT_MIN_EXPLAINED && borderShare(lists[i], w, h) < SPLIT_MAX_BORDER
+      const found = splittable ? splitAndFit(lists[i], w, h, R, G, B) : null
       if (found) {
         regions.push(...found.regions)
         rejected.push(...found.rest)
@@ -195,20 +211,24 @@ function joinPieces(regions: GradientRegion[], pieces: Uint32Array[], w: number,
  * gradients found and the leftover pieces, or null when nothing fits (the region then stays whole,
  * so its leftovers can't be absorbed into a neighboring gradient).
  */
-function splitAndFit(list: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array): { regions: GradientRegion[]; rest: Uint32Array[] } | null {
+function splitAndFit(list: Uint32Array, w: number, h: number, R: Float32Array, G: Float32Array, B: Float32Array): { regions: GradientRegion[]; rest: Uint32Array[] } | null {
   const regions: GradientRegion[] = []
   const rest: Uint32Array[] = []
+  // Pixel → position in the piece being split (+1; 0 = not in it), shared by every split.
+  const index = new Int32Array(w * h)
   let todo = [list]
   for (const step of SPLIT_STEPS) {
     const next: Uint32Array[] = []
     for (const part of todo)
-      for (const piece of splitPixels(part, w, R, G, B, step)) {
+      for (const piece of splitPixels(part, w, h, R, G, B, step, index)) {
         if (piece.length < SPLIT_MIN) {
           rest.push(piece)
           continue
         }
         const g = fitRegion(piece, w, R, G, B)
-        if (g) regions.push(g)
+        // A piece of flat colors joined by their soft edges (a green and a blue shape) fits as a
+        // staircase "gradient"; it stays flat.
+        if (g && !isStaircase(g, w, R, G, B)) regions.push(g)
         else next.push(piece)
       }
     todo = next
@@ -216,10 +236,54 @@ function splitAndFit(list: Uint32Array, w: number, R: Float32Array, G: Float32Ar
   return regions.length ? { regions, rest: [...rest, ...todo] } : null
 }
 
+/** Share of the image's border pixels that belong to a region. */
+function borderShare(pixels: Uint32Array, w: number, h: number): number {
+  let n = 0
+  for (const p of pixels) {
+    const x = p % w
+    const y = (p - x) / w
+    if (x === 0 || y === 0 || x === w - 1 || y === h - 1) n++
+  }
+  return n / Math.max(1, 2 * (w + h) - 4)
+}
+
+/**
+ * Whether a fitted gradient is really flat colors in steps: along its direction, the color stays
+ * put almost everywhere and all the change happens in a few narrow jumps (the soft edges between
+ * the flat shapes). A real gradient changes throughout. Measured: stepped flats 0.78–1 of the
+ * change in jumps with 0.93–0.99 of the length flat; real gradients at most 0.71 and 0.67.
+ */
+export function isStaircase(g: GradientRegion, w: number, R: Float32Array, G: Float32Array, B: Float32Array): boolean {
+  const f = g.fill
+  const tOf =
+    f.kind === 'linear'
+      ? (x: number, y: number) => {
+          const dx = f.x2 - f.x1, dy = f.y2 - f.y1
+          return ((x - f.x1) * dx + (y - f.y1) * dy) / Math.max(1e-6, Math.hypot(dx, dy))
+        }
+      : (x: number, y: number) => Math.hypot(x - f.cx, y - f.cy)
+  // A one-pixel color profile along the gradient (each step averaged over the region's width).
+  const bins = new Map<number, number[]>()
+  for (const p of g.pixels) {
+    const t = Math.round(tOf((p % w) + 0.5, Math.floor(p / w) + 0.5))
+    const b = bins.get(t) ?? [0, 0, 0, 0]
+    b[0] += R[p]; b[1] += G[p]; b[2] += B[p]; b[3]++
+    bins.set(t, b)
+  }
+  const prof = [...bins.keys()].sort((a, b) => a - b).map((t) => bins.get(t)!).filter((b) => b[3] >= 3).map((b) => [b[0] / b[3], b[1] / b[3], b[2] / b[3]])
+  if (prof.length < 8) return false
+  const steps = prof.slice(1).map((c, i) => Math.abs(c[0] - prof[i][0]) + Math.abs(c[1] - prof[i][1]) + Math.abs(c[2] - prof[i][2]))
+  const total = steps.reduce((s, d) => s + d, 0)
+  if (!total) return true
+  const mean = total / steps.length
+  const jump = steps.filter((d) => d > STAIR_JUMP * mean).reduce((s, d) => s + d, 0) / total
+  const flat = steps.filter((d) => d < STAIR_FLAT * mean).length / steps.length
+  return jump >= STAIR_JUMP_SHARE && flat >= STAIR_FLAT_SHARE
+}
+
 /** The connected pieces of a region whose 4-neighbors differ by at most `step` in every channel. */
-function splitPixels(list: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, step: number): Uint32Array[] {
-  const index = new Map<number, number>()
-  list.forEach((p, i) => index.set(p, i))
+function splitPixels(list: Uint32Array, w: number, h: number, R: Float32Array, G: Float32Array, B: Float32Array, step: number, index: Int32Array): Uint32Array[] {
+  list.forEach((p, i) => (index[p] = i + 1))
   const parent = new Int32Array(list.length)
   for (let i = 0; i < parent.length; i++) parent[i] = i
   const find = (i: number) => {
@@ -228,15 +292,16 @@ function splitPixels(list: Uint32Array, w: number, R: Float32Array, G: Float32Ar
   }
   const near = (p: number, q: number) => Math.abs(R[p] - R[q]) <= step && Math.abs(G[p] - G[q]) <= step && Math.abs(B[p] - B[q]) <= step
   list.forEach((p, i) => {
-    const right = (p + 1) % w !== 0 ? index.get(p + 1) : undefined
-    const below = index.get(p + w)
+    const right = (p + 1) % w !== 0 ? index[p + 1] - 1 : -1
+    const below = p + w < w * h ? index[p + w] - 1 : -1
     for (const j of [right, below])
-      if (j !== undefined && near(p, list[j])) {
+      if (j >= 0 && near(p, list[j])) {
         const a = find(i)
         const b = find(j)
         if (a !== b) parent[a] = b
       }
   })
+  list.forEach((p) => (index[p] = 0))
   const groups = new Map<number, number[]>()
   list.forEach((p, i) => {
     const r = find(i)
@@ -297,7 +362,7 @@ function blurred(d: Uint8ClampedArray, w: number, h: number): [Float32Array, Flo
   return [out[0], out[1], out[2], valid]
 }
 
-function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array): GradientRegion | null {
+function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number }): GradientRegion | null {
   const m = pixels.length
   // Mean color and position.
   let mr = 0, mg = 0, mb = 0, mx = 0, my = 0
@@ -370,6 +435,7 @@ function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Ar
   const best = useRadial ? radial : linear
   if (!best) return null
   const explained = 1 - (best.rms * best.rms * 3) / Math.max(1e-6, variance)
+  if (diag) diag.explained = explained
   if (best.rms > MAX_RMS || explained < MIN_EXPLAINED) return null
 
   const stops = simplifyStops(best.colors)
