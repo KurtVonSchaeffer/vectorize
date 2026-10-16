@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vectorize reconstruction benchmark</title>
+    <style>body{font:13px/1.5 system-ui,sans-serif;padding:16px 20px;background:#fff;color:#111} table{border-collapse:collapse;margin-top:10px} td,th{padding:3px 9px;border-bottom:1px solid #ddd;text-align:left;font-variant-numeric:tabular-nums} small{color:#555} code{font-size:11px}</style>
+  </head>
+  <body>
+    <h1>Reconstruction benchmark: V7 against V8</h1>
+    <p>Identical damaged uploads of artwork with clean originals, judged for production suitability. Each cell reads <b>V7 app / V7 trace / V8</b>. Setup and fairness notes: top of <code>bench/reconstruction.ts</code>. <code>?fast</code> skips the V7 app column. <button id="json">Export JSON (all results and SVGs)</button></p>
+    <p id="status">Starting…</p>
+    <div id="out"></div>
+    <script type="module" src="./reconstruction.ts"></script>
+  </body>
+</html>
