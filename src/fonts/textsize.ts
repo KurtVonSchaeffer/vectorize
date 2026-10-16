@@ -7,8 +7,14 @@ import type { Box } from './ocr'
  */
 export const SMALL_TEXT_PX = 12
 
+/**
+ * Lines that read as real words: at least one run of 3 letters or digits. Shapes misread as text
+ * ("[v4", "AA" in an illustration) don't count.
+ */
+const WORDLIKE = /[\p{L}\p{N}]{3}/u
+
 /** Height of the shortest text line, in source pixels; null when no text was found. */
-export function smallestTextLine(report: { lines: { box: Box }[]; scale: number }): number | null {
-  const heights = report.lines.map((l) => (l.box.y1 - l.box.y0) / report.scale)
+export function smallestTextLine(report: { lines: { text: string; box: Box }[]; scale: number }): number | null {
+  const heights = report.lines.filter((l) => WORDLIKE.test(l.text)).map((l) => (l.box.y1 - l.box.y0) / report.scale)
   return heights.length ? Math.min(...heights) : null
 }
