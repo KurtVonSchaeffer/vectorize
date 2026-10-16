@@ -23,9 +23,30 @@ export interface FontReport {
 
 export type FontProgress = { step: 'reading' | 'loading' | 'comparing'; progress: number }
 
-/** Reads the text in an image and cuts out its letter shapes, grouped by text line. */
-export async function findText(bitmap: ImageBitmap, colors: number[], onProgress?: (p: FontProgress) => void): Promise<FontReport> {
-  const { words, canvas, scale } = await readText(bitmap, colors, (p) => onProgress?.({ step: 'reading', progress: p }))
+/**
+ * Reads the text in an image and cuts out its letter shapes, grouped by text line. `alsoRead`: a
+ * second version of the same image (the original upload, when `bitmap` is a sharpened copy) whose
+ * readings are recorded on each word, so a disagreement between them marks the text as uncertain
+ * (see PlacedWord.doubts). Agreement isn't taken as proof of anything.
+ */
+export async function findText(bitmap: ImageBitmap, colors: number[], onProgress?: (p: FontProgress) => void, alsoRead?: ImageBitmap): Promise<FontReport> {
+  const { words, canvas, scale } = await readText(bitmap, colors, (p) => onProgress?.({ step: 'reading', progress: alsoRead ? p / 2 : p }))
+  if (alsoRead) {
+    const second = await readText(alsoRead, colors, (p) => onProgress?.({ step: 'reading', progress: 0.5 + p / 2 }))
+    // Both in fractions of the image, to compare places.
+    const norm = (b: Box, w: number, h: number) => ({ x0: b.x0 / w, y0: b.y0 / h, x1: b.x1 / w, y1: b.y1 / h })
+    for (const w of words) {
+      const a = norm(w.box, canvas.width, canvas.height)
+      for (const o of second.words) {
+        const b = norm(o.box, second.canvas.width, second.canvas.height)
+        const ix = Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0))
+        const iy = Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0))
+        const area = (r: Box) => (r.x1 - r.x0) * (r.y1 - r.y0)
+        const same = (ix * iy) / Math.max(area(a), area(b)) > 0.6
+        if (same && o.text !== w.text && !(w.readings ?? []).includes(o.text)) w.readings = [...(w.readings ?? []), o.text]
+      }
+    }
+  }
   const img = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height)
   const byLine = new Map<number, { text: string[]; shapes: WordShapes[]; y: number; box: Box }>()
   // Reading order: lines top to bottom, words left to right.
