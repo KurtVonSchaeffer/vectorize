@@ -124,6 +124,35 @@ describe('detectArt', () => {
     expect(d.kind).toBe('pixel')
   })
 
+  it('keeps crisp flat logos flat when their straight edges sit on pixel boundaries', () => {
+    // A shield at 240 px: straight sides exactly on pixel boundaries (hard), an anti-aliased
+    // round base. Every left–right edge is hard, but the curve says it's a logo, not pixel art.
+    const navy = [31, 42, 92]
+    const shield = detectArt(
+      image(240, 240, (x, y) => {
+        if (x >= 56 && x < 184 && y >= 40 && y < 140) return [navy[0], navy[1], navy[2], 255]
+        const c = y >= 140 ? cover(x, y, 120, 140, 64) : 0
+        const [r, g, b] = navy.map((v) => Math.round(v * c + 255 * (1 - c)))
+        return [r, g, b, 255]
+      }),
+    )
+    expect(shield.kind).toBe('flat')
+    // Colours side by side as crisp rectangles: nothing diagonal to judge by, so it stays flat.
+    // (Four tints and a small square, as bench/cases.ts "similar colours side by side": hard
+    // corner pixels at every corner, but few of them for the edge length.)
+    const rects: [number, number, number, number, number[]][] = [[12, 12, 48, 48, [28, 126, 214]], [60, 12, 48, 48, [42, 134, 217]], [120, 12, 48, 48, [232, 64, 47]], [168, 12, 48, 48, [240, 96, 63]], [222, 33, 4, 4, [245, 159, 0]]]
+    const blocks = detectArt(image(240, 72, (x, y) => {
+      const hit = rects.find(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh)
+      return hit ? [hit[4][0], hit[4][1], hit[4][2], 255] : [255, 255, 255, 255]
+    }))
+    expect(blocks.kind).toBe('flat')
+  })
+
+  it('still treats a small staircase-edged drawing without anti-aliasing as pixel art', () => {
+    const d = detectArt(image(64, 64, (x, y) => (Math.hypot(x - 32, y - 32) < 22 ? [224, 49, 49, 255] : [255, 255, 255, 255])))
+    expect(d.kind).toBe('pixel')
+  })
+
   it('notices existing transparency', () => {
     const d = detectArt(image(100, 100, (x, y) => (cover(x, y, 50, 50, 30) > 0.5 ? [200, 30, 30, 255] : [0, 0, 0, 0])))
     expect(d.hasAlpha).toBe(true)
