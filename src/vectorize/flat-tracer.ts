@@ -1,6 +1,6 @@
 import type { FlatRequest, FlatResponse } from './flat-worker'
 import type { FlatOptions, FlatResult } from './pipeline'
-import { CancelledError } from './tracer'
+import { CancelledError, JOB_TIMEOUT_MS, TimeoutError } from './tracer'
 
 /**
  * Runs the flat-color pipeline in a Web Worker. Like the VTracer worker, a stale job is
@@ -10,6 +10,7 @@ export class FlatTracer {
   private worker: Worker | null = null
   private nextId = 1
   private pending: { id: number; resolve: (r: FlatResult) => void; reject: (e: Error) => void } | null = null
+  private timer: ReturnType<typeof setTimeout> | undefined
 
   run(image: ImageData, options: FlatOptions): Promise<FlatResult> {
     if (this.pending) {
@@ -21,6 +22,12 @@ export class FlatTracer {
     const pixels = image.data.slice().buffer
     return new Promise((resolve, reject) => {
       this.pending = { id, resolve, reject }
+      // A job that never answers is stuck: replace the worker rather than wait forever.
+      this.timer = setTimeout(() => {
+        if (this.pending?.id !== id) return
+        this.pending.reject(new TimeoutError())
+        this.reset()
+      }, JOB_TIMEOUT_MS)
       const req: FlatRequest = { id, pixels, width: image.width, height: image.height, options }
       worker.postMessage(req, [pixels])
     })
@@ -37,6 +44,7 @@ export class FlatTracer {
       this.worker.onmessage = (e: MessageEvent<FlatResponse>) => {
         const p = this.pending
         if (!p || p.id !== e.data.id) return
+        clearTimeout(this.timer)
         this.pending = null
         if (e.data.ok) p.resolve(e.data.result)
         else p.reject(new Error(e.data.error))
@@ -50,6 +58,7 @@ export class FlatTracer {
   }
 
   private reset() {
+    clearTimeout(this.timer)
     this.worker?.terminate()
     this.worker = null
     this.pending = null
