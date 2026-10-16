@@ -24,7 +24,7 @@ import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
 import { buildTraceJob, inkNames, runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
-import { CancelledError, Tracer } from './vectorize/tracer'
+import { CancelledError, TimeoutError, Tracer } from './vectorize/tracer'
 
 const DEBOUNCE_MS = 180
 
@@ -727,6 +727,7 @@ function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: bo
 function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (/memory|allocation|bad_alloc/i.test(msg)) return 'This image is too large to process here. Try a smaller copy (under about 4000 pixels wide).'
+  if (err instanceof TimeoutError) return 'This image is taking too long to process. Try a smaller copy, or fewer colours under Fine-tune.'
   if (/unreachable|panic/i.test(msg)) return 'The tracer hit a problem with this image. Try a different artwork type under Fine-tune → More options.'
   return `Something went wrong while tracing (${msg}).`
 }
