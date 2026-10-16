@@ -137,9 +137,11 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       // Small lettering is read from a sharpened copy when there is one; letters are still
       // placed in the original image's pixels (the report's scale accounts for the 2×).
       const sharp = sharpen ? await sharpen().catch(() => null) : null
+      // Read before findText closes the sharpened copy (a closed bitmap reports width 0).
+      const sharpWidth = sharp?.width ?? 0
       const report = await findText(sharp ?? bitmap, colors, onProgress).finally(() => sharp?.close())
+      if (live()) onTextSize?.(smallestTextLine({ lines: report.lines, scale: sharp ? (report.scale * sharpWidth) / bitmap.width : report.scale }))
       if (sharp) report.scale *= sharp.width / bitmap.width
-      if (live()) onTextSize?.(smallestTextLine(report))
       const lines = await matchFonts(report, includeInstalled ? (installed.current ?? []) : [], onProgress)
       if (live()) {
         setOnline({})
