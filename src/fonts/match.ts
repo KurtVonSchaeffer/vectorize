@@ -24,6 +24,8 @@ export interface WordShapes {
   box: Box
   /** Every letter and digit of the word was found (so the whole word can be rebuilt). */
   complete: boolean
+  /** Other OCR passes' readings of the same word, when they differ (see readText). */
+  readings?: string[]
 }
 
 export interface FontCandidate {
@@ -76,6 +78,7 @@ export function wordShapes(img: ImageData, word: OcrWord): WordShapes | null {
     glyphs: raw.map((r) => ({ char: r.char, mask: r.mask, rel: r.h / maxH, box: r.box })),
     box,
     complete: raw.map((r) => r.char).filter(isAlnum).join('') === alnum,
+    ...(word.readings?.length ? { readings: word.readings } : {}),
   }
 }
 

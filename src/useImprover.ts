@@ -18,6 +18,8 @@ export interface Candidate {
   label: string
   /** The trace job, or null when it can't be made (e.g. sharpening unavailable). */
   job: () => Promise<TraceJob | null>
+  /** How much better it must score (see isImprovement); lettering rebuilds use LETTERING_RATIO. */
+  ratio?: number
   /** Switches the app to this version; returns how to switch back. */
   apply: () => () => void
 }
@@ -75,7 +77,7 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
         if (id !== run.current || !res.paths) return
         const alt = await scored(source, res)
         if (id !== run.current) return
-        if (isImprovement(first, alt) && alt.score < best.current) {
+        if (isImprovement(first, alt, c.ratio) && alt.score < best.current) {
           best.current = alt.score
           setState((s) => (s.kind === 'applied' ? s : { kind: 'found', candidate: c }))
         }

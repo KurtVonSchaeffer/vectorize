@@ -4,9 +4,10 @@ import { Compare } from './components/Compare'
 import { BrandPanel, type MatchMode } from './components/BrandPanel'
 import { FontPanel } from './components/FontPanel'
 import type { LineLettering, PlacedWord } from './fonts/lettering'
+import { SMALL_TEXT_PX } from './fonts/textsize'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
-import { ResultCard, type Chip } from './components/ResultCard'
+import { ResultCard, type Chip, type ColorMode } from './components/ResultCard'
 import { Upload } from './components/Upload'
 import { downloadsFor, saveBlob, type Download } from './export/files'
 import { DEMO_PALETTE } from './palette/demo'
@@ -19,14 +20,20 @@ import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
-import { alternatives, worthSharpening } from './vectorize/improve'
+import { alternatives, LETTERING_RATIO, worthSharpening } from './vectorize/improve'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
 import { buildTraceJob, inkNames, runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
-import { CancelledError, Tracer } from './vectorize/tracer'
+import { CancelledError, TimeoutError, Tracer } from './vectorize/tracer'
 
 const DEBOUNCE_MS = 180
+
+/** "1898" (8 could be 9), for a warning about a reading the image doesn't clearly support. */
+function describeDoubt(w: PlacedWord): string {
+  const parts = (w.doubts ?? []).map((d) => (d.at < 0 ? `also read as "${d.rival}"` : `"${d.char}" could be "${d.rival}"`))
+  return `"${w.text}" (${[...new Set(parts)].join(', ')})`
+}
 
 export default function App() {
   const [source, setSource] = useState<SourceImage | null>(null)
@@ -61,6 +68,12 @@ export default function App() {
   const [matchingLettering, setMatchingLettering] = useState(false)
   // The image whose automatic lettering match has finished (it runs once, after the first result).
   const [letteringSettled, setLetteringSettled] = useState<string | null>(null)
+  // The shortest text line the lettering reader found (source pixels), for the image with this id.
+  const [textSize, setTextSize] = useState<{ id: string; px: number | null } | null>(null)
+  // The image whose color mode was set to Custom (its limits are then chosen under Fine-tune).
+  const [customPicked, setCustomPicked] = useState<string | null>(null)
+  // Close font matches suggested by name (never applied until the customer tries them), for the image with this id.
+  const [fontSuggestion, setFontSuggestion] = useState<{ id: string; lines: { line: number; text: string; font: string; score: number; placed: LineLettering }[] } | null>(null)
   // Lines the automatic match found but couldn't rebuild confidently, for the image with this id.
   const [unmatchedLettering, setUnmatchedLettering] = useState<{ id: string; lines: { line: number; text: string; closest: { label: string; score: number } | null }[] } | null>(null)
   const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
@@ -109,6 +122,9 @@ export default function App() {
         setTraceError(null)
         setUpscaled(null)
         setClient((c) => ({ ...c, style: 'auto', maxColors: null, keepBlends: false }))
+        // Every upload starts in full color: print inks (one ink, library matching) are a choice
+        // per image, never carried over silently from the previous one.
+        setInks((s) => (s.enabled ? { ...s, enabled: false } : s))
       } catch (err) {
         showToast(err instanceof Error ? err.message : String(err))
       } finally {
@@ -322,11 +338,28 @@ export default function App() {
 
   const status: 'working' | 'ready' | 'error' = traceError ? 'error' : busy || !result || aiProgress ? 'working' : 'ready'
   const colorCount = chips?.length ?? null
+  const counted = colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}` : `${(result?.paths ?? 0).toLocaleString()} shapes`
+  const smallText = !!source && textSize?.id === source.id && textSize.px !== null && textSize.px < SMALL_TEXT_PX
+  // Only claim "ready" when nothing we know of says otherwise. Cut files aren't checked for
+  // cuttability, so they're never called ready; photos and tiny lettering get a plain warning.
+  const warnings = [
+    kind === 'photo' &&
+      (client.purpose === 'cut'
+        ? 'Photos become thousands of tiny shapes, which a cutting machine can’t cut cleanly. Use a logo or line drawing for cutting.'
+        : 'Photos become thousands of small shapes: fine for large prints and posters, but not clean, editable artwork.'),
+    smallText && 'Some lettering is too small to trace cleanly and may be hard to read. Upload a larger copy if you have one.',
+  ].filter(Boolean)
   const summary = status === 'working' && !result
     ? 'Finding colors and tracing edges…'
-    : flattened
-      ? `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}` : `${(result?.paths ?? 0).toLocaleString()} shapes`}. Some shading in your image became flat color, so zoom in and check it before you ${{ print: 'print', web: 'publish', cut: 'cut' }[client.purpose]} it.`
-      : `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}, clean edges` : `${(result?.paths ?? 0).toLocaleString()} shapes`}, ready for ${{ print: 'print', web: 'the web', cut: 'cutting' }[client.purpose]}.`
+    : warnings.length
+      ? `${counted}. ${warnings.join(' ')}`
+      : inks.enabled && inks.maxInks === 1
+        ? 'One ink: every color prints in this ink, and white areas stay as paper. Choose the ink under Brand colors.'
+        : flattened
+          ? `${counted}. Some shading in your image became flat color, so zoom in and check it before you ${{ print: 'print', web: 'publish', cut: 'cut' }[client.purpose]} it.`
+          : client.purpose === 'cut'
+            ? `${counted}${colorCount ? ', clean edges' : ''}. Check small details at your cut size before cutting.`
+            : `${colorCount ? `${counted}, clean edges` : counted}, ready for ${client.purpose === 'print' ? 'print' : 'the web'}.`
   const headline = {
     flat: 'Your artwork is now a sharp vector',
     photo: 'Your image is now a vector',
@@ -379,26 +412,66 @@ export default function App() {
           onUndo: () => setBrand({ ...brand, mode: 'off' }),
         }
       : null
+  // The color mode, shown on the result: full color unless the customer chose otherwise.
+  const colorMode: ColorMode = inks.enabled ? (inks.maxInks === 1 ? 'one' : 'custom') : client.maxColors !== null || customPicked === source?.id ? 'custom' : 'full'
+  const setColorMode = (m: ColorMode) => {
+    setRemoved([])
+    setCustomPicked(m === 'custom' ? (source?.id ?? null) : null)
+    if (m === 'full') {
+      setInks((s) => ({ ...s, enabled: false }))
+      setClient((c) => ({ ...c, maxColors: null }))
+    } else if (m === 'one') {
+      setInks((s) => ({ ...s, enabled: true, maxInks: 1, whiteIsPaper: true }))
+      setBrand({ ...brand, mode: 'off' })
+    } else {
+      // Custom: the limits live under Fine-tune → More options (maximum colors, or print inks).
+      setInks((s) => ({ ...s, enabled: false }))
+      document.querySelectorAll('details').forEach((d) => (d.open = true))
+      requestAnimationFrame(() => document.getElementById('maxColors')?.focus())
+    }
+  }
+  const inkNote = inks.enabled
+    ? {
+        text: inks.maxInks === 1 ? 'Printing in one ink.' : `Colors are matched to at most ${inks.maxInks} print inks${importedPalette ? ' from your library' : ' (demo inks)'}.`,
+        undoLabel: 'Back to full color',
+        onUndo: () => {
+          setRemoved([])
+          setInks((s) => ({ ...s, enabled: false }))
+        },
+      }
+    : null
   const letteringNote = (() => {
     const lines = Object.values(lettering)
-    if (matchingLettering && result) return { text: 'Matching the lettering to fonts, to rebuild it cleanly…' }
+    if (matchingLettering && result) return { text: 'Reading the lettering and looking for matching fonts…' }
     // Lines found but not rebuilt (no font close enough, and none chosen since).
     const unmatched = (unmatchedLettering && unmatchedLettering.id === source?.id ? unmatchedLettering.lines : []).filter((u) => !lettering[u.line])
+    const suggested = (fontSuggestion && fontSuggestion.id === source?.id ? fontSuggestion.lines : []).filter((s) => !lettering[s.line])
     const howTo = 'If you know the font, choose it under More options → Fonts in this artwork → Use a font you know.'
-    const kept = unmatched.length
-      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} couldn't be rebuilt from a font automatically${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
-      : ''
-    if (!lines.length && result && kept) return { text: `Kept the lettering as traced: ${kept}. ${howTo}` }
-    if (!lines.length || !result) return null
-    const words = lines.reduce((n, l) => n + l.words.length, 0)
-    const skipped = lines.reduce((n, l) => n + l.skipped, 0)
-    const fonts = [...new Set(lines.flatMap((l) => l.words.map((w) => w.font)))]
-    const fontsUsed = fonts.join(' and ')
-    return {
-      text: `Matched the lettering to ${fontsUsed} and rebuilt ${words === 1 ? '1 word' : `${words} words`} from ${fonts.length > 1 ? 'those fonts' : 'the font'}, so the letters are perfectly clean.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}${kept ? ` ${kept}, so it stays as traced. ${howTo}` : ''}`,
-      undoLabel: 'Use traced letters',
-      onUndo: () => setLettering({}),
+    const quote = (texts: string[]) => `“${texts[0]}”${texts.length > 1 ? ` and ${texts.length === 2 ? '1 other line' : `${texts.length - 1} other lines`}` : ''}`
+    if (lines.length && result) {
+      const words = lines.reduce((n, l) => n + l.words.length, 0)
+      const skipped = lines.reduce((n, l) => n + l.skipped, 0)
+      const fonts = [...new Set(lines.flatMap((l) => l.words.map((w) => w.font)))]
+      return {
+        text: `Showing ${words === 1 ? '1 word' : `${words} words`} rebuilt in ${fonts.join(' and ')} instead of the traced letters. Compare with your image before you keep it.${skipped ? ` ${skipped === 1 ? '1 word' : `${skipped} words`} didn't line up and ${skipped === 1 ? 'stays' : 'stay'} as traced.` : ''}`,
+        undoLabel: 'Back to traced letters',
+        onUndo: () => setLettering({}),
+      }
     }
+    if (!result) return null
+    if (suggested.length) {
+      const font = suggested[0].font
+      return {
+        text: `Kept the lettering as traced. ${quote(suggested.map((s) => s.text))} looks like ${font} (${Math.round(suggested[0].score * 100)}% match); you can try rebuilding it in that font and compare.`,
+        undoLabel: `Try ${font}`,
+        onUndo: () => setLettering((l) => ({ ...l, ...Object.fromEntries(suggested.map((s) => [s.line, s.placed])) })),
+      }
+    }
+    if (unmatched.length) {
+      const closest = unmatched[0].closest
+      return { text: `Kept the lettering as traced: ${quote(unmatched.map((u) => u.text))} ${unmatched.length > 1 ? "weren't" : "wasn't"} replaced with a font${closest ? ` (closest: ${closest.label}, ${Math.round(closest.score * 100)}%)` : ''}. ${howTo}` }
+    }
+    return null
   })()
   // ---------- Cleaner version, found in the background ----------
   // Latest values for candidates created before the check starts (rebuilt lettering).
@@ -451,7 +524,7 @@ export default function App() {
       )
     },
   })
-  const fixNotes = [improver.note, letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
+  const fixNotes = [inkNote, improver.note, letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
 
   const busyLabel = aiProgress
     ? aiProgress.phase === 'download'
@@ -504,6 +577,7 @@ export default function App() {
             chips={chips}
             onRemoveColor={removeColor}
             fixNotes={fixNotes}
+            colorMode={kind === 'flat' ? { mode: colorMode, onMode: setColorMode } : null}
             transparent={transparent}
             transparentHint={transparentHint}
             transparentLocked={transparentLocked}
@@ -542,6 +616,17 @@ export default function App() {
                       if (!busy) setLetteringSettled(source.id)
                     }}
                     onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
+                    onTextSize={(px) => setTextSize({ id: source.id, px })}
+                    onSuggestFont={async (report, index, match) => {
+                      // Suggested by name only: placed now so trying it is instant, applied only on request,
+                      // and only words whose text the image supports (never an unverified reading).
+                      const { placeLine } = await import('./fonts/lettering')
+                      const found = await placeLine(report, report.lines[index], match).catch(() => null)
+                      const placed = found && { ...found, words: found.words.filter((w) => !w.doubts?.length) }
+                      if (!placed?.words.length) return
+                      const item = { line: index, text: report.lines[index].text, font: match.label, score: match.score, placed }
+                      setFontSuggestion((s) => (s && s.id === source.id ? { id: s.id, lines: [...s.lines.filter((l) => l.line !== index), item] } : { id: source.id, lines: [item] }))
+                    }}
                     onUseFont={async (report, index, match, quiet, only, named) => {
                       const line = report.lines[index]
                       // Only some words (e.g. the bold word of a bold + light wordmark), by position in the line.
@@ -559,6 +644,14 @@ export default function App() {
                         if (!quiet) showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
                         return false
                       }
+                      // Text the image doesn't clearly support (a look-alike fits as well, or the OCR
+                      // readings disagree) is never rebuilt automatically: those words stay traced.
+                      // When the client picks the font themselves, it's rebuilt, with a warning.
+                      const doubtful = placed.words.filter((w) => w.doubts?.length)
+                      if (quiet && doubtful.length) {
+                        placed = { ...placed, words: placed.words.filter((w) => !w.doubts?.length), skipped: placed.skipped + doubtful.length }
+                        if (!placed.words.length) return false
+                      } else if (doubtful.length) showToast(`Check the wording: ${doubtful.map(describeDoubt).join('; ')}.`)
                       // Positions within the part → positions within the line.
                       const words = placed.words.map((w) => ({ ...w, index: picked[w.index ?? 0] }))
                       setLettering((l) => {
@@ -583,16 +676,41 @@ export default function App() {
                         : undefined
                     }
                     onTryFont={async (report, index, match) => {
-                      // Below the automatic threshold: offered only if it scores clearly better.
+                      // Below the automatic threshold: offered only if it scores clearly better, and
+                      // only words whose text the image supports (never an unverified reading).
                       const { placeLine } = await import('./fonts/lettering')
-                      const placed = await placeLine(report, report.lines[index], match).catch(() => null)
+                      const found = await placeLine(report, report.lines[index], match).catch(() => null)
+                      const placed = found && { ...found, words: found.words.filter((w) => !w.doubts?.length) }
                       if (!placed?.words.length) return
                       improver.consider({
                         label: `lettering rebuilt from ${match.label}, the closest font match`,
+                        ratio: LETTERING_RATIO,
                         job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.words] }) ?? null,
                         apply: () => {
                           setLettering((l) => ({ ...l, [index]: placed }))
                           return () => setLettering(({ [index]: _, ...rest }) => rest)
+                        },
+                      })
+                    }}
+                    onTryLines={async (report, tries) => {
+                      // Lines of one piece of lettering (a tagline split into lines by OCR) rebuilt
+                      // together: each line alone may change too little to be offered.
+                      const { placeLine } = await import('./fonts/lettering')
+                      const placed = (
+                        await Promise.all(tries.map(async ({ line, match }) => ({ line, found: await placeLine(report, report.lines[line], match).catch(() => null) })))
+                      ).flatMap(({ line, found }) => {
+                        const words = found?.words.filter((w) => !w.doubts?.length) ?? []
+                        return found && words.length ? [{ line, lettering: { ...found, words } }] : []
+                      })
+                      if (placed.length < 2) return
+                      const fonts = [...new Set(placed.map((p) => p.lettering.font))]
+                      improver.consider({
+                        label: `lettering in ${placed.length} lines rebuilt from the closest font matches (${fonts.join(', ')})`,
+                        ratio: LETTERING_RATIO,
+                        job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.flatMap((p) => p.lettering.words)] }) ?? null,
+                        apply: () => {
+                          setLettering((l) => ({ ...l, ...Object.fromEntries(placed.map((p) => [p.line, p.lettering])) }))
+                          return () => setLettering((l) => Object.fromEntries(Object.entries(l).filter(([k]) => !placed.some((p) => p.line === Number(k)))))
                         },
                       })
                     }}
@@ -688,6 +806,7 @@ function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: bo
 function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (/memory|allocation|bad_alloc/i.test(msg)) return 'This image is too large to process here. Try a smaller copy (under about 4000 pixels wide).'
+  if (err instanceof TimeoutError) return 'This image is taking too long to process. Try a smaller copy, or fewer colours under Fine-tune.'
   if (/unreachable|panic/i.test(msg)) return 'The tracer hit a problem with this image. Try a different artwork type under Fine-tune → More options.'
   return `Something went wrong while tracing (${msg}).`
 }

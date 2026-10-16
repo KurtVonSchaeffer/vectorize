@@ -1,6 +1,6 @@
 // The app's first result and background improver, reproduced step by step for benchmarks: the
 // same settings, the same lettering flow (small lettering read from the AI-sharpened copy,
-// rebuilt automatically at a match of 0.85+, offered from 0.5), the same alternatives and the
+// never rebuilt automatically, offered from a match of 0.5), the same alternatives and the
 // same offer rule. Used by bench/assess.html?exp=improver and bench/real.html.
 import type { Enhancer } from '../src/ai/enhancer'
 import { findText, matchFonts } from '../src/fonts/identify'
@@ -9,7 +9,7 @@ import { scoreAgainstUpload } from '../src/quality/render'
 import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor } from '../src/vectorize/client'
 import { detectArt, type Detection } from '../src/vectorize/detect'
 import { bitmapToImageData, type InputImage, type SourceImage } from '../src/vectorize/image'
-import { alternatives, isImprovement, worthSharpening, type Scored } from '../src/vectorize/improve'
+import { alternatives, isImprovement, LETTERING_RATIO, worthSharpening, type Scored } from '../src/vectorize/improve'
 import { buildTraceJob, runTraceJob, type TraceResult } from '../src/vectorize/pipeline'
 import type { Tracer } from '../src/vectorize/tracer'
 
@@ -20,6 +20,8 @@ export interface SimOption {
   proxy: Scored
   /** Whether the app's rule would offer it. */
   ok: boolean
+  /** A lettering rebuild (judged with LETTERING_RATIO). */
+  lettering?: boolean
 }
 
 export interface SimResult {
@@ -62,26 +64,26 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
   const traceOf = (j: ReturnType<typeof job>) => runTraceJob({ vtracer: tracer, flat: null }, j, source, false)
   const sharpened = async (): Promise<ImageData | null> => enhancer.upscale(`${source.id}`, bitmapToImageData(source.bitmap), '2x').catch(() => null)
 
-  // The first result: lettering rebuilt automatically when a font matches at 0.85+.
-  let lettering: PlacedWord[] = []
-  let font: string | null = null
+  // The first result keeps the traced lettering; font matches from 0.5 are only offered.
+  const lettering: PlacedWord[] = []
+  const font: string | null = null
   const tryLines: { font: string; words: PlacedWord[] }[] = []
   const plain = await traceOf(job({}))
   if (det.kind === 'flat') {
     try {
       const up = worthSharpening(det, source.width, source.height) ? await sharpened() : null
       const sharp = up ? await createImageBitmap(up) : null
-      const report = await findText(sharp ?? source.bitmap, plain.palette?.map((p) => p.color) ?? []).finally(() => sharp?.close())
+      const report = await findText(sharp ?? source.bitmap, plain.palette?.map((p) => p.color) ?? [], undefined, sharp ? source.bitmap : undefined).finally(() => sharp?.close())
       if (sharp) report.scale *= sharp.width / source.width
       for (const line of await matchFonts(report, [])) {
         const m = line.matches[0]
         if (!m || m.score < 0.5) continue
         const placed = await placeLine(report, line, m)
-        if (!placed.words.length) continue
-        if (m.score >= 0.85) {
-          lettering = [...lettering, ...placed.words]
-          font = font ? `${font}, ${m.label}` : m.label
-        } else tryLines.push({ font: m.label, words: placed.words })
+        // Words whose text the image doesn't clearly support stay traced (as the app does).
+        const words = placed.words.filter((w) => !w.doubts?.length)
+        if (!words.length) continue
+        // Never rebuilt automatically (as the app): every match is only offered, after the quality check.
+        tryLines.push({ font: m.label, words })
       }
     } catch {
       // No text found: nothing to rebuild.
@@ -93,10 +95,10 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
 
   // The alternatives the app tries, judged by the app's rule.
   const options: SimOption[] = []
-  const consider = async (label: string, res: TraceResult | null) => {
+  const consider = async (label: string, res: TraceResult | null, ratio?: number) => {
     if (!res?.paths) return
     const proxy = await scoredOf(source, res)
-    options.push({ label, svg: res.svg, proxy, ok: isImprovement(firstScore, proxy) })
+    options.push({ label, svg: res.svg, proxy, ok: isImprovement(firstScore, proxy, ratio), lettering: ratio !== undefined })
   }
   for (const alt of alternatives(det, source.width, source.height, client.detail)) {
     if (alt.kind === 'detail') await consider(alt.label, await traceOf(job({ detail: alt.detail, lettering })))
@@ -105,7 +107,10 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
       if (up) await consider(alt.label, await traceOf(job({ image: { url: '', width: up.width, height: up.height, bitmap: await createImageBitmap(up) }, lettering })))
     }
   }
-  for (const l of tryLines) await consider(`lettering rebuilt from ${l.font}, the closest font match`, await traceOf(job({ lettering: [...lettering, ...l.words] })))
+  for (const l of tryLines) await consider(`lettering rebuilt from ${l.font}, the closest font match`, await traceOf(job({ lettering: [...lettering, ...l.words] })), LETTERING_RATIO)
+  // The lines together, as the app's onTryLines (one piece of lettering split into lines by OCR).
+  if (tryLines.length >= 2)
+    await consider(`lettering in ${tryLines.length} lines rebuilt from the closest font matches (${[...new Set(tryLines.map((l) => l.font))].join(', ')})`, await traceOf(job({ lettering: [...lettering, ...tryLines.flatMap((l) => l.words)] })), LETTERING_RATIO)
   const offered = options.filter((o) => o.ok).sort((a, b) => a.proxy.score - b.proxy.score)[0] ?? null
   return {
     det,
