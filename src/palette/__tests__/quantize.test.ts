@@ -118,3 +118,34 @@ describe('quantize: similar brand tints', () => {
     expect(colours(src)).toBe(2)
   })
 })
+
+describe('quantize: edge blends go to the colours they blend', () => {
+  it('keeps the grey edges of black lettering black or white, not an unrelated purple or magenta', () => {
+    // Black bars with wide soft edges (every grey from black to white) on white, next to dark
+    // purple and magenta marks: by plain distance, mid greys sit nearer the purples than black/white.
+    const INK = [18, 15, 16]
+    const PURPLE = [87, 10, 115]
+    const MAGENTA = [161, 67, 153]
+    const W = 120
+    const H = 60
+    const src = image(W, H, (x, y) => {
+      if (y < 20) return [...(x < 60 ? PURPLE : MAGENTA), 255] as [number, number, number, number]
+      // Bars 12 px wide, each edge ramping over 6 px.
+      const u = (x % 30) - 9
+      const t = u < 0 ? Math.max(0, 1 + u / 6) : u > 12 ? Math.max(0, 1 - (u - 12) / 6) : 1
+      return [...mix([255, 255, 255], INK, y >= 28 && y < 52 ? t : 0), 255] as [number, number, number, number]
+    })
+    const { map } = quantize(src, { ...OPTS, maxColors: 12 })
+    const colours = map.colors
+    const isPurplish = (c: number) => {
+      const r = c >> 16, g = (c >> 8) & 255, b = c & 255
+      return b > g + 40 && r > g + 30
+    }
+    // No pixel of the lettering band is given a purple or magenta label.
+    for (let y = 30; y < 50; y++)
+      for (let x = 0; x < W; x++) {
+        const label = map.labels[y * W + x]
+        if (label !== EMPTY) expect(isPurplish(colours[label])).toBe(false)
+      }
+  })
+})

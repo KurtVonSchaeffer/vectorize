@@ -401,9 +401,44 @@ function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Fl
         best = j
       }
     })
-    assign[i] = best
+    assign[i] = Math.sqrt(bd) > BLEND_MIN_DISTANCE ? blendEnd(rgbs, [r, g, bl], best, Math.sqrt(bd)) : best
   })
   return assign
+}
+
+/** A color at least this far (RGB) from its nearest cluster may be an edge blend of two others. */
+const BLEND_MIN_DISTANCE = 30
+/** ...and is one when the straight line between two clusters passes this much closer. */
+const BLEND_LINE_SHARE = 0.35
+const BLEND_LINE_MAX = 20
+
+/**
+ * An anti-aliased edge pixel is a mix of the two colors it separates (grey between black lettering
+ * and white paper). By plain distance it can be nearer an unrelated color: in a bird logo, mid
+ * greys sat closer to dark purple and magenta than to black or white, so black lettering traced
+ * with purple bands. When the pixel lies on the line between two clusters, much closer than to its
+ * nearest one, it goes to whichever of those two it's nearer to.
+ */
+function blendEnd(rgbs: number[][], c: number[], best: number, bestDist: number): number {
+  let pick = best
+  let line = Math.min(BLEND_LINE_MAX, bestDist * BLEND_LINE_SHARE)
+  for (let a = 0; a < rgbs.length; a++)
+    for (let b = a + 1; b < rgbs.length; b++) {
+      if (a === best || b === best) continue
+      const A = rgbs[a]
+      const B = rgbs[b]
+      const ab = [B[0] - A[0], B[1] - A[1], B[2] - A[2]]
+      const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+      if (!len2) continue
+      const t = ((c[0] - A[0]) * ab[0] + (c[1] - A[1]) * ab[1] + (c[2] - A[2]) * ab[2]) / len2
+      if (t < 0 || t > 1) continue
+      const off = Math.hypot(c[0] - A[0] - t * ab[0], c[1] - A[1] - t * ab[1], c[2] - A[2] - t * ab[2])
+      if (off < line) {
+        line = off
+        pick = t < 0.5 ? a : b
+      }
+    }
+  return pick
 }
 
 /**
