@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { AiProgress, UpscaleSetting } from '../ai/enhancer'
 import type { ArtKind } from '../vectorize/detect'
 import { COLOR_LIMITS, KIND_LABEL, type Style } from '../vectorize/client'
-import { bar, barFill, field, fieldLabel, progress, seg, segBtn, select } from './ui'
+import { bar, barFill, field, fieldLabel, link, note, progress, seg, segBtn, select } from './ui'
 
 interface Props {
   detected: ArtKind
@@ -10,6 +10,8 @@ interface Props {
   onStyle: (s: Style) => void
   maxColors: number | null
   onMaxColors: (n: number | null) => void
+  /** Switches to print inks with a single ink (white is paper): the one-colour route. */
+  onOneInk?: () => void
   showColors: boolean
   upscale: UpscaleSetting
   onUpscale: (u: UpscaleSetting) => void
@@ -47,6 +49,15 @@ export function MoreOptions(p: Props) {
                 </option>
               ))}
             </select>
+            {p.onOneInk && (
+              <small className={note}>
+                One color for screen printing or vinyl?{' '}
+                <button type="button" className={link} onClick={p.onOneInk}>
+                  Print in one ink
+                </button>{' '}
+                (white areas stay as paper).
+              </small>
+            )}
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candidates'
 import { loadIndex } from '../fonts/catalog'
+import { smallestTextLine } from '../fonts/textsize'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate, FontMatch } from '../fonts/match'
@@ -29,6 +30,8 @@ interface Props {
   /** Reports whether the automatic lettering match is running. */
   onAutoBusy?: (busy: boolean) => void
   /** The automatic match found lettering but no font close enough to rebuild it: per such line, its text and closest match. */
+  /** The shortest text line found, in source pixels (null when there's no text). */
+  onTextSize?: (px: number | null) => void
   onAutoUnmatched?: (lines: { line: number; text: string; closest: FontCandidate & { score: number } | null }[]) => void
   /** A line's best match is below the automatic threshold: worth trying, if it scores better. */
   onTryFont?: (report: FontReport, line: number, match: FontCandidate) => void
@@ -74,7 +77,7 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTryFont, onTryLines, sharpen }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTextSize, onTryFont, onTryLines, sharpen }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
@@ -136,8 +139,11 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       // Small lettering is read from a sharpened copy when there is one; letters are still
       // placed in the original image's pixels (the report's scale accounts for the 2×).
       const sharp = sharpen ? await sharpen().catch(() => null) : null
+      // Read before findText closes the sharpened copy (a closed bitmap reports width 0).
+      const sharpWidth = sharp?.width ?? 0
       // The original is read too: a reading that changes between the two is uncertain text.
       const report = await findText(sharp ?? bitmap, colors, onProgress, sharp ? bitmap : undefined).finally(() => sharp?.close())
+      if (live()) onTextSize?.(smallestTextLine({ lines: report.lines, scale: sharp ? (report.scale * sharpWidth) / bitmap.width : report.scale }))
       if (sharp) report.scale *= sharp.width / bitmap.width
       const lines = await matchFonts(report, includeInstalled ? (installed.current ?? []) : [], onProgress)
       if (live()) {
