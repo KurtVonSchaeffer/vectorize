@@ -84,7 +84,7 @@ export function InkPanel({ settings, palette, isDemo, inks, onChange, onImport, 
               <output className="text-ink-2 tabular-nums">{settings.maxInks}</output>
             </div>
             <input className={range} type="range" min={1} max={12} value={settings.maxInks} onChange={(e) => onChange({ maxInks: Number(e.target.value) })} />
-            <small>Each ink is a separate screen or plate.</small>
+            <small>Each ink is a separate screen or plate. Set 1 for one-color printing.</small>
           </label>
 
           <label className={check}>
