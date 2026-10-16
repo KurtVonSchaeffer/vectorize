@@ -5,6 +5,7 @@
 import type { Enhancer } from '../src/ai/enhancer'
 import { findText, matchFonts } from '../src/fonts/identify'
 import { placeLine, type PlacedWord } from '../src/fonts/lettering'
+import { readFromSharpened } from '../src/fonts/sharpened'
 import { scoreAgainstUpload } from '../src/quality/render'
 import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor } from '../src/vectorize/client'
 import { detectArt, type Detection } from '../src/vectorize/detect'
@@ -71,8 +72,7 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
     try {
       const up = worthSharpening(det, source.width, source.height) ? await sharpened() : null
       const sharp = up ? await createImageBitmap(up) : null
-      const report = await findText(sharp ?? source.bitmap, plain.palette?.map((p) => p.color) ?? []).finally(() => sharp?.close())
-      if (sharp) report.scale *= sharp.width / source.width
+      const report = await readFromSharpened(source.bitmap, sharp, (image) => findText(image, plain.palette?.map((p) => p.color) ?? []))
       for (const line of await matchFonts(report, [])) {
         const m = line.matches[0]
         if (!m || m.score < 0.5) continue
