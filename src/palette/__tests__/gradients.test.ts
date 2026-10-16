@@ -73,3 +73,71 @@ describe('findGradients', () => {
     expect(findGradients(img)).toHaveLength(0)
   })
 })
+
+describe('findGradients: overlapping gradient shapes', () => {
+  // Two "feathers" that run in different directions: A orange→pink left to right, B pink→blue top
+  // to bottom. Where they meet, B's colour is about 10 units off A's: after the light blur that's
+  // close enough to join them into one region (which no single gradient explains), as overlapping
+  // feathers in a bird logo do. Without splitting, neither is found.
+  const ORANGE: RGB = [244, 150, 70]
+  const PINKA: RGB = [226, 70, 140]
+  const PINKB: RGB = [236, 61, 150]
+  const BLUE: RGB = [40, 110, 200]
+  const feathers = (opts: { grain?: boolean; transparent?: boolean; letters?: boolean } = {}) => {
+    const w = 260, h = 160
+    const d = new Uint8ClampedArray(w * h * 4)
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        let c: RGB | null = null
+        if (y >= 20 && y < 140 && x >= 20 && x < 130) c = lerp(ORANGE, PINKA, (x - 20) / 109)
+        else if (y >= 20 && y < 140 && x >= 130 && x < 240) c = lerp(PINKB, BLUE, (y - 20) / 119)
+        if (c && opts.letters && y >= 70 && y < 90 && (x % 26) < 12 && x > 40 && x < 220) c = [20, 18, 22]
+        const i = (y * w + x) * 4
+        if (!c) {
+          if (opts.transparent) d.set([0, 0, 0, 0], i)
+          else d.set([...CREAM, 255], i)
+          continue
+        }
+        const n = opts.grain ? noise(x, y) : 0
+        d.set([c[0] + n, c[1] + n, c[2] + n, 255], i)
+      }
+    return { data: d, width: w, height: h } as ImageData
+  }
+  const coverage = (g: ReturnType<typeof findGradients>, x0: number, x1: number) =>
+    g.reduce((n, r) => n + [...r.pixels].filter((p) => p % 260 >= x0 && p % 260 < x1).length, 0)
+
+  for (const [label, opts] of [
+    ['clean', {}],
+    ['with JPEG-like grain', { grain: true }],
+    ['on a transparent background', { transparent: true }],
+  ] as [string, { grain?: boolean; transparent?: boolean }][])
+    it(`keeps two overlapping gradient shapes as two gradients (${label})`, () => {
+      const g = findGradients(feathers(opts))
+      expect(g.length).toBeGreaterThanOrEqual(2)
+      // Each feather is mostly covered by gradients (13,200 px each).
+      expect(coverage(g, 20, 130)).toBeGreaterThan(13200 * 0.8)
+      expect(coverage(g, 130, 240)).toBeGreaterThan(13200 * 0.8)
+      // And each gradient matches its own feather: one runs left to right, one top to bottom.
+      const dirs = g.filter((r) => r.fill.kind === 'linear').map((r) => (r.fill.kind === 'linear' ? Math.abs(r.fill.x2 - r.fill.x1) > Math.abs(r.fill.y2 - r.fill.y1) : false))
+      expect(dirs).toContain(true)
+      expect(dirs).toContain(false)
+    })
+
+  it('keeps the gradients under lettering', () => {
+    const g = findGradients(feathers({ letters: true }))
+    expect(g.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('keeps near-identical flat colours side by side flat', () => {
+    // Two flat colours 5 units apart join into one region; splitting finds two flat pieces, so no gradient.
+    const img = image(240, 120, (x) => (x < 120 ? [200, 80, 120] : [205, 75, 125]))
+    expect(findGradients(img)).toHaveLength(0)
+  })
+
+  it('leaves flat colours next to a gradient alone', () => {
+    const img = image(240, 120, (x, y) => (x < 80 ? [30, 60, 160] : x < 160 ? lerp(PINK, PURPLE, (x - 80) / 79) : y < 60 ? [240, 200, 40] : [40, 160, 90]))
+    const g = findGradients(img)
+    expect(g).toHaveLength(1)
+    expect([...g[0].pixels].every((p) => p % 240 >= 76 && p % 240 < 164)).toBe(true)
+  })
+})

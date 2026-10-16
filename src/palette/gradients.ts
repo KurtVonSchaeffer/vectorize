@@ -10,6 +10,10 @@
  *    direction form a profile, simplified to a few color stops.
  * 4. Accept: only when the gradient reproduces the region's pixels closely. Texture, photos and
  *    noise fail this and stay with the normal flat-color tracer.
+ * 5. Split: overlapping gradient shapes (the feathers of a bird) flow into each other where they
+ *    meet, so step 1 can join several of them into one region that no single gradient explains.
+ *    A large region that fails is split again with tighter color steps, and each large enough
+ *    piece is fitted on its own. When no piece fits, the region is left exactly as it was.
  *
  * Colors are fitted in sRGB, which is how SVG interpolates gradients.
  */
@@ -53,6 +57,10 @@ const STOP_TOLERANCE = 4
 const MAX_STOPS = 8
 /** An edge pixel joins a gradient when within this of the gradient's color there. */
 const EDGE_MATCH = 24
+/** A region that fails fitting is split again with these tighter neighbor steps, in turn. */
+const SPLIT_STEPS = [3, 2]
+/** Pieces of a split region at least this large (pixels) are fitted on their own. */
+const SPLIT_MIN = 400
 
 export function findGradients(img: ImageData, opts: GradientOptions = {}): GradientRegion[] {
   const { width: w, height: h, data: d } = img
@@ -112,7 +120,13 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
     if (size[r] < minArea) return
     const g = fitRegion(lists[i], w, R, G, B)
     if (g) regions.push(g)
-    else rejected.push(lists[i])
+    else {
+      const found = splitAndFit(lists[i], w, R, G, B)
+      if (found) {
+        regions.push(...found.regions)
+        rejected.push(...found.rest)
+      } else rejected.push(lists[i])
+    }
   })
   const kept = regions.sort((a, b) => b.pixels.length - a.pixels.length).slice(0, opts.max ?? 16)
   if (!kept.length) return kept
@@ -173,6 +187,64 @@ function joinPieces(regions: GradientRegion[], pieces: Uint32Array[], w: number,
     if (best >= 0) extra[best].push(piece)
   }
   return regions.map((r, k) => (extra[k].length ? { ...r, pixels: Uint32Array.from([...r.pixels, ...extra[k].flatMap((e) => Array.from(e))]) } : r))
+}
+
+/**
+ * Splits a region that no single gradient explains into pieces whose neighbors differ by at most
+ * each of SPLIT_STEPS in turn, fitting every piece of SPLIT_MIN pixels or more. Returns the
+ * gradients found and the leftover pieces, or null when nothing fits (the region then stays whole,
+ * so its leftovers can't be absorbed into a neighboring gradient).
+ */
+function splitAndFit(list: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array): { regions: GradientRegion[]; rest: Uint32Array[] } | null {
+  const regions: GradientRegion[] = []
+  const rest: Uint32Array[] = []
+  let todo = [list]
+  for (const step of SPLIT_STEPS) {
+    const next: Uint32Array[] = []
+    for (const part of todo)
+      for (const piece of splitPixels(part, w, R, G, B, step)) {
+        if (piece.length < SPLIT_MIN) {
+          rest.push(piece)
+          continue
+        }
+        const g = fitRegion(piece, w, R, G, B)
+        if (g) regions.push(g)
+        else next.push(piece)
+      }
+    todo = next
+  }
+  return regions.length ? { regions, rest: [...rest, ...todo] } : null
+}
+
+/** The connected pieces of a region whose 4-neighbors differ by at most `step` in every channel. */
+function splitPixels(list: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, step: number): Uint32Array[] {
+  const index = new Map<number, number>()
+  list.forEach((p, i) => index.set(p, i))
+  const parent = new Int32Array(list.length)
+  for (let i = 0; i < parent.length; i++) parent[i] = i
+  const find = (i: number) => {
+    while (parent[i] !== i) i = parent[i] = parent[parent[i]]
+    return i
+  }
+  const near = (p: number, q: number) => Math.abs(R[p] - R[q]) <= step && Math.abs(G[p] - G[q]) <= step && Math.abs(B[p] - B[q]) <= step
+  list.forEach((p, i) => {
+    const right = (p + 1) % w !== 0 ? index.get(p + 1) : undefined
+    const below = index.get(p + w)
+    for (const j of [right, below])
+      if (j !== undefined && near(p, list[j])) {
+        const a = find(i)
+        const b = find(j)
+        if (a !== b) parent[a] = b
+      }
+  })
+  const groups = new Map<number, number[]>()
+  list.forEach((p, i) => {
+    const r = find(i)
+    const g = groups.get(r)
+    if (g) g.push(p)
+    else groups.set(r, [p])
+  })
+  return [...groups.values()].map((g) => Uint32Array.from(g))
 }
 
 /**
