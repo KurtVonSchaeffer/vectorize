@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { AiProgress, UpscaleSetting } from '../ai/enhancer'
 import type { ArtKind } from '../vectorize/detect'
-import { KIND_LABEL, type Style } from '../vectorize/client'
+import { COLOR_LIMITS, KIND_LABEL, type Style } from '../vectorize/client'
 import { bar, barFill, field, fieldLabel, progress, seg, segBtn, select } from './ui'
 
 interface Props {
@@ -41,7 +41,7 @@ export function MoreOptions(p: Props) {
             <label className={fieldLabel} htmlFor="maxColors">Maximum colors</label>
             <select className={select} id="maxColors" value={p.maxColors ?? 'auto'} onChange={(e) => p.onMaxColors(e.target.value === 'auto' ? null : Number(e.target.value))}>
               <option value="auto">Automatic</option>
-              {[1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24].map((n) => (
+              {COLOR_LIMITS.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
