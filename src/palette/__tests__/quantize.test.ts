@@ -152,3 +152,31 @@ describe('quantize: edge blends go to the colours they blend', () => {
       }
   })
 })
+
+describe('quantize: edge colours come from around the edge', () => {
+  it('never pairs a darker shade inside a violet-to-purple blend with the black of lettering elsewhere', () => {
+    // A smooth violet → dark purple blend (the inner feathers of a bird logo), flattened into the
+    // two colours, and black lettering bars far away. Mid-blend pixels (about 121,37,133) look like
+    // violet mixed with black: choosing the partner from every colour in the image paired them with
+    // black and drew a dark seam along the boundary; dark purple is the colour actually there.
+    const VIOLET = [164, 56, 169]
+    const PURPLE = [73, 15, 118]
+    const INK = [18, 15, 16]
+    const W = 200
+    const H = 120
+    const src = image(W, H, (x, y) => {
+      if (y >= 10 && y < 60 && x >= 10 && x < 190) return [...mix(VIOLET, PURPLE, Math.max(0, Math.min(1, (x - 60) / 80))), 255] as [number, number, number, number]
+      const bar = y >= 85 && y < 105 && x % 40 < 14
+      return [...(bar ? INK : [255, 255, 255]), 255] as [number, number, number, number]
+    })
+    const { map } = quantize(src, { ...OPTS, maxColors: 8 })
+    const black = map.colors.findIndex((c) => (c >> 16) < 40 && ((c >> 8) & 255) < 40 && (c & 255) < 40)
+    expect(black).toBeGreaterThanOrEqual(0)
+    for (let y = 14; y < 56; y++)
+      for (let x = 14; x < 186; x++) {
+        const p = y * W + x
+        expect(map.labels[p]).not.toBe(black)
+        if ((map.cov?.[p] ?? 1) < 1) expect(map.second?.[p]).not.toBe(black)
+      }
+  })
+})
