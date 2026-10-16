@@ -4,6 +4,7 @@ import { Compare } from './components/Compare'
 import { BrandPanel, type MatchMode } from './components/BrandPanel'
 import { FontPanel } from './components/FontPanel'
 import type { LineLettering, PlacedWord } from './fonts/lettering'
+import { SMALL_TEXT_PX } from './fonts/textsize'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip } from './components/ResultCard'
@@ -61,6 +62,8 @@ export default function App() {
   const [matchingLettering, setMatchingLettering] = useState(false)
   // The image whose automatic lettering match has finished (it runs once, after the first result).
   const [letteringSettled, setLetteringSettled] = useState<string | null>(null)
+  // The shortest text line the lettering reader found (source pixels), for the image with this id.
+  const [textSize, setTextSize] = useState<{ id: string; px: number | null } | null>(null)
   // Lines the automatic match found but couldn't rebuild confidently, for the image with this id.
   const [unmatchedLettering, setUnmatchedLettering] = useState<{ id: string; lines: { line: number; text: string; closest: { label: string; score: number } | null }[] } | null>(null)
   const letteringWords = useMemo(() => Object.values(lettering).flatMap((l) => l.words), [lettering])
@@ -322,11 +325,28 @@ export default function App() {
 
   const status: 'working' | 'ready' | 'error' = traceError ? 'error' : busy || !result || aiProgress ? 'working' : 'ready'
   const colorCount = chips?.length ?? null
+  const counted = colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}` : `${(result?.paths ?? 0).toLocaleString()} shapes`
+  const smallText = !!source && textSize?.id === source.id && textSize.px !== null && textSize.px < SMALL_TEXT_PX
+  // Only claim "ready" when nothing we know of says otherwise. Cut files aren't checked for
+  // cuttability, so they're never called ready; photos and tiny lettering get a plain warning.
+  const warnings = [
+    kind === 'photo' &&
+      (client.purpose === 'cut'
+        ? 'Photos become thousands of tiny shapes, which a cutting machine can’t cut cleanly. Use a logo or line drawing for cutting.'
+        : 'Photos become thousands of small shapes: fine for large prints and posters, but not clean, editable artwork.'),
+    smallText && 'Some lettering is too small to trace cleanly and may be hard to read. Upload a larger copy if you have one.',
+  ].filter(Boolean)
   const summary = status === 'working' && !result
     ? 'Finding colors and tracing edges…'
-    : flattened
-      ? `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}` : `${(result?.paths ?? 0).toLocaleString()} shapes`}. Some shading in your image became flat color, so zoom in and check it before you ${{ print: 'print', web: 'publish', cut: 'cut' }[client.purpose]} it.`
-      : `${colorCount ? `${colorCount} ${colorCount === 1 ? 'color' : 'colors'}, clean edges` : `${(result?.paths ?? 0).toLocaleString()} shapes`}, ready for ${{ print: 'print', web: 'the web', cut: 'cutting' }[client.purpose]}.`
+    : warnings.length
+      ? `${counted}. ${warnings.join(' ')}`
+      : inks.enabled && inks.maxInks === 1
+        ? 'One ink: every color prints in this ink, and white areas stay as paper. Choose the ink under Brand colors.'
+        : flattened
+          ? `${counted}. Some shading in your image became flat color, so zoom in and check it before you ${{ print: 'print', web: 'publish', cut: 'cut' }[client.purpose]} it.`
+          : client.purpose === 'cut'
+            ? `${counted}${colorCount ? ', clean edges' : ''}. Check small details at your cut size before cutting.`
+            : `${colorCount ? `${counted}, clean edges` : counted}, ready for ${client.purpose === 'print' ? 'print' : 'the web'}.`
   const headline = {
     flat: 'Your artwork is now a sharp vector',
     photo: 'Your image is now a vector',
@@ -525,6 +545,11 @@ export default function App() {
                 maxColors={client.maxColors}
                 onMaxColors={(maxColors) => setClient((c) => ({ ...c, maxColors }))}
                 showColors={kind === 'flat' && !inks.enabled}
+                onOneInk={() => {
+                  setRemoved([])
+                  setInks((s) => ({ ...s, enabled: true, maxInks: 1, whiteIsPaper: true }))
+                  setBrand({ ...brand, mode: 'off' })
+                }}
                 upscale={upscale}
                 onUpscale={setUpscale}
                 upscaleProgress={aiProgress}
@@ -542,6 +567,7 @@ export default function App() {
                       if (!busy) setLetteringSettled(source.id)
                     }}
                     onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
+                    onTextSize={(px) => setTextSize({ id: source.id, px })}
                     onUseFont={async (report, index, match, quiet, only, named) => {
                       const line = report.lines[index]
                       // Only some words (e.g. the bold word of a bold + light wordmark), by position in the line.
