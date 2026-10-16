@@ -1,6 +1,6 @@
 // The app's first result and background improver, reproduced step by step for benchmarks: the
 // same settings, the same lettering flow (small lettering read from the AI-sharpened copy,
-// rebuilt automatically at a match of 0.85+, offered from 0.5), the same alternatives and the
+// never rebuilt automatically, offered from a match of 0.5), the same alternatives and the
 // same offer rule. Used by bench/assess.html?exp=improver and bench/real.html.
 import type { Enhancer } from '../src/ai/enhancer'
 import { findText, matchFonts } from '../src/fonts/identify'
@@ -64,9 +64,9 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
   const traceOf = (j: ReturnType<typeof job>) => runTraceJob({ vtracer: tracer, flat: null }, j, source, false)
   const sharpened = async (): Promise<ImageData | null> => enhancer.upscale(`${source.id}`, bitmapToImageData(source.bitmap), '2x').catch(() => null)
 
-  // The first result: lettering rebuilt automatically when a font matches at 0.85+.
-  let lettering: PlacedWord[] = []
-  let font: string | null = null
+  // The first result keeps the traced lettering; font matches from 0.5 are only offered.
+  const lettering: PlacedWord[] = []
+  const font: string | null = null
   const tryLines: { font: string; words: PlacedWord[] }[] = []
   const plain = await traceOf(job({}))
   if (det.kind === 'flat') {
@@ -82,10 +82,8 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
         // Words whose text the image doesn't clearly support stay traced (as the app does).
         const words = placed.words.filter((w) => !w.doubts?.length)
         if (!words.length) continue
-        if (m.score >= 0.85) {
-          lettering = [...lettering, ...words]
-          font = font ? `${font}, ${m.label}` : m.label
-        } else tryLines.push({ font: m.label, words })
+        // Never rebuilt automatically (as the app): every match is only offered, after the quality check.
+        tryLines.push({ font: m.label, words })
       }
     } catch {
       // No text found: nothing to rebuild.

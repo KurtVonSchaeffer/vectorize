@@ -118,6 +118,9 @@ export default function App() {
         setTraceError(null)
         setUpscaled(null)
         setClient((c) => ({ ...c, style: 'auto', maxColors: null, keepBlends: false }))
+        // Every upload starts in full color: print inks (one ink, library matching) are a choice
+        // per image, never carried over silently from the previous one.
+        setInks((s) => (s.enabled ? { ...s, enabled: false } : s))
       } catch (err) {
         showToast(err instanceof Error ? err.message : String(err))
       } finally {
@@ -405,6 +408,16 @@ export default function App() {
           onUndo: () => setBrand({ ...brand, mode: 'off' }),
         }
       : null
+  const inkNote = inks.enabled
+    ? {
+        text: inks.maxInks === 1 ? 'Printing in one ink.' : `Colors are matched to at most ${inks.maxInks} print inks${importedPalette ? ' from your library' : ' (demo inks)'}.`,
+        undoLabel: 'Back to full color',
+        onUndo: () => {
+          setRemoved([])
+          setInks((s) => ({ ...s, enabled: false }))
+        },
+      }
+    : null
   const letteringNote = (() => {
     const lines = Object.values(lettering)
     if (matchingLettering && result) return { text: 'Matching the lettering to fonts, to rebuild it cleanly…' }
@@ -412,7 +425,7 @@ export default function App() {
     const unmatched = (unmatchedLettering && unmatchedLettering.id === source?.id ? unmatchedLettering.lines : []).filter((u) => !lettering[u.line])
     const howTo = 'If you know the font, choose it under More options → Fonts in this artwork → Use a font you know.'
     const kept = unmatched.length
-      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} couldn't be rebuilt from a font automatically${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
+      ? `“${unmatched[0].text}”${unmatched.length > 1 ? ` and ${unmatched.length === 2 ? '1 other line' : `${unmatched.length - 1} other lines`}` : ''} ${unmatched.length > 1 ? "weren't" : "wasn't"} replaced with a font${unmatched[0].closest ? ` (closest: ${unmatched[0].closest.label}, ${Math.round(unmatched[0].closest.score * 100)}%)` : ''}`
       : ''
     if (!lines.length && result && kept) return { text: `Kept the lettering as traced: ${kept}. ${howTo}` }
     if (!lines.length || !result) return null
@@ -477,7 +490,7 @@ export default function App() {
       )
     },
   })
-  const fixNotes = [improver.note, letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
+  const fixNotes = [inkNote, improver.note, letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
 
   const busyLabel = aiProgress
     ? aiProgress.phase === 'download'

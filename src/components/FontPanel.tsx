@@ -53,12 +53,11 @@ const TEXT = 'text-xs font-semibold text-ink-2'
 const USE = 'col-span-full mt-1 justify-self-start'
 
 /**
- * Automatically rebuilt only when the best free match is at least this close. Wrong fonts were
- * measured scoring up to 0.84 on small lettering, correct ones 0.85 and up; closer matches below
- * this are only offered, after a quality check (onTryFont), never substituted silently.
+ * Lettering is never replaced with a font automatically: even a close match (REM Medium at 85%+
+ * for a bold geometric sans) can change letter shapes and weight. Matches at least this close are
+ * only offered, after a quality check (onTryFont); the traced letters stay until the customer
+ * accepts the offer or picks a font.
  */
-const AUTO_MIN_SCORE = 0.85
-/** Closer than this, but below AUTO_MIN_SCORE, a match is handed to onTryFont. */
 const TRY_MIN_SCORE = 0.5
 
 const STEP: Record<FontProgress['step'], string> = {
@@ -155,10 +154,8 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         const tries: { line: number; match: FontCandidate }[] = []
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
-          // A close match can still fail to line up when placed: that line stays traced too.
-          if (best && best.score >= AUTO_MIN_SCORE && (await onUseFont(report, i, best, true))) continue
           unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
-          if (best && best.score >= TRY_MIN_SCORE && best.score < AUTO_MIN_SCORE) {
+          if (best && best.score >= TRY_MIN_SCORE) {
             onTryFont?.(report, i, best)
             tries.push({ line: i, match: best })
           }
