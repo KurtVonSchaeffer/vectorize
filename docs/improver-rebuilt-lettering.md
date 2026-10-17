@@ -57,5 +57,39 @@ trace is also tried, and not offered, on the JPEG badges, "jpeg saved as png" an
 gradient logo, including the cases where it is worse in truth (badge 120 px JPEG 75: 22.29
 against 12.60; gradient logo JPEG 40: 2.34 against 0.62).
 
-Not verified: the app path (useImprover with the `baseline` job) was type-checked and unit-tested
-but not run through bench/parity.html.
+## Badge 120 px PNG: why the better candidate isn't picked
+
+All candidates for this upload (first result: rebuilt lettering, proxy 6.75, truth 11.32):
+
+| candidate | proxy score | edge F1 | segments | truth | passes the rule |
+|---|---|---|---|---|---|
+| traced with more detail | 6.71 | 0.920 | 269 | 10.78 | no (not half the score) |
+| traced with simpler shapes | 12.50 | 0.862 | 204 | 18.62 | no |
+| sharpened, lettering rebuilt | **0.36** | 0.995 | 344 | 2.14 | yes |
+| sharpened, letters traced | 0.64 | 0.995 | 321 | **1.53** | yes |
+
+Both sharpened versions pass, and the improver offers the passing candidate with the lowest
+score against the upload, which is the rebuilt one (0.36 vs 0.64). Both are large gains (11.32
+→ 2.14 or 1.53). The 0.28-point difference between them is below `IMPROVE_MIN_GAIN` (0.3),
+the gap the rule already treats as too small to mean anything on its own.
+
+Is this a selection defect that generalises? Only two rows in the 89 pairs have both sharpened
+versions passing: badge 120 PNG (picks rebuilt, traced is better) and badge 200 PNG (picks traced,
+which is better). A tie-break such as "within 0.3, prefer traced letters" would fix this row and
+not change badge 200. But it rests on one row, and it is really a lettering-policy choice
+(prefer traced letters), not a scoring fix. **No change proposed.** Under PR #14's policy the
+first result keeps traced letters, the rebuilt variant isn't a candidate, and this row gets the
+1.53 result.
+
+## App parity (bench/parity.html)
+
+All 60 synthetic uploads (PNG and JPEG 75) agree between the app and the simulation: same first
+SVG and the same offer. The first full run matched 52 of 53 before the browser closed. The one
+difference, badge 200 px PNG, came from the check itself: it stopped at the first offer shown,
+while the app later replaced that offer with a better one. The check now waits until the offer
+has been unchanged for 20 s. Rerunning the badge and validation groups (17 uploads, which covers
+the rest of the 60) gave 17 of 17 identical, including badge 200 px PNG.
+
+Checked in the preview (sans 10 px PNG): the first result rebuilds the lettering, then the
+improver offers the sharpened version with traced letters. "Use it" switches to 2× sharpening
+and removes the rebuilt lettering. "Go back" restores the rebuilt lettering and the offer.
