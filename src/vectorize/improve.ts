@@ -100,3 +100,23 @@ export function alternatives(det: Detection, width: number, height: number, deta
   if (worthSharpening(det, width, height)) out.push({ kind: 'sharpen', label: 'sharpened with AI before tracing, which recovers small detail' })
   return out
 }
+
+/** The alternative to automatically rebuilt lettering: AI-sharpened, with the letters traced. */
+export const SHARPEN_TRACED = 'sharpened with AI before tracing, with the letters traced instead of rebuilt'
+
+/**
+ * Whether to offer the AI-sharpened trace (letters traced) over a first result whose lettering
+ * was rebuilt from a font. The upload can't rank the two: on small lettering (strokes 1–2 px)
+ * every candidate is within the comparison's 1 px tolerance and scores 0.00, so nothing beats
+ * the rebuilt result, and comparing at a higher resolution only measures the upload's blur
+ * (docs/improver-rebuilt-lettering.md). What it can rank is trace against trace, so the
+ * sharpened trace is judged by the usual rule against the same image traced without sharpening
+ * (`traced`, letters traced too), and must not be measurably worse than the rebuilt result.
+ */
+export function isImprovementOverRebuilt(traced: Scored, rebuilt: Scored, alternative: Scored): boolean {
+  if (!isImprovement(traced, alternative)) return false
+  if (alternative.score > rebuilt.score) return false
+  if (alternative.colours > rebuilt.colours) return false
+  if (alternative.edgeF1 < rebuilt.edgeF1 - EDGE_SLACK) return false
+  return true
+}

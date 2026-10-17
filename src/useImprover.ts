@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { scoreAgainstUpload } from './quality/render'
-import { isImprovement, type Scored } from './vectorize/improve'
+import { isImprovement, isImprovementOverRebuilt, type Scored } from './vectorize/improve'
 import type { SourceImage } from './vectorize/image'
 import { runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
 import type { FlatTracer } from './vectorize/flat-tracer'
@@ -18,6 +18,11 @@ export interface Candidate {
   label: string
   /** The trace job, or null when it can't be made (e.g. sharpening unavailable). */
   job: () => Promise<TraceJob | null>
+  /**
+   * For an alternative to rebuilt lettering: the first result with its letters traced. The
+   * candidate is then judged against it as well as the first result (isImprovementOverRebuilt).
+   */
+  baseline?: () => Promise<TraceJob | null>
   /** Switches the app to this version; returns how to switch back. */
   apply: () => () => void
 }
@@ -71,11 +76,21 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
         if (id !== run.current) return
         const job = await c.job()
         if (!job || id !== run.current) return
-        const res = await runTraceJob({ vtracer: t.vtracer, flat: t.improve }, job, source, false)
+        const trace = (j: TraceJob) => runTraceJob({ vtracer: t.vtracer, flat: t.improve }, j, source, false)
+        const res = await trace(job)
         if (id !== run.current || !res.paths) return
         const alt = await scored(source, res)
         if (id !== run.current) return
-        if (isImprovement(first, alt) && alt.score < best.current) {
+        let ok: boolean
+        if (c.baseline) {
+          const baseJob = await c.baseline()
+          if (!baseJob || id !== run.current) return
+          const baseRes = await trace(baseJob)
+          if (id !== run.current || !baseRes.paths) return
+          ok = isImprovementOverRebuilt(await scored(source, baseRes), first, alt)
+        } else ok = isImprovement(first, alt)
+        if (id !== run.current) return
+        if (ok && alt.score < best.current) {
           best.current = alt.score
           setState((s) => (s.kind === 'applied' ? s : { kind: 'found', candidate: c }))
         }
