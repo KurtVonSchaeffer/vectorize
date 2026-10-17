@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candidates'
 import { loadIndex } from '../fonts/catalog'
+import { readFromSharpened } from '../fonts/sharpened'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate, FontMatch } from '../fonts/match'
@@ -134,8 +135,7 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       // Small lettering is read from a sharpened copy when there is one; letters are still
       // placed in the original image's pixels (the report's scale accounts for the 2×).
       const sharp = sharpen ? await sharpen().catch(() => null) : null
-      const report = await findText(sharp ?? bitmap, colors, onProgress).finally(() => sharp?.close())
-      if (sharp) report.scale *= sharp.width / bitmap.width
+      const report = await readFromSharpened(bitmap, sharp, (image) => findText(image, colors, onProgress))
       const lines = await matchFonts(report, includeInstalled ? (installed.current ?? []) : [], onProgress)
       if (live()) {
         setOnline({})

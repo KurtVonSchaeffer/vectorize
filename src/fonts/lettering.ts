@@ -187,8 +187,28 @@ function mapPoints(d: string, f: (x: number, y: number) => [number, number]): st
   })
 }
 
+/**
+ * A word placed in the OCR canvas, in source-image pixels. `scale` is OCR canvas pixels per
+ * source pixel; 0 or a non-finite scale would put every letter at Infinity (drawing nothing while
+ * the word still counts as rebuilt), so it's refused.
+ */
+export function toSourcePixels(placed: { letters: { char: string; d: string }[]; box: Box }, scale: number): { letters: { char: string; d: string }[]; box: Box } {
+  const k = sourcePerOcrPixel(scale)
+  return {
+    letters: placed.letters.map((l) => ({ char: l.char, d: scalePath(l.d, k) })),
+    box: { x0: placed.box.x0 * k, y0: placed.box.y0 * k, x1: placed.box.x1 * k, y1: placed.box.y1 * k },
+  }
+}
+
+function sourcePerOcrPixel(scale: number): number {
+  if (!(scale > 0 && Number.isFinite(scale))) throw new Error(`The text was read at an invalid scale (${scale})`)
+  return 1 / scale
+}
+
 /** `named`: the client chose this font: its own file is required, and a looser fit is accepted. */
 export async function placeLine(report: FontReport, line: TextLine, match: FontCandidate, opts: { named?: boolean } = {}): Promise<LineLettering> {
+  // Fail before any work (and before anything is applied) when the scale can't be right.
+  sourcePerOcrPixel(report.scale)
   const font = await loadFont(match, opts.named)
   const minOverlap = opts.named ? MIN_OVERLAP_NAMED : MIN_OVERLAP
   const img = report.canvas.getContext('2d')!.getImageData(0, 0, report.canvas.width, report.canvas.height)
@@ -202,15 +222,7 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
       skipped++
       continue
     }
-    // OCR canvas → source pixels.
-    const k = 1 / report.scale
-    words.push({
-      text: w.text,
-      index,
-      font: match.label,
-      letters: placed.letters.map((l) => ({ char: l.char, d: scalePath(l.d, k) })),
-      box: { x0: placed.box.x0 * k, y0: placed.box.y0 * k, x1: placed.box.x1 * k, y1: placed.box.y1 * k },
-    })
+    words.push({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale) })
   }
   return { font: match.label, words, skipped }
 }
