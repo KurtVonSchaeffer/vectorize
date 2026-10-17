@@ -52,9 +52,10 @@ The five rows where the best result had got worse with PR #16 (ground truth, low
 
 Serif 12 px PNG also gets a new offer (3.65 → 3.55, within the 0.1 margin). Sans 10 px JPEG 75 is
 not offered (sharpened trace 2.30 against 4.60): its traced version already scores 0.21, so the
-0.3-point minimum gain isn't reached. That's a conservative miss, not a wrong offer. On JPEG
-badges, "jpeg saved as png" and the gradient logo, the sharpened trace passes nothing it
-shouldn't: it fails the segment or colour guards, or scores worse than the rebuilt result.
+0.3-point minimum gain isn't reached. That's a conservative miss, not a wrong offer. The sharpened
+trace is also tried, and not offered, on the JPEG badges, "jpeg saved as png" and the small
+gradient logo, including the cases where it is worse in truth (badge 120 px JPEG 75: 22.29
+against 12.60; gradient logo JPEG 40: 2.34 against 0.62).
 
 Not verified: the app path (useImprover with the `baseline` job) was type-checked and unit-tested
 but not run through bench/parity.html.
