@@ -1,7 +1,7 @@
 // The app's first result and background improver, reproduced step by step for benchmarks: the
 // same settings, the same lettering flow (small lettering read from the AI-sharpened copy,
 // rebuilt automatically at a match of 0.85+, offered from 0.5), the same alternatives and the
-// same offer rule. Used by bench/assess.html?exp=improver and bench/real.html.
+// same offer rules. Used by bench/assess.html?exp=improver and bench/real.html.
 import type { Enhancer } from '../src/ai/enhancer'
 import { findText, matchFonts } from '../src/fonts/identify'
 import { placeLine, type PlacedWord } from '../src/fonts/lettering'
@@ -10,7 +10,7 @@ import { scoreAgainstUpload } from '../src/quality/render'
 import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor } from '../src/vectorize/client'
 import { detectArt, type Detection } from '../src/vectorize/detect'
 import { bitmapToImageData, type InputImage, type SourceImage } from '../src/vectorize/image'
-import { alternatives, isImprovement, worthSharpening, type Scored } from '../src/vectorize/improve'
+import { alternatives, isImprovement, isImprovementOverRebuilt, SHARPEN_TRACED, worthSharpening, type Scored } from '../src/vectorize/improve'
 import { buildTraceJob, runTraceJob, type TraceResult } from '../src/vectorize/pipeline'
 import type { Tracer } from '../src/vectorize/tracer'
 
@@ -26,6 +26,8 @@ export interface SimOption {
 export interface SimResult {
   det: Detection
   first: { svg: string; proxy: Scored; colours: number; paths: number; font: string | null; result: TraceResult }
+  /** With lettering rebuilt: the first result as it would be with the letters traced. */
+  traced: { svg: string; proxy: Scored } | null
   /** The first result's print/cut version (shapes that don't overlap), as the app makes for downloads. */
   plates: () => Promise<string>
   options: SimOption[]
@@ -90,13 +92,14 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
   const t0 = performance.now()
   const first = lettering.length ? await traceOf(job({ lettering })) : plain
   const firstScore = await scoredOf(source, first)
+  const traced = lettering.length ? { svg: plain.svg, proxy: await scoredOf(source, plain) } : null
 
   // The alternatives the app tries, judged by the app's rule.
   const options: SimOption[] = []
-  const consider = async (label: string, res: TraceResult | null) => {
+  const consider = async (label: string, res: TraceResult | null, judge = (p: Scored) => isImprovement(firstScore, p)) => {
     if (!res?.paths) return
     const proxy = await scoredOf(source, res)
-    options.push({ label, svg: res.svg, proxy, ok: isImprovement(firstScore, proxy) })
+    options.push({ label, svg: res.svg, proxy, ok: judge(proxy) })
   }
   for (const alt of alternatives(det, source.width, source.height, client.detail)) {
     if (alt.kind === 'detail') await consider(alt.label, await traceOf(job({ detail: alt.detail, lettering })))
@@ -105,11 +108,21 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
       if (up) await consider(alt.label, await traceOf(job({ image: { url: '', width: up.width, height: up.height, bitmap: await createImageBitmap(up) }, lettering })))
     }
   }
+  // Rebuilt lettering: also the sharpened copy with the letters traced, judged against the
+  // letters-traced first result (see isImprovementOverRebuilt).
+  if (traced && worthSharpening(det, source.width, source.height)) {
+    const up = await sharpened()
+    if (up)
+      await consider(SHARPEN_TRACED, await traceOf(job({ image: { url: '', width: up.width, height: up.height, bitmap: await createImageBitmap(up) }, lettering: [] })), (p) =>
+        isImprovementOverRebuilt(traced.proxy, firstScore, p),
+      )
+  }
   for (const l of tryLines) await consider(`lettering rebuilt from ${l.font}, the closest font match`, await traceOf(job({ lettering: [...lettering, ...l.words] })))
   const offered = options.filter((o) => o.ok).sort((a, b) => a.proxy.score - b.proxy.score)[0] ?? null
   return {
     det,
     first: { svg: first.svg, proxy: firstScore, colours: first.palette?.length ?? 0, paths: first.paths, font, result: first },
+    traced,
     plates: async () => (await traceOf(job({ lettering, knockout: true }))).svg,
     options,
     offered,

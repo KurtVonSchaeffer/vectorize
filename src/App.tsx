@@ -19,7 +19,7 @@ import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
-import { alternatives, worthSharpening } from './vectorize/improve'
+import { alternatives, SHARPEN_TRACED, worthSharpening } from './vectorize/improve'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
@@ -421,7 +421,19 @@ export default function App() {
     candidates: () => {
       if (!buildJob || !source || !detection) return []
       const d0 = client.detail
-      return alternatives(detection, source.width, source.height, d0).map((alt): Candidate =>
+      // The sharpened copy as a trace input, with lettering as given (default: the current lettering).
+      const sharpenedJob = async (words?: PlacedWord[]) => {
+        const up = await (enhancer.current ??= new Enhancer()).upscale(source.id, bitmapToImageData(source.bitmap), '2x')
+        if (!up) return null
+        const sharp = await imageDataToInput(up)
+        // The job holds its own pixel copy; the temporary bitmap and URL can go.
+        const j = buildJob(false, { input: sharp, lettering: words })
+        URL.revokeObjectURL(sharp.url)
+        sharp.bitmap.close()
+        return j
+      }
+      const alts = alternatives(detection, source.width, source.height, d0)
+      const out = alts.map((alt): Candidate =>
         alt.kind === 'detail'
           ? {
               label: alt.label,
@@ -433,22 +445,32 @@ export default function App() {
             }
           : {
               label: alt.label,
-              job: async () => {
-                const up = await (enhancer.current ??= new Enhancer()).upscale(source.id, bitmapToImageData(source.bitmap), '2x')
-                if (!up) return null
-                const sharp = await imageDataToInput(up)
-                // The job holds its own pixel copy; the temporary bitmap and URL can go.
-                const j = buildJob(false, { input: sharp })
-                URL.revokeObjectURL(sharp.url)
-                sharp.bitmap.close()
-                return j
-              },
+              job: () => sharpenedJob(),
               apply: () => {
                 setUpscale('2x')
                 return () => setUpscale('off')
               },
             },
       )
+      // Lettering rebuilt automatically: the upload can't rank it against sharpened tracing, so
+      // the sharpened copy with traced letters is judged against the traced letters too.
+      if (letteringWords.length && alts.some((a) => a.kind === 'sharpen')) {
+        const rebuilt = lettering
+        out.push({
+          label: SHARPEN_TRACED,
+          job: () => sharpenedJob([]),
+          baseline: async () => buildJob(false, { lettering: [] }),
+          apply: () => {
+            setLettering({})
+            setUpscale('2x')
+            return () => {
+              setUpscale('off')
+              setLettering(rebuilt)
+            }
+          },
+        })
+      }
+      return out
     },
   })
   const fixNotes = [improver.note, letteringNote, gradientNote, brandNote, blendNote, shapeNote].filter((n): n is NonNullable<typeof n> => !!n)
