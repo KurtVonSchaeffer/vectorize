@@ -28,6 +28,7 @@ const frame = document.getElementById('app') as HTMLIFrameElement
 const tracer = new Tracer()
 const enhancer = new Enhancer()
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const OFFER_SETTLED = 20_000
 
 /** Opens the file in a fresh copy of the app and waits for its first result and improver check. */
 async function inApp(file: File): Promise<{ svg: string; offer: string | null; timedOut: boolean }> {
@@ -53,10 +54,20 @@ async function inApp(file: File): Promise<{ svg: string; offer: string | null; t
   picker!.dispatchEvent(new Event('change', { bubbles: true }))
   const started = performance.now()
   let timedOut = true
+  // A later candidate can replace an offer that is already shown (a lower score wins), and the
+  // app gives no sign that the last one has been checked: an offer counts once it hasn't changed
+  // for OFFER_SETTLED ms.
+  let offerSince = 0
+  let lastOffer: string | null = null
   while (performance.now() - started < 180_000) {
     await sleep(100)
     const t = doc().body.textContent ?? ''
-    if (/A cleaner version is ready/.test(t) || (seen && !/Looking for a cleaner version/.test(t))) {
+    const shown = /A cleaner version is ready: (.*?)\.\s*Use it/s.exec(t)?.[1] ?? null
+    if (shown !== lastOffer) {
+      lastOffer = shown
+      offerSince = performance.now()
+    }
+    if ((shown && performance.now() - offerSince >= OFFER_SETTLED) || (!shown && seen && !/Looking for a cleaner version/.test(t))) {
       timedOut = false
       break
     }
