@@ -463,7 +463,7 @@ export default function App() {
     if (suggested.length) {
       const font = suggested[0].font
       return {
-        text: `Kept the lettering as traced. ${quote(suggested.map((s) => s.text))} looks like ${font} (${Math.round(suggested[0].score * 100)}% match). You can try that typeface as an alternative and compare it with your image.`,
+        text: `Kept the lettering as traced. ${quote(suggested.map((s) => s.text))} looks like ${font} (${Math.round(suggested[0].score * 100)}% font match). You can try that typeface as an alternative: rebuilt letters are clean, but can sit or space slightly differently from your image, so compare before you keep it.`,
         undoLabel: `Try ${font}`,
         onUndo: () => setLettering((l) => ({ ...l, ...Object.fromEntries(suggested.map((s) => [s.line, s.placed])) })),
       }

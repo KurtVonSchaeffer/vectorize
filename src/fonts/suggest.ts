@@ -10,9 +10,10 @@ import type { FontCandidate } from './match'
  * cleaner version either. The background improver judges candidates against the upload, which
  * can't measure lettering fidelity: on small lettering it forgives sub-pixel misplacement and
  * spacing, and rewards a rebuild for losing the traced letters' small blobs (small gradient logo
- * PNG: 0.75 → 0.36 against the upload, 0.35 → 0.48 against the original). So a close match is
- * only suggested by name, as a typeface the customer can try and compare; the traced letters stay
- * until they choose it.
+ * PNG: 0.75 → 0.36 against the upload, 0.35 → 0.48 against the original, and it passed the offer
+ * rule). Tried on the 89-pair benchmark, a suggested typeface was worse than the traced letters
+ * on 9 of 33 uploads. So a close match is only suggested by name, as a typeface the customer can
+ * try and compare; the traced letters stay until they choose it.
  */
 export const SUGGEST_MIN_SCORE = 0.85
 

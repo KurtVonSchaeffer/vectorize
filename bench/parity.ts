@@ -94,7 +94,7 @@ async function inApp(file: File): Promise<{ svg: string; offer: string | null; s
   const img = doc().querySelector<HTMLImageElement>('img[alt="Vector result"]')
   const svg = img ? await (await fetch(img.src)).text() : ''
   const offer = /A cleaner version is ready: (.*?)\.\s*Use it/s.exec(text())?.[1] ?? null
-  const suggests = /looks like (.*?) \(\d+% match\)/s.exec(text())?.[1] ?? null
+  const suggests = /looks like (.*?) \(\d+% font match\)/s.exec(text())?.[1] ?? null
   return { svg, offer, suggests, timedOut }
 }
 
