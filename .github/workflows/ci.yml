@@ -1,0 +1,36 @@
+# Runs the type check, the test suite and the production build on every pull request and on
+# pushes to main, so a green check means the vectorisation engine's tests actually passed.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Type check, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npx tsc -b
+      # The geometry tests are CPU-heavy: under a second on a fast machine, several seconds on a
+      # shared runner. A longer timeout keeps a slow runner from failing a correct result.
+      - name: Tests
+        run: npx vitest run --testTimeout=60000
+      - name: Production build
+        run: npm run build
