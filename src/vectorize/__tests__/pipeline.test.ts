@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { snapNearWhite } from '../../palette/color'
 import { colorName, colorNames } from '../../palette/names'
 import { COLOR_LIMITS, DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../client'
 import { detectArt } from '../detect'
@@ -477,5 +478,48 @@ describe('full-colour fidelity', () => {
   it('keeps every colour of a multicolour mark and its dark lettering with default settings', () => {
     const got = fills(runFlat(art(), opts).svg)
     for (const c of [...FEATHERS, INK]) expect(got.some((f) => near(f, c))).toBe(true)
+  })
+})
+
+describe('runFlat: near-white', () => {
+  it('snaps within CIEDE2000 1.5 of white and nothing further', () => {
+    for (const c of [0xfdfdfd, 0xfbfcfc, 0xfafafa, 0xf8f8f8]) expect(snapNearWhite(c)).toBe(0xffffff)
+    for (const c of [0xf5f5f5, 0xfffdf8, 0xf4f1ea, 0xfff8e7, 0x1d1e56]) expect(snapNearWhite(c)).toBe(c)
+  })
+
+  const opts: FlatOptions = {
+    lineArt: false,
+    removeColors: [],
+    transparent: false,
+    quantize: { maxColors: 12, mergeDelta: 10, whiteIsPaper: false, palette: null, overrides: {}, minArea: 9, upscale: 1, smoothing: 0 },
+    trace: { smoothing: 0.8, minArea: 9, error: 0.5, cornerAngle: 60, precision: 2 },
+  }
+  // The navy disk on a background of the given colour, with JPEG-like ±2 noise on the background.
+  const onBackground = (bg: number[]) =>
+    image(240, 160, (x, y) => mix(bg.map((v, i) => Math.min(255, v + (((x * 7 + y * 13 + i) % 5) - 2))), NAVY, cover(x, y, 120, 80, 60)))
+  const fills = (svg: string) => new Set([...svg.matchAll(/fill="(#[0-9A-F]{6})"/gi)].map((m) => m[1].toUpperCase()))
+
+  it('makes a compressed white background exact white', () => {
+    for (const bg of [[251, 252, 252], [250, 250, 250]]) {
+      const r = runFlat(onBackground(bg), opts)
+      expect(fills(r.svg)).toContain('#FFFFFF')
+      expect(r.palette.map((p) => p.color)).toContain(0xffffff)
+      expect(r.background).toBe(0xffffff)
+    }
+  })
+
+  it('keeps light greys, warm whites and creams as their own colours', () => {
+    for (const bg of [[245, 245, 245], [255, 253, 248], [244, 241, 234], [255, 248, 231]]) {
+      const r = runFlat(onBackground(bg), opts)
+      expect(fills(r.svg)).not.toContain('#FFFFFF')
+      const own = r.background!
+      ;[(own >> 16) & 255, (own >> 8) & 255, own & 255].forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThanOrEqual(2))
+    }
+  })
+
+  it('keeps an off-white brand colour', () => {
+    const r = runFlat(onBackground([251, 251, 251]), { ...opts, brand: { mode: 'snap', colors: [{ name: 'Studio White', color: 0xfafafa, tolerance: 5 }] } })
+    expect(r.background).toBe(0xfafafa)
+    expect(fills(r.svg)).not.toContain('#FFFFFF')
   })
 })

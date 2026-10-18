@@ -60,18 +60,32 @@ so its results stay comparable.
 
 ## 3. Near-white snaps to white
 
-**Rule.** When the artwork keeps its own colours (no brand library), a colour within CIEDE2000
-1.5 of white becomes exact `#FFFFFF` (`ownSwatch` in `src/palette/quantize.ts`).
+**Rule.** When the artwork keeps its own colours (no swatch library), a flat colour within
+CIEDE2000 1.5 of white becomes exact `#FFFFFF` (`snapNearWhite` in `src/palette/color.ts`,
+applied in `runFlat`). Brand-matched colours, gradients and line art keep theirs.
 
-**Before.** A cluster's colour is the average of its pixels, so a white JPEG background averaged
-to an off-white: Harbour at JPEG quality 40 got `#FBFCFC` (ΔE 0.83 from white), which would print
-as a faint tint, or with the old PDF an extra plate.
+**Where the off-white came from.** `quantize` gives each colour cluster the average of its
+pixels (`pureCenters`, then `ownSwatch`), so a white JPEG background averages to an off-white:
+Harbour at JPEG quality 40 got `#FBFCFC` (ΔE 0.83 from white), which would print as a faint
+tint, or with the old PDF an extra plate.
+
+**Why in `runFlat`, not in `quantize`.** Speck cleanup (`isDetail`), gradient edges and
+brand matching compare pixels against the label colours. Recolouring after those steps changes
+the colour only, never the shapes, by construction, and lets a brand-matched off-white keep its
+value.
+
+**Demo-kit check.** Harbour's outlines are bit-identical before and after (same SHA-256 over
+every path); only the background fill changed, `#FBFCFC` → `#FFFFFF`. Its bench detail error
+still moved from 5.5 % to 6.2 % (it was already a FAIL on a damaged JPEG). Swapping just that
+fill in one SVG reproduces the change exactly, so it's the metric, not the trace: the bench counts
+a pixel as wrong when it's more than 48 sRGB units off, so faint anti-aliased stroke edges the
+trace dropped can fall either side of that line depending on the exact background value.
 
 **Threshold.** ΔE from white: `#FDFDFD` 0.40, `#FBFCFC` 0.83, `#FAFAFA` 1.00, `#F8F8F8` 1.40
 (snap); `#F5F5F5` 2.01, warm white `#FFFDF8` 2.52, `#F4F1EA` 4.45, cream `#FFF8E7` 7.65
 (kept). 1.5 is below the bench's colour-fidelity limit (mean ΔE 2), so a snap never costs a
-colour-fidelity pass, and deliberate light greys and creams keep their colour. Brand matching
-runs after this, so an off-white brand colour still snaps to the brand value.
+colour-fidelity pass, and deliberate light greys and creams keep their colour. An off-white
+brand colour (say `#FAFAFA`) is kept, because brand-matched colours are skipped.
 
 ## Not changed
 

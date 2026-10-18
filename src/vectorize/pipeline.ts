@@ -1,4 +1,4 @@
-import { deltaE2000, rgbToLab } from '../palette/color'
+import { deltaE2000, rgbToLab, snapNearWhite } from '../palette/color'
 import type { Palette } from '../palette/parse'
 import { applyBrand, type BrandSettings } from '../palette/brand'
 import { colorNames } from '../palette/names'
@@ -206,6 +206,9 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   const branded = o.brand ? applyBrand(map, o.brand, backgroundLabel(map)) : { map, named: new Map<number, string>() }
   map = { ...branded.map, fills: map.fills }
   map = { ...map, colors: map.colors.map((c, l) => (isGradient(l) ? gradientColors[l] : c)) }
+  // Exact white for near-white, after every step that measures colours (speck cleanup, gradient
+  // edges) so shapes don't change. Swatch inks, brand colours and gradients keep their own.
+  if (!o.lineArt && !o.quantize.palette) map = { ...map, colors: map.colors.map((c, l) => (c >= 0 && !isGradient(l) && !branded.named.has(c) ? snapNearWhite(c) : c)) }
 
   const bgLabel = backgroundLabel(map)
   const background = bgLabel >= 0 ? map.colors[bgLabel] : o.lineArt ? 0xffffff : null

@@ -61,6 +61,19 @@ export function labToRgb([L, a, b]: Lab): RGB {
 }
 
 /** Naive CMYK → sRGB. Real conversion needs an ICC profile; good enough for matching. */
+/** At most this CIEDE2000 from white counts as white: #FAFAFA (1.0) does, #F5F5F5 (2.0) doesn't. */
+export const NEAR_WHITE_DE = 1.5
+const WHITE_LAB = rgbToLab([255, 255, 255])
+
+/**
+ * Near-white (0xRRGGBB) becomes exact white: a white background or white lettering in a JPEG
+ * averages to an off-white like #FBFCFC, which would print as a faint tint (or an extra plate)
+ * instead of bare paper. Light greys and creams are further from white and stay.
+ */
+export function snapNearWhite(c: number): number {
+  return deltaE2000(rgbToLab([(c >> 16) & 255, (c >> 8) & 255, c & 255]), WHITE_LAB) <= NEAR_WHITE_DE ? 0xffffff : c
+}
+
 export function cmykToRgb(c: number, m: number, y: number, k: number): RGB {
   return [255 * (1 - c) * (1 - k), 255 * (1 - m) * (1 - k), 255 * (1 - y) * (1 - k)]
 }
