@@ -152,3 +152,25 @@ describe('quantize: edge blends go to the colours they blend', () => {
       }
   })
 })
+
+describe('quantize: near-white', () => {
+  const colours = (src: ImageData) => quantize(src, OPTS).map.colors
+  // A navy bar on a background of the given colour, with JPEG-like ±2 noise on the background.
+  const onBackground = (bg: number[]) =>
+    image(40, 30, (x, y) => (y >= 12 && y < 18 && x >= 5 && x < 35 ? [29, 30, 86, 255] : ([...bg.map((v, i) => Math.min(255, v + (((x * 7 + y * 13 + i) % 5) - 2))), 255] as [number, number, number, number])))
+
+  it('snaps a noisy near-white background (a compressed white) to exact white', () => {
+    expect(colours(onBackground([251, 252, 252]))).toContain(0xffffff)
+    expect(colours(onBackground([250, 250, 250]))).toContain(0xffffff)
+  })
+
+  it('keeps light greys, warm whites and creams as their own colours', () => {
+    for (const bg of [[245, 245, 245], [255, 253, 248], [244, 241, 234], [255, 248, 231]]) {
+      const c = colours(onBackground(bg))
+      expect(c).not.toContain(0xffffff)
+      const own = c.find((v) => v !== 0x1d1e56 && ((v >> 16) & 255) > 200)!
+      const rgb = [(own >> 16) & 255, (own >> 8) & 255, own & 255]
+      rgb.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThanOrEqual(2))
+    }
+  })
+})

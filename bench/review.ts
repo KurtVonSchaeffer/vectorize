@@ -17,7 +17,7 @@ export const STRUCTURE = {
   maxShortSegments: 0.15,
   /** Share of curve-to-curve joins with a 15–60° bend: lumps that show when enlarged. */
   maxKinks: 0.05,
-  /** Cut pieces smaller than this (mm, at the DXF's 200 mm width) are hard to weed. */
+  /** Cut pieces smaller than this (mm, with the logo cut 200 mm wide) are hard to weed. */
   minCutPieceMm: 1,
   /** A colour this far (ΔE2000) from the original's is listed as wrong. */
   wrongColourDE: 3,

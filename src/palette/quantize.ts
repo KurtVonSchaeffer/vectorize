@@ -266,10 +266,20 @@ function nearestSwatch(palette: Palette, lab: Lab): Swatch {
   return best
 }
 
+/**
+ * A cluster's own colour. Near-white becomes exact white: a white background or white lettering
+ * in a JPEG averages to an off-white like #FBFCFC, which would print as a faint tint (or an
+ * extra plate) instead of bare paper. Light greys and creams are further from white and stay.
+ */
 function ownSwatch(lab: Lab): Swatch {
+  if (deltaE2000(lab, WHITE.lab) <= NEAR_WHITE_DE) return WHITE
   const rgb = labToRgb(lab)
   return { name: rgbToHex(rgb), rgb, lab }
 }
+
+/** At most this CIEDE2000 from white counts as white: #FAFAFA (1.0) does, #F5F5F5 (2.0) doesn't. */
+const NEAR_WHITE_DE = 1.5
+const WHITE: Swatch = { name: '#FFFFFF', rgb: [255, 255, 255], lab: rgbToLab([255, 255, 255]) }
 
 function paintLabels(labels: Uint8Array, w: number, h: number, labelRgb: number[]): ImageData {
   const out = new Uint8ClampedArray(w * h * 4)
