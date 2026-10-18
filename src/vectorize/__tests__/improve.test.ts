@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Detection } from '../detect'
-import { compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored } from '../improve'
+import { betterOffer, compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored } from '../improve'
 
 const r = (score: number, segments: number, more: Partial<Scored> = {}): Scored => ({ score, segments, edgeF1: 0.95, colours: 3, ...more })
 const det = (patch: Partial<Detection> = {}): Detection => ({ kind: 'flat', hasAlpha: false, background: null, gradients: 0, fine: 0.2, ...patch })
@@ -28,6 +28,16 @@ describe('isImprovement', () => {
     expect(isImprovement(r(2.79, 196), r(0.99, 638))).toBe(false)
     expect(isImprovement(r(1.51, 36, { colours: 2 }), r(0.25, 351, { colours: 3 }))).toBe(false)
     expect(isImprovement(r(2.73, 250), r(0.6, 480))).toBe(true)
+  })
+})
+
+describe('betterOffer', () => {
+  it('replaces the offer so far only with an improvement that scores lower', () => {
+    const first = r(10, 100)
+    expect(betterOffer(first, r(4, 120))).toBe(true)
+    expect(betterOffer(first, r(3, 120), 4)).toBe(true)
+    expect(betterOffer(first, r(4, 120), 4)).toBe(false)
+    expect(betterOffer(first, r(6, 120), Infinity)).toBe(false)
   })
 })
 

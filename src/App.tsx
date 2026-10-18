@@ -4,6 +4,7 @@ import { Compare } from './components/Compare'
 import { BrandPanel, type MatchMode } from './components/BrandPanel'
 import { FontPanel } from './components/FontPanel'
 import type { LineLettering, PlacedWord } from './fonts/lettering'
+import { placeSuggestion } from './fonts/suggest'
 import { SMALL_TEXT_PX } from './fonts/textsize'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
@@ -20,7 +21,7 @@ import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
-import { alternatives, LETTERING_RATIO, worthSharpening } from './vectorize/improve'
+import { alternatives, worthSharpening } from './vectorize/improve'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
@@ -462,7 +463,7 @@ export default function App() {
     if (suggested.length) {
       const font = suggested[0].font
       return {
-        text: `Kept the lettering as traced. ${quote(suggested.map((s) => s.text))} looks like ${font} (${Math.round(suggested[0].score * 100)}% match); you can try rebuilding it in that font and compare.`,
+        text: `Kept the lettering as traced. ${quote(suggested.map((s) => s.text))} looks like ${font} (${Math.round(suggested[0].score * 100)}% match). You can try that typeface as an alternative and compare it with your image.`,
         undoLabel: `Try ${font}`,
         onUndo: () => setLettering((l) => ({ ...l, ...Object.fromEntries(suggested.map((s) => [s.line, s.placed])) })),
       }
@@ -474,9 +475,6 @@ export default function App() {
     return null
   })()
   // ---------- Cleaner version, found in the background ----------
-  // Latest values for candidates created before the check starts (rebuilt lettering).
-  const latest = useRef({ buildJob, letteringWords })
-  latest.current = { buildJob, letteringWords }
   const improver = useImprover({
     source,
     result,
@@ -618,13 +616,10 @@ export default function App() {
                     onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
                     onTextSize={(px) => setTextSize({ id: source.id, px })}
                     onSuggestFont={async (report, index, match) => {
-                      // Suggested by name only: placed now so trying it is instant, applied only on request,
-                      // and only words whose text the image supports (never an unverified reading).
+                      // Suggested by name only (see fonts/suggest.ts), applied only on request.
                       const { placeLine } = await import('./fonts/lettering')
-                      const found = await placeLine(report, report.lines[index], match).catch(() => null)
-                      const placed = found && { ...found, words: found.words.filter((w) => !w.doubts?.length) }
-                      if (!placed?.words.length) return
-                      const item = { line: index, text: report.lines[index].text, font: match.label, score: match.score, placed }
+                      const item = await placeSuggestion(report, index, match, placeLine)
+                      if (!item) return
                       setFontSuggestion((s) => (s && s.id === source.id ? { id: s.id, lines: [...s.lines.filter((l) => l.line !== index), item] } : { id: source.id, lines: [item] }))
                     }}
                     onUseFont={async (report, index, match, quiet, only, named) => {
@@ -675,45 +670,6 @@ export default function App() {
                           }
                         : undefined
                     }
-                    onTryFont={async (report, index, match) => {
-                      // Below the automatic threshold: offered only if it scores clearly better, and
-                      // only words whose text the image supports (never an unverified reading).
-                      const { placeLine } = await import('./fonts/lettering')
-                      const found = await placeLine(report, report.lines[index], match).catch(() => null)
-                      const placed = found && { ...found, words: found.words.filter((w) => !w.doubts?.length) }
-                      if (!placed?.words.length) return
-                      improver.consider({
-                        label: `lettering rebuilt from ${match.label}, the closest font match`,
-                        ratio: LETTERING_RATIO,
-                        job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.words] }) ?? null,
-                        apply: () => {
-                          setLettering((l) => ({ ...l, [index]: placed }))
-                          return () => setLettering(({ [index]: _, ...rest }) => rest)
-                        },
-                      })
-                    }}
-                    onTryLines={async (report, tries) => {
-                      // Lines of one piece of lettering (a tagline split into lines by OCR) rebuilt
-                      // together: each line alone may change too little to be offered.
-                      const { placeLine } = await import('./fonts/lettering')
-                      const placed = (
-                        await Promise.all(tries.map(async ({ line, match }) => ({ line, found: await placeLine(report, report.lines[line], match).catch(() => null) })))
-                      ).flatMap(({ line, found }) => {
-                        const words = found?.words.filter((w) => !w.doubts?.length) ?? []
-                        return found && words.length ? [{ line, lettering: { ...found, words } }] : []
-                      })
-                      if (placed.length < 2) return
-                      const fonts = [...new Set(placed.map((p) => p.lettering.font))]
-                      improver.consider({
-                        label: `lettering in ${placed.length} lines rebuilt from the closest font matches (${fonts.join(', ')})`,
-                        ratio: LETTERING_RATIO,
-                        job: async () => latest.current.buildJob?.(false, { lettering: [...latest.current.letteringWords, ...placed.flatMap((p) => p.lettering.words)] }) ?? null,
-                        apply: () => {
-                          setLettering((l) => ({ ...l, ...Object.fromEntries(placed.map((p) => [p.line, p.lettering])) }))
-                          return () => setLettering((l) => Object.fromEntries(Object.entries(l).filter(([k]) => !placed.some((p) => p.line === Number(k)))))
-                        },
-                      })
-                    }}
                   />
                 }
                 brandColors={

@@ -345,12 +345,14 @@ interface Option {
   proxy: Scored
   truth: { miss: number; extra: number }
   ok: boolean
-  /** A lettering rebuild (judged with LETTERING_RATIO in the app). */
-  lettering?: boolean
 }
 
+/** AI sharpening that always fails, as when the model can't be downloaded (offline). */
+const unavailable = { upscale: () => Promise.reject(new Error('Sharpening unavailable (offline)')), dispose: () => {} } as unknown as Enhancer
+
 async function improverExperiment() {
-  const enhancer = new Enhancer()
+  // ?sharpen=off: as if AI sharpening were unavailable (offline, or the model failed to load).
+  const enhancer = q.get('sharpen') === 'off' ? unavailable : new Enhancer()
   for (const c of [...CASES, ...VALIDATION]) {
     if (only && !only.includes(c.group)) continue
     for (const jpeg of FORMATS) {
@@ -372,11 +374,14 @@ async function improverExperiment() {
       const options: Option[] = []
       for (const o of sim.options) {
         const t = await truthScore(c, o.svg)
-        options.push({ label: o.label, proxy: o.proxy, truth: { miss: t.miss, extra: t.extra }, ok: o.ok, lettering: o.lettering })
+        options.push({ label: o.label, proxy: o.proxy, truth: { miss: t.miss, extra: t.extra }, ok: o.ok })
       }
       const ms = sim.ms
       const offered = options.find((o) => o.label === sim.offered?.label) ?? null
-      rows.push({ exp: 'improver', group: c.group, name: c.name, format: fmt(jpeg), compressed, first: { proxy: sim.first.proxy, truth: { miss: firstTruth.miss, extra: firstTruth.extra } }, options, offered: offered?.label ?? null, ms })
+      // The typeface the app would suggest by name, tried: recorded for its fidelity, never an offer.
+      const tried = sim.suggestions && { fonts: sim.suggestions.fonts, truth: await truthScore(c, sim.suggestions.svg) }
+      const suggested = tried && { fonts: tried.fonts, truth: { miss: tried.truth.miss, extra: tried.truth.extra } }
+      rows.push({ exp: 'improver', group: c.group, name: c.name, format: fmt(jpeg), compressed, first: { proxy: sim.first.proxy, truth: { miss: firstTruth.miss, extra: firstTruth.extra } }, options, offered: offered?.label ?? null, suggested, ms })
       const t = (x: { miss: number; extra: number }) => (x.miss + x.extra).toFixed(2)
       show([c.name, fmt(jpeg), compressed ? 'compressed' : '', `first ${t(firstTruth)}`, offered ? `offers ${offered.label}: ${t(offered.truth)}` : 'no offer', options.map((o) => `${o.label} ${o.proxy.score.toFixed(2)}→${t(o.truth)}${o.ok ? '✓' : ''}`).join('; '), `${ms} ms`])
     }
@@ -411,41 +416,6 @@ type ImproverRow = { name: string; format: string; compressed: boolean; first: {
     }
   }
   return `ratio ${ratio} minGain ${minGain}${guard ? '' : ' (no JPEG guard)'}: ${offers} offers, ${better} truly better, ${worse} worse; total truth gain ${gain.toFixed(1)} of ${possible.toFixed(1)} possible${bad.length ? `\n  worse: ${bad.join('; ')}` : ''}`
-}
-
-/**
- * The shipped offer rule (guards on every image), with a separate ratio for lettering rebuilds:
- * offers that are truly better / no better / worse against the original, and genuine improvements
- * missed (an option at least `realGain` points better than the first result, but not offered).
- */
-;(window as unknown as { __letteringRule: (ratio: number, realGain?: number) => string }).__letteringRule = (ratio, realGain = 1) => {
-  const tr = (x: { miss: number; extra: number }) => x.miss + x.extra
-  let offers = 0, better = 0, neutral = 0, worse = 0, missed = 0, gain = 0
-  const bad: string[] = []
-  const miss: string[] = []
-  for (const r of rows.filter((x) => x.exp === 'improver') as unknown as ImproverRow[]) {
-    const f = r.first
-    const ok = r.options.filter((o) => {
-      const limit = o.lettering ? ratio : 0.5
-      return o.proxy.score <= f.proxy.score * limit && f.proxy.score - o.proxy.score >= 0.3 && o.proxy.segments <= f.proxy.segments * 2 && o.proxy.colours <= f.proxy.colours && o.proxy.edgeF1 >= f.proxy.edgeF1 - 0.01
-    })
-    const pick = ok.sort((a, b) => a.proxy.score - b.proxy.score)[0]
-    const bestOpt = r.options.reduce((m: Option | null, o) => (!m || tr(o.truth) < tr(m.truth) ? o : m), null)
-    if (pick) {
-      offers++
-      const d = tr(pick.truth) - tr(f.truth)
-      gain -= d
-      if (d < -0.1) better++
-      else if (d > 0.1) {
-        worse++
-        bad.push(`${r.name} ${r.format}: ${pick.label} ${tr(f.truth).toFixed(2)}→${tr(pick.truth).toFixed(2)}`)
-      } else neutral++
-    } else if (bestOpt && tr(f.truth) - tr(bestOpt.truth) >= realGain) {
-      missed++
-      miss.push(`${r.name} ${r.format}: ${bestOpt.label.slice(0, 40)} ${tr(f.truth).toFixed(2)}→${tr(bestOpt.truth).toFixed(2)} (ratio ${(bestOpt.proxy.score / f.proxy.score).toFixed(2)})`)
-    }
-  }
-  return `lettering ratio ${ratio}: ${offers} offers (${better} better, ${neutral} no better, ${worse} worse), gain ${gain.toFixed(1)}; ${missed} genuine improvements (≥${realGain}) not offered${bad.length ? `\n  worse: ${bad.join('; ')}` : ''}${miss.length ? `\n  missed: ${miss.join('; ')}` : ''}`
 }
 
 const experiments: Record<string, () => Promise<void>> = { proxy: proxyExperiment, typo: typoExperiment, lowres: lowresExperiment, colour: colourExperiment, complexity: complexityExperiment, improver: improverExperiment }

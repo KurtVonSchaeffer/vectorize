@@ -20,16 +20,16 @@ A placed word gets `doubts` when any of these say its text isn't clearly support
 
 **Agreement is never proof.** Only the absence of any doubt lets a word through, and every rebuilt letter must still pass the glyph check.
 
-### 2. Policy (`src/App.tsx`, `src/components/FontPanel.tsx`, `bench/improver-sim.ts`)
-- **Automatic rebuild** (font match 0.85 or higher): doubtful words **stay traced**; only verified words in the line are rebuilt.
-- **Background suggestions:** doubtful words are **never offered**.
+### 2. Policy (`src/fonts/suggest.ts`, shared by the app and `bench/improver-sim.ts`)
+> Updated with PR #14 and the lettering integration: lettering is never rebuilt automatically, and font rebuilds are no longer offered as a "cleaner version" (see section 4).
+- **Font suggestion** (match 0.85 or higher): suggested by name ("Try …"); doubtful words **stay traced** when it's tried.
 - **The customer picks a font themselves:** the rebuild is applied, with a warning naming the doubtful characters, e.g. *Check the wording: "1898" ("8" could be "9", also read as "1998")*.
 
 ### 3. Multi-line lettering
-When OCR splits one piece of lettering into several lines (a tagline), the lines are also tried **together** as one suggestion (`onTryLines`), in addition to each line alone. Each line is placed over its own original letters (position, letter spacing, line spacing, alignment and proportions come from the artwork). The lettering keeps the colour traced at those pixels.
+When OCR splits one piece of lettering into several lines (a tagline), "Try …" rebuilds every suggested line together. Each line is placed over its own original letters (position, letter spacing, line spacing, alignment and proportions come from the artwork). The lettering keeps the colour traced at those pixels.
 
-### 4. Suggestion threshold for lettering
-`isImprovement` takes a ratio. Lettering candidates use `LETTERING_RATIO`, which is **kept at 0.5** (unchanged) for lack of evidence (below). Doubtful text is never a candidate, whatever its score.
+### 4. Font rebuilds are not "cleaner versions"
+Earlier, matches from 0.5 to 0.85 were offered by the background improver when they scored better against the upload (`onTryFont`, `onTryLines`, `LETTERING_RATIO`). That's removed. The upload can't judge lettering fidelity: on small lettering it forgives sub-pixel misplacement and spacing, and rewards a rebuild for losing the traced letters' small blobs. Small gradient logo PNG scored 0.75 → 0.36 against the upload but 0.35 → 0.48 against the original, and would have been offered whenever AI sharpening was unavailable.
 
 ## Evidence
 
