@@ -32,13 +32,28 @@ arises, so the rule is inert there. Rebuilds the client chooses happen after the
 
 ## Validation (bench/assess.html?exp=improver, 89 pairs)
 
-Before is PR #16 as it stands; after adds this rule. "Better" or "worse" means the offer's ground
-truth error differs from the first result's by more than 0.1.
+Before is PR #16 as it stands; after adds this rule. An offer counts as "better" or "worse" when
+its ground-truth error differs from the first result's by more than 0.10. Anything within ±0.10
+is "within noise".
 
-| | offers | truly better | worse | sum of best available (first or offer) |
+| | offers | better | within noise | worse | sum of best available (first or offer) |
+|---|---|---|---|---|---|
+| before (PR #16) | 19 | 16 | 3 | 0 | 544.5 |
+| after | 23 | 19 | 4 | **0** | 540.3 |
+
+The four offers within noise (truth error, first → offered):
+
+| upload | offer | first → offered | Δ | new with this rule? |
 |---|---|---|---|---|
-| before (PR #16) | 19 | 16 | 0 | 544.5 |
-| after | 23 | 20 | **0** | 540.3 |
+| serif 12 px PNG | sharpened, letters traced | 3.65 → 3.55 | −0.10 (exactly at the threshold) | yes |
+| serif 16 px PNG | traced with more detail | 5.81 → 5.77 | −0.04 | no |
+| sharp and rounded corners PNG | traced with more detail | 0.28 → 0.22 | −0.06 | no |
+| small gradient logo PNG | sharpened (lettering rebuilt) | 0.48 → 0.53 | +0.05 | no |
+
+An earlier version of this note counted serif 12 px PNG as better (20 better). Its difference is
+exactly 0.10, which floating-point rounding pushed just past the threshold. Small gradient logo
+PNG is the only offer in the set that is slightly worse in truth. It was offered before this rule
+too, and +0.05 is within the noise margin.
 
 The five rows where the best result had got worse with PR #16 (ground truth, lower is better):
 
@@ -50,7 +65,7 @@ The five rows where the best result had got worse with PR #16 (ground truth, low
 | badge 200 px PNG | 0.87 | 1.22 | **0.87** (now preferred over sharpened + rebuilt) |
 | badge 120 px PNG | 1.53 | 2.14 | 2.14 (both pass; sharpened + rebuilt scores lower against the upload) |
 
-Serif 12 px PNG also gets a new offer (3.65 → 3.55, within the 0.1 margin). Sans 10 px JPEG 75 is
+Sans 10 px JPEG 75 is
 not offered (sharpened trace 2.30 against 4.60): its traced version already scores 0.21, so the
 0.3-point minimum gain isn't reached. That's a conservative miss, not a wrong offer. The sharpened
 trace is also tried, and not offered, on the JPEG badges, "jpeg saved as png" and the small
