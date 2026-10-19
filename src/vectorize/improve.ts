@@ -35,21 +35,22 @@ export const EDGE_SLACK = 0.01
  * validation set (docs/v7-results.md) applying these checks to every image, not only to files
  * detected as compressed, kept the offers that were truly better and removed the one that wasn't.
  */
-/**
- * The ratio applied to lettering rebuilds. Experimental: kept at IMPROVE_RATIO until the 89-pair
- * benchmark and lettering cases show a different value gains genuine improvements without worse
- * offers (see docs/defects/lettering-safeguard.md). Text the image doesn't support is never a
- * candidate in the first place, whatever its score.
- */
-export const LETTERING_RATIO = IMPROVE_RATIO
-
-export function isImprovement(first: Scored, alternative: Scored, ratio = IMPROVE_RATIO): boolean {
-  if (alternative.score > first.score * ratio) return false
+export function isImprovement(first: Scored, alternative: Scored): boolean {
+  if (alternative.score > first.score * IMPROVE_RATIO) return false
   if (first.score - alternative.score < IMPROVE_MIN_GAIN) return false
   if (alternative.segments > first.segments * MAX_SEGMENT_GROWTH) return false
   if (alternative.colours > first.colours) return false
   if (alternative.edgeF1 < first.edgeF1 - EDGE_SLACK) return false
   return true
+}
+
+/**
+ * Whether the app offers `alternative` instead of the best offer so far (`bestScore`, Infinity for
+ * none): it must be an improvement and score lower. Alternatives are checked in the order
+ * `alternatives` lists them, so on a tie the earlier one stays. Shared with the benchmarks.
+ */
+export function betterOffer(first: Scored, alternative: Scored, bestScore = Infinity): boolean {
+  return isImprovement(first, alternative) && alternative.score < bestScore
 }
 
 /**

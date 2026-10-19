@@ -433,3 +433,49 @@ describe('brand colors', () => {
     expect(svg).toMatch(/<desc>Inks: .*Brand Orange \(#FF8200\)/)
   })
 })
+
+describe('full-colour fidelity', () => {
+  // A multicolour mark (anti-aliased, overlapping feathers) above near-black lettering, like a
+  // typical gradient bird logo: every colour must survive with the default settings.
+  const FEATHERS: [number, number, number][] = [
+    [244, 164, 84], // orange
+    [188, 30, 90], // magenta
+    [87, 49, 173], // purple
+    [23, 52, 133], // dark blue
+    [20, 118, 179], // blue
+    [225, 88, 148], // pink
+    [229, 107, 94], // coral
+  ]
+  const INK = [18, 15, 16]
+  const WHITE = [255, 255, 255]
+  const art = () =>
+    image(200, 120, (x, y) => {
+      let px: number[] = WHITE
+      FEATHERS.forEach((c, i) => {
+        const t = cover(x, y, 26 + i * 24, 40 + (i % 2) * 24, 26)
+        if (t > 0) px = mix(px, c, t).slice(0, 3)
+      })
+      // Lettering: three bold bars with soft (anti-aliased) edges.
+      for (let k = 0; k < 3; k++) {
+        const x0 = 20 + k * 60, x1 = x0 + 30, y0 = 92, y1 = 116
+        const t = Math.max(0, Math.min(1, x + 1 - x0)) * Math.max(0, Math.min(1, x1 - x)) * Math.max(0, Math.min(1, y + 1 - y0)) * Math.max(0, Math.min(1, y1 - y))
+        if (t > 0) px = mix(px, INK, t).slice(0, 3)
+      }
+      return [...px.slice(0, 3), 255] as RGBA
+    })
+  const params = traceParamsFor('flat', DEFAULT_CLIENT)
+  const opts: FlatOptions = {
+    lineArt: false,
+    removeColors: [],
+    transparent: false,
+    quantize: { maxColors: params.colors, mergeDelta: params.colorMerge, whiteIsPaper: false, palette: null, overrides: {}, minArea: 9, upscale: 1, smoothing: 0 },
+    trace: { smoothing: 0.8, minArea: 9, error: 0.5, cornerAngle: 60, precision: 2 },
+  }
+  const fills = (svg: string) => [...new Set([...svg.matchAll(/fill="#([0-9a-f]{6})"/gi)].map((m) => parseInt(m[1], 16)))]
+  const near = (c: number, [r, g, b]: number[], tol = 24) => Math.abs((c >> 16) - r) + Math.abs(((c >> 8) & 255) - g) + Math.abs((c & 255) - b) <= tol * 3
+
+  it('keeps every colour of a multicolour mark and its dark lettering with default settings', () => {
+    const got = fills(runFlat(art(), opts).svg)
+    for (const c of [...FEATHERS, INK]) expect(got.some((f) => near(f, c))).toBe(true)
+  })
+})
