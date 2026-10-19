@@ -19,6 +19,8 @@ export interface OcrWord {
   confidence: number
   box: Box
   glyphs: OcrGlyph[]
+  /** What other OCR passes read at the same place (when they read it differently). */
+  readings?: string[]
 }
 
 let worker: Promise<TesseractWorker> | null = null
@@ -96,8 +98,8 @@ function wordsOf(blocks: Block[], lineBase: number): OcrWord[] {
   return words
 }
 
-/** Keeps one reading per location: the most confident of overlapping words. */
-function dedupe(words: OcrWord[]): OcrWord[] {
+/** Keeps one reading per location: the most confident of overlapping words. Exported for tests. */
+export function dedupe(words: OcrWord[]): OcrWord[] {
   const sorted = [...words].sort((a, b) => b.confidence - a.confidence)
   const kept: OcrWord[] = []
   const overlap = (a: Box, b: Box) => {
@@ -106,7 +108,14 @@ function dedupe(words: OcrWord[]): OcrWord[] {
     const area = (r: Box) => (r.x1 - r.x0) * (r.y1 - r.y0)
     return (ix * iy) / Math.min(area(a), area(b))
   }
-  for (const w of sorted) if (!kept.some((k) => overlap(k.box, w.box) > 0.5)) kept.push(w)
+  // Same word, same place: the boxes cover each other almost entirely (a different word split
+  // isn't a different reading).
+  const same = (a: Box, b: Box) => overlap(a, b) > 0.8 && Math.abs((a.x1 - a.x0) - (b.x1 - b.x0)) <= 0.2 * Math.max(a.x1 - a.x0, b.x1 - b.x0)
+  for (const w of sorted) {
+    const k = kept.find((k) => overlap(k.box, w.box) > 0.5)
+    if (!k) kept.push({ ...w })
+    else if (same(k.box, w.box) && w.text !== k.text && !(k.readings ?? []).includes(w.text)) k.readings = [...(k.readings ?? []), w.text]
+  }
   return kept
 }
 

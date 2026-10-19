@@ -23,6 +23,15 @@ export interface ClientSettings {
   gradients: boolean
 }
 
+/**
+ * The colour limits offered under Fine-tune. One colour isn't offered: the background counts as a
+ * colour, so a limit of 1 merged artwork and background into a single blob (a pale silhouette, or
+ * near-white for line art). One-colour work goes through print inks (white is paper) until a real
+ * one-colour mode exists.
+ */
+export const COLOR_LIMITS = [2, 3, 4, 5, 6, 8, 10, 12, 16, 24]
+const MIN_COLORS = COLOR_LIMITS[0]
+
 export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true }
 
 /**
@@ -79,7 +88,7 @@ export function traceParamsFor(kind: ArtKind, s: ClientSettings, boost: DetailBo
       return {
         ...preset('logo'),
         ...curves,
-        colors: s.maxColors ?? 12,
+        colors: s.maxColors === null ? 12 : Math.max(MIN_COLORS, s.maxColors),
         colorMerge: Math.round(lerp(16, 4, d)),
         filterSpeckle: Math.round(lerp(6, 1, ds)),
       }

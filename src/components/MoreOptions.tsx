@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import type { AiProgress, UpscaleSetting } from '../ai/enhancer'
 import type { ArtKind } from '../vectorize/detect'
-import { KIND_LABEL, type Style } from '../vectorize/client'
-import { bar, barFill, field, fieldLabel, progress, seg, segBtn, select } from './ui'
+import { COLOR_LIMITS, KIND_LABEL, type Style } from '../vectorize/client'
+import { bar, barFill, field, fieldLabel, link, note, progress, seg, segBtn, select } from './ui'
 
 interface Props {
   detected: ArtKind
@@ -10,6 +10,8 @@ interface Props {
   onStyle: (s: Style) => void
   maxColors: number | null
   onMaxColors: (n: number | null) => void
+  /** Switches to print inks with a single ink (white is paper): the one-colour route. */
+  onOneInk?: () => void
   showColors: boolean
   upscale: UpscaleSetting
   onUpscale: (u: UpscaleSetting) => void
@@ -41,12 +43,21 @@ export function MoreOptions(p: Props) {
             <label className={fieldLabel} htmlFor="maxColors">Maximum colors</label>
             <select className={select} id="maxColors" value={p.maxColors ?? 'auto'} onChange={(e) => p.onMaxColors(e.target.value === 'auto' ? null : Number(e.target.value))}>
               <option value="auto">Automatic</option>
-              {[1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24].map((n) => (
+              {COLOR_LIMITS.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
               ))}
             </select>
+            {p.onOneInk && (
+              <small className={note}>
+                One color for screen printing or vinyl?{' '}
+                <button type="button" className={link} onClick={p.onOneInk}>
+                  Print in one ink
+                </button>{' '}
+                (white areas stay as paper).
+              </small>
+            )}
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { colorName, colorNames } from '../../palette/names'
-import { DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../client'
+import { COLOR_LIMITS, DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../client'
 import { detectArt } from '../detect'
 import type { LabelMap } from '../../trace'
 import { runFlat, type FlatOptions } from '../pipeline'
@@ -119,8 +119,57 @@ describe('detectArt', () => {
     expect(boosted.colorMerge).toBe(plain.colorMerge)
   })
 
+  it('never limits flat artwork to one colour, which merged artwork and background into one blob', () => {
+    expect(COLOR_LIMITS).not.toContain(1)
+    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors).toBe(2)
+    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 3 }).colors).toBe(3)
+    expect(traceParamsFor('flat', DEFAULT_CLIENT).colors).toBe(12)
+    // At the lowest limit a navy mark on cream still traces as a dark mark, not a pale silhouette.
+    const lowest = traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors
+    const r = runFlat(logo(), {
+      lineArt: false,
+      removeColors: [],
+      transparent: false,
+      quantize: { maxColors: lowest, mergeDelta: 10, whiteIsPaper: false, palette: null, overrides: {}, minArea: 9, upscale: 1, smoothing: 0 },
+      trace: { smoothing: 0.8, minArea: 9, error: 0.5, cornerAngle: 60, precision: 2 },
+    })
+    const fills = [...r.svg.matchAll(/fill="#([0-9a-f]{6})"/gi)].map((m) => parseInt(m[1], 16))
+    const luma = (c: number) => 0.299 * (c >> 16) + 0.587 * ((c >> 8) & 255) + 0.114 * (c & 255)
+    expect(fills.length).toBeGreaterThanOrEqual(2)
+    expect(Math.min(...fills.map(luma))).toBeLessThan(100)
+  })
+
   it('recognizes small hard-edged images as pixel art', () => {
     const d = detectArt(image(32, 32, (x, y) => ((x >> 2) + (y >> 2)) % 3 === 0 ? [224, 49, 49, 255] : (x >> 3) % 2 ? [122, 74, 18, 255] : [255, 192, 120, 255]))
+    expect(d.kind).toBe('pixel')
+  })
+
+  it('keeps crisp flat logos flat when their straight edges sit on pixel boundaries', () => {
+    // A shield at 240 px: straight sides exactly on pixel boundaries (hard), an anti-aliased
+    // round base. Every left–right edge is hard, but the curve says it's a logo, not pixel art.
+    const navy = [31, 42, 92]
+    const shield = detectArt(
+      image(240, 240, (x, y) => {
+        if (x >= 56 && x < 184 && y >= 40 && y < 140) return [navy[0], navy[1], navy[2], 255]
+        const c = y >= 140 ? cover(x, y, 120, 140, 64) : 0
+        const [r, g, b] = navy.map((v) => Math.round(v * c + 255 * (1 - c)))
+        return [r, g, b, 255]
+      }),
+    )
+    expect(shield.kind).toBe('flat')
+    // Colours side by side as crisp rectangles: nothing diagonal to judge by, so it stays flat.
+    // (Four tints and a small square, as bench/cases.ts "similar colours side by side": hard
+    // corner pixels at every corner, but few of them for the edge length.)
+    const rects: [number, number, number, number, number[]][] = [[12, 12, 48, 48, [28, 126, 214]], [60, 12, 48, 48, [42, 134, 217]], [120, 12, 48, 48, [232, 64, 47]], [168, 12, 48, 48, [240, 96, 63]], [222, 33, 4, 4, [245, 159, 0]]]
+    const blocks = detectArt(image(240, 72, (x, y) => {
+      const hit = rects.find(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh)
+      return hit ? [hit[4][0], hit[4][1], hit[4][2], 255] : [255, 255, 255, 255]
+    }))
+    expect(blocks.kind).toBe('flat')
+  })
+
+  it('still treats a small staircase-edged drawing without anti-aliasing as pixel art', () => {
+    const d = detectArt(image(64, 64, (x, y) => (Math.hypot(x - 32, y - 32) < 22 ? [224, 49, 49, 255] : [255, 255, 255, 255])))
     expect(d.kind).toBe('pixel')
   })
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candidates'
 import { loadIndex } from '../fonts/catalog'
+import { smallestTextLine } from '../fonts/textsize'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate, FontMatch } from '../fonts/match'
@@ -29,9 +30,13 @@ interface Props {
   /** Reports whether the automatic lettering match is running. */
   onAutoBusy?: (busy: boolean) => void
   /** The automatic match found lettering but no font close enough to rebuild it: per such line, its text and closest match. */
+  /** The shortest text line found, in source pixels (null when there's no text). */
+  onTextSize?: (px: number | null) => void
   onAutoUnmatched?: (lines: { line: number; text: string; closest: FontCandidate & { score: number } | null }[]) => void
   /** A line's best match is below the automatic threshold: worth trying, if it scores better. */
   onTryFont?: (report: FontReport, line: number, match: FontCandidate) => void
+  /** Every line handed to onTryFont, together, when there are several (one piece of lettering split into lines). */
+  onTryLines?: (report: FontReport, tries: { line: number; match: FontCandidate }[]) => void
   /**
    * A sharpened (AI 2×) copy of the image, for small lettering: fonts at 6–12 px are identified
    * far more reliably from it (docs/v7-results.md). Null when it isn't worth making.
@@ -72,7 +77,7 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTryFont, sharpen }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTextSize, onTryFont, onTryLines, sharpen }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
@@ -134,7 +139,11 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       // Small lettering is read from a sharpened copy when there is one; letters are still
       // placed in the original image's pixels (the report's scale accounts for the 2×).
       const sharp = sharpen ? await sharpen().catch(() => null) : null
-      const report = await findText(sharp ?? bitmap, colors, onProgress).finally(() => sharp?.close())
+      // Read before findText closes the sharpened copy (a closed bitmap reports width 0).
+      const sharpWidth = sharp?.width ?? 0
+      // The original is read too: a reading that changes between the two is uncertain text.
+      const report = await findText(sharp ?? bitmap, colors, onProgress, sharp ? bitmap : undefined).finally(() => sharp?.close())
+      if (live()) onTextSize?.(smallestTextLine({ lines: report.lines, scale: sharp ? (report.scale * sharpWidth) / bitmap.width : report.scale }))
       if (sharp) report.scale *= sharp.width / bitmap.width
       const lines = await matchFonts(report, includeInstalled ? (installed.current ?? []) : [], onProgress)
       if (live()) {
@@ -143,13 +152,18 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       }
       if (autoApply && canRebuild) {
         const unmatched: { line: number; text: string; closest: FontMatch | null }[] = []
+        const tries: { line: number; match: FontCandidate }[] = []
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
           // A close match can still fail to line up when placed: that line stays traced too.
           if (best && best.score >= AUTO_MIN_SCORE && (await onUseFont(report, i, best, true))) continue
           unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
-          if (best && best.score >= TRY_MIN_SCORE && best.score < AUTO_MIN_SCORE) onTryFont?.(report, i, best)
+          if (best && best.score >= TRY_MIN_SCORE && best.score < AUTO_MIN_SCORE) {
+            onTryFont?.(report, i, best)
+            tries.push({ line: i, match: best })
+          }
         }
+        if (live() && tries.length >= 2) onTryLines?.(report, tries)
         if (live()) onAutoUnmatched?.(unmatched)
       }
     } catch (err) {

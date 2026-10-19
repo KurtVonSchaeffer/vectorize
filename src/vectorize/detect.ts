@@ -72,7 +72,15 @@ export function detectArt(img: ImageData): Detection {
   let kind: ArtKind = 'flat'
   // Pixel art: small, with hard edges, so pixels on a boundary are one color or the other,
   // never a mix. A small anti-aliased logo has mixed edge pixels and stays flat (smooth curves).
-  if (Math.max(w, h) <= 256 && softEdgeShare(img) < 0.15) kind = 'pixel'
+  // Straight edges that happen to sit on pixel boundaries are hard in any crisp logo, so the
+  // decision rests on the diagonal and curved boundaries: pixel art draws those as hard
+  // staircases too, while a logo still anti-aliases them (a shield's curved base, the rounded
+  // corners of a speech bubble). Artwork with almost no such boundaries (only rectangles) has
+  // nothing to tell it by and stays flat, which traces rectangles exactly.
+  if (Math.max(w, h) <= 256 && softEdgeShare(img) < 0.15) {
+    const curves = softCurveShare(img)
+    if (curves !== null && curves < 0.15) kind = 'pixel'
+  }
   else if (gray / total >= 0.8 && extremes / total >= 0.85 && dark / total > 0.005 && dark / total < 0.6) {
     // Judge the ink, not the whole image: the paper dominates most pictures, so a small coloured
     // accent or a tinted dark colour would otherwise be lost to black ink.
@@ -238,6 +246,48 @@ function softEdgeShare(img: ImageData): number {
     }
   }
   return edges ? soft / edges : 1
+}
+
+/**
+ * Diagonal or curved boundary pixels needed before softCurveShare decides anything: at least
+ * this many, and this share of all left–right edge pixels. A logo of rectangles has a hard
+ * corner pixel at each corner (about 5% of its edge pixels); pixel art's staircases are a large
+ * share (about 25% for 4-pixel blocks, more for sprites).
+ */
+const MIN_CURVE_EDGES = 12
+const MIN_CURVE_SHARE = 0.1
+
+/**
+ * At boundaries that run diagonally or curve (a pixel's neighbours differ both left–right and
+ * up–down), the share of pixels that are a mix of their neighbours on either axis. Pixel art
+ * scores near 0 (hard staircases); anti-aliased artwork scores high. Null when there are fewer
+ * than MIN_CURVE_EDGES such pixels, or fewer than MIN_CURVE_SHARE of the left–right edge pixels.
+ */
+function softCurveShare(img: ImageData): number | null {
+  const { width: w, height: h, data: d } = img
+  const diff = (a: number, b: number) => Math.abs(d[a] - d[b]) + Math.abs(d[a + 1] - d[b + 1]) + Math.abs(d[a + 2] - d[b + 2])
+  // A mix sits strictly between its neighbours: different from both, and not farther out.
+  const mix = (i: number, a: number, b: number) => {
+    const ab = diff(a, b)
+    const ca = diff(i, a)
+    const cb = diff(i, b)
+    return ca > 24 && cb > 24 && ca + cb < ab * 1.25
+  }
+  let across = 0
+  let edges = 0
+  let soft = 0
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4
+      const l = i - 4, r = i + 4, u = i - w * 4, dn = i + w * 4
+      if (d[i + 3] < 128 || d[l + 3] < 128 || d[r + 3] < 128 || d[u + 3] < 128 || d[dn + 3] < 128) continue
+      if (diff(l, r) < 60) continue
+      across++
+      if (diff(u, dn) < 60) continue
+      edges++
+      if (mix(i, l, r) || mix(i, u, dn)) soft++
+    }
+  return edges >= MIN_CURVE_EDGES && edges >= across * MIN_CURVE_SHARE ? soft / edges : null
 }
 
 /** Most common opaque color along the border, if it clearly dominates. */
