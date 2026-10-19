@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { AiProgress, UpscaleSetting } from '../ai/enhancer'
 import type { ArtKind } from '../vectorize/detect'
-import { KIND_LABEL, type Style } from '../vectorize/client'
+import { KIND_LABEL, type OneColourSettings, type Style } from '../vectorize/client'
 import { bar, barFill, field, fieldLabel, progress, seg, segBtn, select } from './ui'
 
 interface Props {
@@ -11,6 +11,11 @@ interface Props {
   maxColors: number | null
   onMaxColors: (n: number | null) => void
   showColors: boolean
+  oneColour: OneColourSettings
+  onOneColour: (s: Partial<OneColourSettings>) => void
+  /** Whether this purpose makes print plates or cut files (where a separation gap applies). */
+  oneColourGaps: boolean
+  oneColourNote: string | null
   upscale: UpscaleSetting
   onUpscale: (u: UpscaleSetting) => void
   upscaleProgress: AiProgress | null
@@ -47,6 +52,7 @@ export function MoreOptions(p: Props) {
                 </option>
               ))}
             </select>
+            {p.maxColors === 1 && <OneColour {...p} />}
           </div>
         )}
 
@@ -83,5 +89,48 @@ export function MoreOptions(p: Props) {
         {p.fonts}
       </div>
     </details>
+  )
+}
+
+const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`
+
+/** One-colour choices: the ink, and the separation gap that print and cut files get. */
+function OneColour(p: Props) {
+  const o = p.oneColour
+  return (
+    <div className="mt-2 grid gap-2 rounded-lg border border-line p-2.5 text-sm">
+      <label className="flex items-center gap-2">
+        <span>Ink</span>
+        <input type="color" value={hex(o.ink)} onChange={(e) => p.onOneColour({ ink: parseInt(e.target.value.slice(1), 16) })} aria-label="Ink colour" />
+        <small>Light areas in the paper's colour stay open, so letter holes and white shapes survive.</small>
+      </label>
+      {p.oneColourGaps ? (
+        <>
+          <label className="grid gap-1">
+            <span>
+              Separation gap: <b>{o.gapMm.toFixed(1)} mm</b> at{' '}
+              <input type="number" min={10} max={5000} step={10} value={o.outputWidthMm} onChange={(e) => p.onOneColour({ outputWidthMm: Math.max(10, Number(e.target.value) || 200) })} className="w-20 rounded border border-line px-1" aria-label="Output width in millimetres" /> mm wide
+            </span>
+            <input type="range" min={0} max={2} step={0.1} value={o.gapMm} onChange={(e) => p.onOneColour({ gapMm: Number(e.target.value) })} aria-label="Separation gap in millimetres" />
+            <small>Keeps shapes that were different colours apart in the print and cut files. The SVG master keeps every shape whole.</small>
+          </label>
+          <div className="grid gap-1">
+            <span id="one-preview">Preview shows</span>
+            <div className={seg} role="group" aria-labelledby="one-preview">
+              <button className={segBtn} aria-pressed={!o.previewGaps || o.gapMm === 0} onClick={() => p.onOneColour({ previewGaps: false })}>
+                Master
+              </button>
+              <button className={segBtn} aria-pressed={o.previewGaps && o.gapMm > 0} disabled={o.gapMm === 0} onClick={() => p.onOneColour({ previewGaps: true })}>
+                Print / cut file
+              </button>
+            </div>
+            <small>The master (SVG) never has gaps. The print / cut file is what the PDF, DXF and cut SVG contain.</small>
+          </div>
+        </>
+      ) : (
+        <small>Separation gaps apply to print and cut files; the web version is the master, without gaps.</small>
+      )}
+      {p.oneColourNote && <small>{p.oneColourNote}</small>}
+    </div>
   )
 }

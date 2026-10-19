@@ -21,9 +21,21 @@ export interface ClientSettings {
   exactShapes: boolean
   /** Keep smooth gradients as SVG gradients instead of color bands. */
   gradients: boolean
+  /** One colour (Maximum colors = 1): the ink, and the separation gap cut into print and cut files. */
+  oneColour: OneColourSettings
 }
 
-export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true }
+export interface OneColourSettings {
+  ink: number
+  /** Gap between regions that were different colours, at the output width. 0 = none. */
+  gapMm: number
+  /** Width the file will be printed or cut at, so the gap is a real size. */
+  outputWidthMm: number
+  /** Show the preview with the gaps the print / cut file will have (the master has none). */
+  previewGaps: boolean
+}
+
+export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true, oneColour: { ink: 0x000000, gapMm: 0.5, outputWidthMm: 200, previewGaps: false } }
 
 /**
  * Per-image additions to the Detail slider, from what the image is like. Measured on the
@@ -79,7 +91,8 @@ export function traceParamsFor(kind: ArtKind, s: ClientSettings, boost: DetailBo
       return {
         ...preset('logo'),
         ...curves,
-        colors: s.maxColors ?? 12,
+        // One colour finds every region first (all colours), then draws them in the ink.
+        colors: s.maxColors === 1 ? 12 : (s.maxColors ?? 12),
         colorMerge: Math.round(lerp(16, 4, d)),
         filterSpeckle: Math.round(lerp(6, 1, ds)),
       }

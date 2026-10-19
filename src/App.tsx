@@ -184,6 +184,10 @@ export default function App() {
   // knockout version is traced only when a print PDF or cut file is made.
   const plates = client.purpose !== 'web' && purposeAffectsTrace(kind, inks.enabled)
   const { detail, corners, maxColors, keepBlends, exactShapes, gradients } = client
+  // One colour: Maximum colors = 1 on flat art. The gap is cut only into print plates and cut files.
+  const oneOn = maxColors === 1 && kind === 'flat' && !inks.enabled
+  const { ink: oneInk, gapMm, outputWidthMm, previewGaps } = client.oneColour
+  const gapsShown = oneOn && plates && previewGaps && gapMm > 0
   const buildJob = useMemo(() => {
     if (!input || !source) return null
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
@@ -201,9 +205,11 @@ export default function App() {
         gradients,
         brand,
         lettering: vary.lettering ?? letteringWords,
+        oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
       })
-  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
-  const job = useMemo(() => buildJob?.(false) ?? null, [buildJob])
+  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords, oneOn, oneInk, gapMm, outputWidthMm])
+  // The preview is the master, unless the client asked to see the production file's gaps.
+  const job = useMemo(() => buildJob?.(gapsShown) ?? null, [buildJob, gapsShown])
 
   // Recent results, so going back to a previous setting (e.g. Print → Website → Print) is instant.
   const cache = useRef(new Map<string, TraceResult>())
@@ -290,8 +296,10 @@ export default function App() {
       names,
       spotNames: inks.enabled ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name])) : null,
       flat: !!chips && chips.length <= 16,
+      // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
+      cutSvgFromPlates: oneOn,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob])
+  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn])
 
   const download = async (d: Download) => {
     try {
@@ -485,7 +493,19 @@ export default function App() {
       ) : (
         <section className="grid items-start gap-5 min-[941px]:grid-cols-[minmax(0,1fr)_370px]">
           <div className="grid min-w-0 gap-2">
-            <Compare originalUrl={source.url} svg={result?.svg ?? null} width={source.width} height={source.height} busy={busyLabel} />
+            <Compare
+              originalUrl={source.url}
+              svg={result?.svg ?? null}
+              width={source.width}
+              height={source.height}
+              busy={busyLabel}
+              vectorLabel={gapsShown ? `Print / cut file · ${gapMm.toFixed(1)} mm gaps` : oneOn ? 'Master · one colour, no gaps' : undefined}
+              marks={
+                gapsShown && result?.oneColour?.flags.length
+                  ? { points: result.oneColour.flags, size: { width: result.width, height: result.height }, legend: `Red rings: ${result.oneColour.flags.length} places to check, where a gap was left out (to keep detail or keep the file cuttable) or took in a hairline sliver.` }
+                  : undefined
+              }
+            />
             <div className="pl-1 text-[13px] wrap-anywhere text-ink-2">
               <b className="font-semibold text-ink">{source.name}</b> · {source.width}×{source.height}
             </div>
@@ -524,6 +544,10 @@ export default function App() {
                 }}
                 maxColors={client.maxColors}
                 onMaxColors={(maxColors) => setClient((c) => ({ ...c, maxColors }))}
+                oneColour={client.oneColour}
+                onOneColour={(oneColour) => setClient((c) => ({ ...c, oneColour: { ...c.oneColour, ...oneColour } }))}
+                oneColourGaps={plates}
+                oneColourNote={oneOn ? oneColourNote(result?.oneColour ?? null, gapsShown) : null}
                 showColors={kind === 'flat' && !inks.enabled}
                 upscale={upscale}
                 onUpscale={setUpscale}
@@ -683,6 +707,24 @@ function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: bo
         }
       : job.params
   return `${sourceId}|${upscale}|${job.kind}|${job.image.width}x${job.image.height}|${annotate}|${JSON.stringify(opts)}`
+}
+
+/** What one colour did, in plain words: negative space kept, and gaps moved or skipped to keep detail. */
+function oneColourNote(r: TraceResult['oneColour'], gapsShown: boolean): string | null {
+  if (!r) return null
+  const parts = [`${r.inkRegions} ${r.inkRegions === 1 ? 'colour' : 'colours'} drawn in the ink`]
+  if (r.paperRegions) parts.push(`${r.paperRegions} light ${r.paperRegions === 1 ? 'colour' : 'colours'} left open as negative space`)
+  if (gapsShown) {
+    parts.push(`gaps cut at ${r.gaps} ${r.gaps === 1 ? 'boundary' : 'boundaries'}`)
+    const thin = r.flags.filter((f) => f.reason === 'gap-skipped').length
+    const cut = r.flags.filter((f) => f.reason === 'cut-limit').length
+    const sliver = r.flags.filter((f) => f.reason === 'gap-sliver').length
+    if (thin) parts.push(`${thin} left joined where a gap would cut into thin detail`)
+    if (cut) parts.push(`${cut} left joined where a gap would leave a piece too thin or small to cut`)
+    if (sliver) parts.push(`${sliver} hairline ${sliver === 1 ? 'sliver' : 'slivers'} of another colour along a gap became part of it`)
+    if (thin || cut || sliver) parts.push('ringed in red on the preview')
+  }
+  return parts.join(' · ') + '.'
 }
 
 function friendlyError(err: unknown): string {
