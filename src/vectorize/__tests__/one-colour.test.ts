@@ -228,6 +228,8 @@ describe('runFlat in one colour', () => {
       const r = runFlat(logo(), cutOpts(gapPx))
       expect(r.oneColour?.gaps).toBe(1)
       expect(inkPieces(r.svg)).toBe(2)
+      // The gap reported is the one cut (at 200 mm over 240 px), so a widened gap isn't hidden.
+      expect(r.oneColour?.gapMm).toBeCloseTo((Math.max(1.5, gapPx) * 200) / 240, 5)
     }
   })
 

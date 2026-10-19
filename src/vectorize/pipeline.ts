@@ -80,6 +80,11 @@ export interface OneColourSummary {
   paperRegions: number
   /** Boundaries between former colours that got a separation gap (production files only). */
   gaps: number
+  /**
+   * The gap a print / cut file got, in mm at its output width; null without one. At least 1.5 traced
+   * px, so on a small image it is wider than the gap asked for.
+   */
+  gapMm: number | null
   /** In traced px. */
   flags: OneColourFlag[]
 }
@@ -201,9 +206,10 @@ const CUT_PROBLEMS = new Set(['open', 'zero-area', 'self-intersection', 'sliver'
  * A one-colour print / cut file traced, checked with the export checker, and where a problem
  * piece touches a gap, the gap undone there and the file traced again. Every trace is checked:
  * after two rounds of undoing gaps in places, any gap still causing a problem means every gap is
- * undone, so the gap never makes the file harder to cut.
+ * undone, so the gap never makes the file harder to cut. `later` repeats the steps that followed one
+ * colour on each map an undo gives back.
  */
-function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }): { map: LabelMap; traced: ReturnType<typeof traceLabels>; allUndone: boolean } {
+function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }, later: (map: LabelMap) => LabelMap): { map: LabelMap; traced: ReturnType<typeof traceLabels>; allUndone: boolean } {
   const one = o.oneColour!
   const margin = productionGapPx(one.gapPx) + 2
   let traced = traceLabels(map, o.trace)
@@ -222,7 +228,9 @@ function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flag
       cut.flags.push({ x: p.x, y: p.y, reason: 'cut-limit' })
     }
     const all = round >= 2
-    ;({ map, undo } = undoGaps(undo, all ? [[0, 0, map.w - 1, map.h - 1]] : fromGap.map((p) => p.box!), all ? 0 : margin))
+    const back = undoGaps(undo, all ? [[0, 0, map.w - 1, map.h - 1]] : fromGap.map((p) => p.box!), all ? 0 : margin)
+    undo = back.undo
+    map = later(back.map)
     traced = traceLabels(map, o.trace)
     // No gap is left to cause a problem.
     if (all) return { map, traced, allUndone: true }
@@ -280,15 +288,17 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   if (o.oneColour) {
     const r = toOneColour(map, bgLabel, o.oneColour)
     map = r.map
-    oneColour = { inkRegions: r.ink.length, paperRegions: r.paper.length, gaps: r.gaps, flags: r.flags }
+    const mmPerPx = o.oneColour.outputWidthMm ? o.oneColour.outputWidthMm / map.w : 0
+    oneColour = { inkRegions: r.ink.length, paperRegions: r.paper.length, gaps: r.gaps, gapMm: r.gapPx && mmPerPx ? r.gapPx * mmPerPx : null, flags: r.flags }
     if (r.gaps && r.undo && o.oneColour.outputWidthMm) gapUndo = r.undo
   }
-  if (o.lineArt && !o.transparent) {
+  const paper = (m: LabelMap): LabelMap => {
     // Line art keeps paper out of the shapes; put it back as a white sheet when asked.
-    map = { ...map, colors: map.colors.map((c) => (c < 0 ? 0xffffff : c)) }
-  } else if (o.transparent && bgLabel >= 0) {
-    map = { ...map, colors: map.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
+    if (o.lineArt && !o.transparent) return { ...m, colors: m.colors.map((c) => (c < 0 ? 0xffffff : c)) }
+    if (o.transparent && bgLabel >= 0) return { ...m, colors: m.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
+    return m
   }
+  map = paper(map)
   let palette = paletteOf(map, bgLabel).filter((e) => !map.fills?.[map.colors.indexOf(e.color)])
   // One colour: many regions, one ink.
   if (oneColour) palette = [...new Map(palette.map((e) => [e.color, { ...e, coverage: palette.filter((f) => f.color === e.color).reduce((t, f) => t + f.coverage, 0) }])).values()]
@@ -297,9 +307,12 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   if (text) map = text.map
   let traced: ReturnType<typeof traceLabels>
   if (gapUndo && oneColour) {
-    const r = traceWithGaps(map, o, { undo: gapUndo, flags: oneColour.flags })
+    // Undoing a gap starts again from the one-colour map: the steps after it (paper, rebuilt
+    // lettering replacing traced letters) are applied again, so the latest artwork is kept.
+    const later = (m: LabelMap) => (o.text ? applyText(paper(m), o.text, knockout).map : paper(m))
+    const r = traceWithGaps(map, o, { undo: gapUndo, flags: oneColour.flags }, later)
     ;({ map, traced } = r)
-    if (r.allUndone) oneColour.gaps = 0
+    if (r.allUndone) [oneColour.gaps, oneColour.gapMm] = [0, null]
   } else traced = traceLabels(map, o.trace)
   inspect?.(map)
   let { svg } = traced

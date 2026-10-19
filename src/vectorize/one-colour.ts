@@ -56,6 +56,8 @@ export interface OneColourResult {
   paper: number[]
   /** Boundaries that got a gap. */
   gaps: number
+  /** The gap cut, in map px: a print / cut file's is at least MIN_GAP_PX, so it can be wider than asked. */
+  gapPx: number
   flags: OneColourFlag[]
 }
 
@@ -97,8 +99,8 @@ export function toOneColour(map: LabelMap, bgLabel: number, o: OneColourOptions)
   }
   const gapPx = o.production ? productionGapPx(o.gapPx) : o.gapPx
   const cut = gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, gapPx) : { map: out, gaps: 0, flags: [] }
-  if (!o.production) return { ...cut, ink, paper }
-  return { ...cut, map: onePiecePerInk(cut.map, isInk), ink, paper, undo: { carved: cut.map, plain: out, isInk } }
+  if (!o.production) return { ...cut, gapPx, ink, paper }
+  return { ...cut, gapPx, map: onePiecePerInk(cut.map, isInk), ink, paper, undo: { carved: cut.map, plain: out, isInk } }
 }
 
 /** What a print / cut file needs to undo its gap in places (see undoGaps). */

@@ -499,7 +499,7 @@ export default function App() {
               width={source.width}
               height={source.height}
               busy={busyLabel}
-              vectorLabel={gapsShown ? `Print / cut file · ${gapMm.toFixed(1)} mm gaps` : oneOn ? 'Master · one colour, no gaps' : undefined}
+              vectorLabel={gapsShown ? `Print / cut file · ${(widenedGap(result?.oneColour ?? null, gapMm) ?? gapMm).toFixed(1)} mm gaps` : oneOn ? 'Master · one colour, no gaps' : undefined}
               marks={
                 gapsShown && result?.oneColour?.flags.length
                   ? { points: result.oneColour.flags, size: { width: result.width, height: result.height }, legend: `Red rings: ${result.oneColour.flags.length} places to check, where a gap was left out (to keep detail or keep the file cuttable) or took in a hairline sliver.` }
@@ -547,7 +547,7 @@ export default function App() {
                 oneColour={client.oneColour}
                 onOneColour={(oneColour) => setClient((c) => ({ ...c, oneColour: { ...c.oneColour, ...oneColour } }))}
                 oneColourGaps={plates}
-                oneColourNote={oneOn ? oneColourNote(result?.oneColour ?? null, gapsShown) : null}
+                oneColourNote={oneOn ? oneColourNote(result?.oneColour ?? null, gapsShown, gapMm) : null}
                 showColors={kind === 'flat' && !inks.enabled}
                 upscale={upscale}
                 onUpscale={setUpscale}
@@ -709,13 +709,18 @@ function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: bo
   return `${sourceId}|${upscale}|${job.kind}|${job.image.width}x${job.image.height}|${annotate}|${JSON.stringify(opts)}`
 }
 
+/** A gap the print / cut file got that is wider than the one asked for (it is at least 1.5 traced px). */
+const widenedGap = (r: TraceResult['oneColour'], askedMm: number) => (r?.gapMm != null && r.gapMm > askedMm + 0.05 ? r.gapMm : null)
+
 /** What one colour did, in plain words: negative space kept, and gaps moved or skipped to keep detail. */
-function oneColourNote(r: TraceResult['oneColour'], gapsShown: boolean): string | null {
+function oneColourNote(r: TraceResult['oneColour'], gapsShown: boolean, askedMm: number): string | null {
   if (!r) return null
   const parts = [`${r.inkRegions} ${r.inkRegions === 1 ? 'colour' : 'colours'} drawn in the ink`]
   if (r.paperRegions) parts.push(`${r.paperRegions} light ${r.paperRegions === 1 ? 'colour' : 'colours'} left open as negative space`)
   if (gapsShown) {
     parts.push(`gaps cut at ${r.gaps} ${r.gaps === 1 ? 'boundary' : 'boundaries'}`)
+    const wide = widenedGap(r, askedMm)
+    if (wide) parts.push(`gaps are ${wide.toFixed(1)} mm, not the ${askedMm.toFixed(1)} mm you chose: at this image size a narrower gap wouldn't cut the pieces apart (a larger upload allows a narrower gap)`)
     const thin = r.flags.filter((f) => f.reason === 'gap-skipped').length
     const cut = r.flags.filter((f) => f.reason === 'cut-limit').length
     const sliver = r.flags.filter((f) => f.reason === 'gap-sliver').length
