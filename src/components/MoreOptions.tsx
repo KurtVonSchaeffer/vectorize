@@ -169,7 +169,7 @@ function OneColour(p: Props) {
         )}
         <small>
           Print plate: <b>{oneColourPlateName(shown, fromLibrary ? o.inkName : null)}</b>
-          {fromLibrary ? ' (from your ink library)' : ' (not matched to an ink library)'}
+          {fromLibrary ? (lib.isDemo ? ' (a demo ink, not a real ink library)' : ` (from ${lib.name})`) : ' (not matched to an ink library)'}
         </small>
         <small>{o.ink === null ? "The artwork's darkest colour. " : ''}Light areas in the paper's colour stay open, so letter holes and white shapes survive.</small>
       {p.oneColourGaps ? (
