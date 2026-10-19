@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
 import type { Purpose } from '../vectorize/client'
 import type { Download } from '../export/files'
-import { btnQuiet, chip, cx, link, range, spinnerSmall, swatch } from './ui'
+import { btnQuiet, chip, cx, link, range, seg, segBtn, spinnerSmall, swatch } from './ui'
+
+export type ColorMode = 'full' | 'one' | 'custom'
 
 export interface Chip {
   color: number
@@ -22,6 +24,8 @@ interface Props {
   /** Automatic fixes, each with a way to undo it. */
   /** What was fixed, with a way back. A note without `onUndo` is work in progress. */
   fixNotes: { text: string; undoLabel?: string; onUndo?: () => void }[]
+  /** Full color (the default), one ink, or custom limits; null when colors don't apply. */
+  colorMode: { mode: ColorMode; onMode: (m: ColorMode) => void } | null
   transparent: boolean
   transparentHint: string
   transparentLocked: boolean
@@ -124,8 +128,28 @@ export function ResultCard(p: Props) {
 
       {p.chips && p.chips.length > 0 && (
         <div className="grid gap-2.5">
+          {p.colorMode && (
+            <div className="grid gap-1.5">
+              <span className="text-[13px] font-semibold text-ink-2" id="color-mode-label">
+                Color mode
+              </span>
+              <div className={seg} role="group" aria-labelledby="color-mode-label">
+                {(
+                  [
+                    ['full', 'Full color'],
+                    ['one', 'One color'],
+                    ['custom', 'Custom'],
+                  ] as [ColorMode, string][]
+                ).map(([m, label]) => (
+                  <button key={m} className={segBtn} aria-pressed={p.colorMode!.mode === m} onClick={() => p.colorMode!.onMode(m)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <h2 className="text-[13px] font-semibold text-ink-2">
-            {p.purpose === 'print' ? `Colors · ${p.chips.length} ${p.chips.length === 1 ? 'ink' : 'inks'} to print` : `Colors · ${p.chips.length}`}
+            {p.purpose === 'print' && p.colorMode && p.colorMode.mode !== 'full' ? `Colors · ${p.chips.length} ${p.chips.length === 1 ? 'ink' : 'inks'} to print` : `Colors · ${p.chips.length}`}
           </h2>
           <div className="flex flex-wrap gap-2">
             {p.chips.map((c) => (

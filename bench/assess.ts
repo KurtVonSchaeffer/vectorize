@@ -347,8 +347,12 @@ interface Option {
   ok: boolean
 }
 
+/** AI sharpening that always fails, as when the model can't be downloaded (offline). */
+const unavailable = { upscale: () => Promise.reject(new Error('Sharpening unavailable (offline)')), dispose: () => {} } as unknown as Enhancer
+
 async function improverExperiment() {
-  const enhancer = new Enhancer()
+  // ?sharpen=off: as if AI sharpening were unavailable (offline, or the model failed to load).
+  const enhancer = q.get('sharpen') === 'off' ? unavailable : new Enhancer()
   for (const c of [...CASES, ...VALIDATION]) {
     if (only && !only.includes(c.group)) continue
     for (const jpeg of FORMATS) {
@@ -374,7 +378,10 @@ async function improverExperiment() {
       }
       const ms = sim.ms
       const offered = options.find((o) => o.label === sim.offered?.label) ?? null
-      rows.push({ exp: 'improver', group: c.group, name: c.name, format: fmt(jpeg), compressed, first: { proxy: sim.first.proxy, truth: { miss: firstTruth.miss, extra: firstTruth.extra } }, options, offered: offered?.label ?? null, ms })
+      // The typeface the app would suggest by name, tried: recorded for its fidelity, never an offer.
+      const tried = sim.suggestions && { fonts: sim.suggestions.fonts, truth: await truthScore(c, sim.suggestions.svg) }
+      const suggested = tried && { fonts: tried.fonts, truth: { miss: tried.truth.miss, extra: tried.truth.extra } }
+      rows.push({ exp: 'improver', group: c.group, name: c.name, format: fmt(jpeg), compressed, first: { proxy: sim.first.proxy, truth: { miss: firstTruth.miss, extra: firstTruth.extra } }, options, offered: offered?.label ?? null, suggested, ms })
       const t = (x: { miss: number; extra: number }) => (x.miss + x.extra).toFixed(2)
       show([c.name, fmt(jpeg), compressed ? 'compressed' : '', `first ${t(firstTruth)}`, offered ? `offers ${offered.label}: ${t(offered.truth)}` : 'no offer', options.map((o) => `${o.label} ${o.proxy.score.toFixed(2)}→${t(o.truth)}${o.ok ? '✓' : ''}`).join('; '), `${ms} ms`])
     }

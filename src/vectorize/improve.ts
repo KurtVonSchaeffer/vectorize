@@ -45,6 +45,15 @@ export function isImprovement(first: Scored, alternative: Scored): boolean {
 }
 
 /**
+ * Whether the app offers `alternative` instead of the best offer so far (`bestScore`, Infinity for
+ * none): it must be an improvement and score lower. Alternatives are checked in the order
+ * `alternatives` lists them, so on a tie the earlier one stays. Shared with the benchmarks.
+ */
+export function betterOffer(first: Scored, alternative: Scored, bestScore = Infinity): boolean {
+  return isImprovement(first, alternative) && alternative.score < bestScore
+}
+
+/**
  * Signs of lossy compression in the pixels: JPEG's ringing leaves small ripples, pixels a few
  * levels above or below both neighbours, around every edge. Clean anti-aliasing only ramps from
  * one colour to the other. Returns the share of non-flat pixel steps that are such ripples:

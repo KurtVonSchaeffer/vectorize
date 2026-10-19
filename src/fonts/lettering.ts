@@ -23,7 +23,26 @@ export interface PlacedWord {
   box: Box
   /** The word's position in its text line. */
   index?: number
+  /**
+   * Letters the image doesn't clearly support: another character (a look-alike such as 9 for 8)
+   * fits the artwork about as well or better, or the OCR passes disagreed on the word. A word with
+   * doubts is never rebuilt or offered automatically (see `verified`).
+   */
+  doubts?: TextDoubt[]
 }
+
+export interface TextDoubt {
+  /** Position of the letter in the word, or -1 for the whole word (OCR passes disagreed). */
+  at: number
+  char: string
+  /** The look-alike (or the other OCR reading) that fits as well. */
+  rival: string
+  fit: number
+  rivalFit: number
+}
+
+/** Whether every placed word's text is supported by the image (no doubts). */
+export const verified = (words: PlacedWord[]) => words.every((w) => !w.doubts?.length)
 
 export interface LineLettering {
   font: string
@@ -43,6 +62,34 @@ const MIN_OVERLAP = 0.6
  * soft edges: a light wordmark measured 0.51 with its likely font, and 0.38 one weight too thin.
  */
 const MIN_OVERLAP_NAMED = 0.45
+
+/**
+ * A letter is doubtful when a look-alike, drawn at the same size and place, fits the artwork's
+ * ink better (IoU) than the letter OCR read; a digit already when a rival comes within this much
+ * (a wrong year or number is the costliest mistake). Letters get no margin: at small sizes
+ * O and Q, or C and O, differ by a few pixels and would otherwise flag correct readings.
+ */
+const DIGIT_MARGIN = 0.03
+/**
+ * A letter that barely matches the artwork at all is doubtful whatever its rivals do: OCR can
+ * "read" letters into shapes that aren't text. Correct letters measured 0.59–0.77 on the test set.
+ */
+const MIN_LETTER_FIT = 0.4
+
+/**
+ * Characters a misreading is most likely to swap a letter for. Every digit is checked against
+ * every other digit (a wrong year or phone number is the costliest mistake), and letters against
+ * the shapes they're usually confused with.
+ */
+const LOOKALIKES: Record<string, string> = {
+  O: '0QDCG', Q: 'O0', D: 'O0', C: 'GOE', G: 'C6O', I: '1lTLJ', l: '1I', L: 'I1', T: 'I1', J: 'I1',
+  S: '58', B: '8RE', Z: '27', E: 'FBC', F: 'EP', P: 'RF', R: 'PB', U: 'VO', V: 'UY', M: 'NW', N: 'MH', H: 'N',
+  W: 'VM', K: 'X', X: 'K', Y: 'V', A: '4', o: '0ae', e: 'co', c: 'eo', a: 'oe', n: 'hur', h: 'nb', u: 'nv',
+  r: 'n', i: 'lj1', j: 'i', b: 'h6', d: 'a', g: '9q', q: '9g', s: '5', t: 'f', f: 't', v: 'u', y: 'v',
+}
+const DIGITS = '0123456789'
+const DIGIT_LOOKALIKES: Record<string, string> = { '0': 'OD', '1': 'Il', '2': 'Z', '4': 'A', '5': 'S', '6': 'Gb', '8': 'BS', '9': 'gq' }
+const rivalsOf = (c: string) => (DIGITS.includes(c) ? DIGITS.replace(c, '') + (DIGIT_LOOKALIKES[c] ?? '') : (LOOKALIKES[c] ?? ''))
 
 /** Letter outlines from a font: bounds in font units (y up), and the path at a position and size. */
 interface GlyphSource {
@@ -187,8 +234,28 @@ function mapPoints(d: string, f: (x: number, y: number) => [number, number]): st
   })
 }
 
+/**
+ * A word placed in the OCR canvas, in source-image pixels. `scale` is OCR canvas pixels per
+ * source pixel; 0 or a non-finite scale would put every letter at Infinity (drawing nothing while
+ * the word still counts as rebuilt), so it's refused.
+ */
+export function toSourcePixels(placed: { letters: { char: string; d: string }[]; box: Box }, scale: number): { letters: { char: string; d: string }[]; box: Box } {
+  const k = sourcePerOcrPixel(scale)
+  return {
+    letters: placed.letters.map((l) => ({ char: l.char, d: scalePath(l.d, k) })),
+    box: { x0: placed.box.x0 * k, y0: placed.box.y0 * k, x1: placed.box.x1 * k, y1: placed.box.y1 * k },
+  }
+}
+
+function sourcePerOcrPixel(scale: number): number {
+  if (!(scale > 0 && Number.isFinite(scale))) throw new Error(`The text was read at an invalid scale (${scale})`)
+  return 1 / scale
+}
+
 /** `named`: the client chose this font: its own file is required, and a looser fit is accepted. */
 export async function placeLine(report: FontReport, line: TextLine, match: FontCandidate, opts: { named?: boolean } = {}): Promise<LineLettering> {
+  // Fail before any work (and before anything is applied) when the scale can't be right.
+  sourcePerOcrPixel(report.scale)
   const font = await loadFont(match, opts.named)
   const minOverlap = opts.named ? MIN_OVERLAP_NAMED : MIN_OVERLAP
   const img = report.canvas.getContext('2d')!.getImageData(0, 0, report.canvas.width, report.canvas.height)
@@ -202,15 +269,11 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
       skipped++
       continue
     }
-    // OCR canvas → source pixels.
-    const k = 1 / report.scale
-    words.push({
-      text: w.text,
-      index,
-      font: match.label,
-      letters: placed.letters.map((l) => ({ char: l.char, d: scalePath(l.d, k) })),
-      box: { x0: placed.box.x0 * k, y0: placed.box.y0 * k, x1: placed.box.x1 * k, y1: placed.box.y1 * k },
-    })
+    const readings = w.readings ?? []
+    const alnum = (t: string) => t.replace(/[^\p{L}\p{N}]/gu, '')
+    const disagree = [...new Set(readings.filter((r) => alnum(r) !== alnum(w.text)))]
+    const doubts = [...placed.doubts, ...disagree.map((r) => ({ at: -1, char: w.text, rival: r, fit: 0, rivalFit: 0 }))]
+    words.push({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) })
   }
   return { font: match.label, words, skipped }
 }
@@ -219,7 +282,7 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
  * Fits one size and baseline for the word (least squares over every letter's top, bottom and
  * width), then puts each letter at its own traced position, so spacing matches the artwork.
  */
-function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], wordBox: Box, img: ImageData, minOverlap: number): { letters: { char: string; d: string }[]; box: Box } | null {
+function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], wordBox: Box, img: ImageData, minOverlap: number): { letters: { char: string; d: string }[]; box: Box; doubts: TextDoubt[] } | null {
   const found = glyphs.map((g) => ({ g, glyph: font.glyph(g.char) }))
   if (found.some((o) => !o.glyph)) return null
   const outlines = found.map(({ g, glyph }) => ({ g, glyph: glyph!, bb: glyph!.bbox }))
@@ -263,7 +326,39 @@ function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], word
     y1: Math.max(...outlines.map((o) => o.g.box.y1)),
   }
   if (overlap(letters.map((l) => l.d), wordBox, img) < minOverlap) return null
-  return { letters, box }
+  // Does the artwork support each letter better than its look-alikes, drawn the same way?
+  const doubts: TextDoubt[] = []
+  // A digit among letters ("8tudio") or a letter among digits ("2O26") is a misreading more often
+  // than real text; such a word is never trusted without review.
+  const kinds = outlines.map(({ g }) => (DIGITS.includes(g.char) ? 'digit' : /\p{L}/u.test(g.char) ? 'letter' : 'other'))
+  const nDigits = kinds.filter((k) => k === 'digit').length
+  const nLetters = kinds.filter((k) => k === 'letter').length
+  if (nDigits && nLetters && Math.min(nDigits, nLetters) <= 1)
+    outlines.forEach(({ g }, at) => {
+      if (kinds[at] === (nDigits <= nLetters ? 'digit' : 'letter')) doubts.push({ at, char: g.char, rival: 'mixed letters and digits', fit: 0, rivalFit: 0 })
+    })
+  outlines.forEach(({ g }, at) => {
+    const rivals = rivalsOf(g.char)
+    const cell = pad(g.box, Math.max(1, Math.round((g.box.y1 - g.box.y0) * 0.15)), img)
+    const fit = overlap([letters[at].d], cell, img)
+    let best = { rival: '', fit: -1 }
+    for (const rc of rivals) {
+      const r = font.glyph(rc)
+      if (!r) continue
+      const x = (g.box.x0 + g.box.x1) / 2 - (s * (r.bbox.x1 + r.bbox.x2)) / 2
+      const rf = overlap([r.path(x, y0, size)], cell, img)
+      if (rf > best.fit) best = { rival: rc, fit: rf }
+    }
+    const margin = DIGITS.includes(g.char) ? DIGIT_MARGIN : 0
+    if (fit < MIN_LETTER_FIT && !(best.rival && best.fit > fit - margin)) doubts.push({ at, char: g.char, rival: '?', fit: +fit.toFixed(3), rivalFit: 0 })
+    else if (best.rival && best.fit > fit - margin) doubts.push({ at, char: g.char, rival: best.rival, fit: +fit.toFixed(3), rivalFit: +best.fit.toFixed(3) })
+  })
+  return { letters, box, doubts }
+}
+
+/** A box grown by `n` pixels on every side, kept inside the image. */
+function pad(b: Box, n: number, img: ImageData): Box {
+  return { x0: Math.max(0, Math.floor(b.x0 - n)), y0: Math.max(0, Math.floor(b.y0 - n)), x1: Math.min(img.width, Math.ceil(b.x1 + n)), y1: Math.min(img.height, Math.ceil(b.y1 + n)) }
 }
 
 /** Overlap (IoU) between the placed letters and the artwork's ink inside the word's box. */

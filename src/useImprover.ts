@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { scoreAgainstUpload } from './quality/render'
-import { isImprovement, type Scored } from './vectorize/improve'
+import { betterOffer, type Scored } from './vectorize/improve'
 import type { SourceImage } from './vectorize/image'
 import { runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
 import type { FlatTracer } from './vectorize/flat-tracer'
@@ -45,7 +45,8 @@ interface Options {
  * After the first result is shown, traces alternatives in the background (its own worker, so the
  * preview is never held up), scores each against the upload, and offers the best one that is
  * clearly better (see isImprovement). Runs once per image; settings the client chooses are never
- * second-guessed. More candidates (rebuilt lettering) can arrive later through `consider`.
+ * second-guessed. Font matches are never candidates: the upload can't judge lettering fidelity
+ * (see fonts/suggest.ts), so they are only suggested by name.
  */
 export function useImprover({ source, result, jobKey, ready, candidates, tracers }: Options) {
   const [state, setState] = useState<State>({ kind: 'idle' })
@@ -53,7 +54,6 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
   const run = useRef(0)
   const base = useRef<{ key: string; first: Promise<Scored> } | null>(null)
   const best = useRef<number>(Infinity)
-  const pending = useRef<Candidate[]>([])
 
   // One at a time: the worker cancels a job when it's given the next one.
   const queue = useRef<Promise<void>>(Promise.resolve())
@@ -75,7 +75,7 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
         if (id !== run.current || !res.paths) return
         const alt = await scored(source, res)
         if (id !== run.current) return
-        if (isImprovement(first, alt) && alt.score < best.current) {
+        if (betterOffer(first, alt, best.current)) {
           best.current = alt.score
           setState((s) => (s.kind === 'applied' ? s : { kind: 'found', candidate: c }))
         }
@@ -93,7 +93,6 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
     checked.current = null
     base.current = null
     best.current = Infinity
-    pending.current = []
     setState({ kind: 'idle' })
   }, [source])
 
@@ -105,7 +104,7 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
     base.current = { key: jobKey, first: scored(source, result) }
     setState({ kind: 'checking' })
     void (async () => {
-      for (const c of [...candidates(), ...pending.current.splice(0)]) await evaluate(c, id)
+      for (const c of candidates()) await evaluate(c, id)
       if (id === run.current) setState((s) => (s.kind === 'checking' ? { kind: 'idle' } : s))
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,19 +120,6 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobKey])
-
-  /** A candidate found later (e.g. lettering rebuilt from a lower-scoring font). */
-  const consider = useCallback(
-    (c: Candidate) => {
-      if (!base.current) {
-        pending.current.push(c)
-        return
-      }
-      if (base.current.key !== jobKey) return
-      void evaluate(c, run.current)
-    },
-    [evaluate, jobKey],
-  )
 
   const use = () => {
     if (state.kind !== 'found') return
@@ -154,5 +140,5 @@ export function useImprover({ source, result, jobKey, ready, candidates, tracers
         : state.kind === 'applied'
           ? { text: `Using the cleaner version: ${state.candidate.label}.`, undoLabel: 'Go back', onUndo: back }
           : null
-  return { note, consider }
+  return { note }
 }
