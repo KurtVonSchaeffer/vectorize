@@ -12,6 +12,7 @@ import { ResultCard, type Chip, type ColorMode } from './components/ResultCard'
 import { Upload } from './components/Upload'
 import { downloadsFor, saveBlob, type Download } from './export/files'
 import { DEMO_PALETTE } from './palette/demo'
+import { oneColourPlateName } from './vectorize/one-colour-ink'
 import { colorNames } from './palette/names'
 import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
@@ -311,12 +312,16 @@ export default function App() {
       height: result.height,
       baseName,
       names,
-      spotNames: inks.enabled ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name])) : null,
+      spotNames: inks.enabled
+        ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name]))
+        : oneOn && result.oneColour
+          ? new Map([[result.oneColour.ink, oneColourPlateName(result.oneColour.ink, client.oneColour.ink !== null ? client.oneColour.inkName || null : null)]])
+          : null,
       flat: !!chips && chips.length <= 16,
       // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
       cutSvgFromPlates: oneOn,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn])
+  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName])
 
   const download = async (d: Download) => {
     try {
@@ -639,6 +644,7 @@ export default function App() {
                 oneColourGaps={plates}
                 oneColourNote={oneOn ? oneColourNote(result?.oneColour ?? null, gapsShown, gapMm) : null}
                 oneColourInk={oneOn ? (result?.oneColour?.ink ?? null) : null}
+                inkLibrary={{ name: palette.name, swatches: palette.swatches, isDemo: !importedPalette }}
                 legacySilhouette={kind === 'flat' && !oneOn && (!inks.enabled || legacySilhouette) ? { on: legacySilhouette, onChange: setLegacySilhouette } : null}
                 showColors={kind === 'flat' && !inks.enabled}
                 upscale={upscale}

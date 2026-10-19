@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import type { AiProgress, UpscaleSetting } from '../ai/enhancer'
 import type { ArtKind } from '../vectorize/detect'
 import { COLOR_LIMITS, KIND_LABEL, type OneColourSettings, type Style } from '../vectorize/client'
+import type { Swatch } from '../palette/parse'
+import { nearestInk, oneColourPlateName, swatchColor } from '../vectorize/one-colour-ink'
 import { bar, barFill, field, fieldLabel, progress, seg, segBtn, select } from './ui'
 
 interface Props {
@@ -18,6 +20,8 @@ interface Props {
   oneColourNote: string | null
   /** The ink the result used (the artwork's darkest colour unless one was chosen); null before a result. */
   oneColourInk: number | null
+  /** The customer's ink library (or the demo inks), to choose the one-colour ink from. */
+  inkLibrary: { name: string; swatches: Swatch[]; isDemo: boolean }
   /** The legacy one-ink silhouette (print inks, white as paper), offered under Custom; null when not offered. */
   legacySilhouette: { on: boolean; onChange: (on: boolean) => void } | null
   upscale: UpscaleSetting
@@ -111,6 +115,12 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`
 function OneColour(p: Props) {
   const o = p.oneColour
   const shown = o.ink ?? p.oneColourInk ?? 0x000000
+  const lib = p.inkLibrary
+  // inkName '' : the library list is open but no ink chosen yet (the ink is unchanged until one is).
+  const fromLibrary = o.ink !== null && !!o.inkName
+  const source = o.ink === null ? 'darkest' : o.inkName !== null ? 'library' : 'custom'
+  const nearest = !fromLibrary && lib.swatches.length ? nearestInk(shown, lib.swatches) : null
+  const pick = (s: Swatch) => p.onOneColour({ ink: swatchColor(s), inkName: s.name })
   return (
     <div className={field}>
       <span className={fieldLabel}>One color</span>
@@ -119,15 +129,48 @@ function OneColour(p: Props) {
         <div className="flex flex-wrap items-center gap-2">
           <span id="one-ink-label">Ink</span>
           <div className={seg} role="group" aria-labelledby="one-ink-label">
-            <button id="one-ink" className={segBtn} aria-pressed={o.ink === null} onClick={() => p.onOneColour({ ink: null })}>
+            <button id="one-ink" className={segBtn} aria-pressed={source === 'darkest'} onClick={() => p.onOneColour({ ink: null, inkName: null })}>
               Darkest colour
             </button>
-            <button className={segBtn} aria-pressed={o.ink !== null} onClick={() => p.onOneColour({ ink: shown })}>
-              Choose
+            <button className={segBtn} aria-pressed={source === 'custom'} onClick={() => p.onOneColour({ ink: shown, inkName: null })}>
+              Custom colour
+            </button>
+            <button className={segBtn} aria-pressed={source === 'library'} disabled={!lib.swatches.length} onClick={() => p.onOneColour({ ink: shown, inkName: o.inkName || '' })}>
+              From ink library
             </button>
           </div>
-          <input type="color" value={hex(shown)} onChange={(e) => p.onOneColour({ ink: parseInt(e.target.value.slice(1), 16) })} aria-label="Ink colour" />
+          {source !== 'library' && <input type="color" value={hex(shown)} onChange={(e) => p.onOneColour({ ink: parseInt(e.target.value.slice(1), 16), inkName: null })} aria-label="Ink colour" />}
         </div>
+        {source === 'library' && (
+          <label className="grid gap-1">
+            <span>{lib.isDemo ? 'Demo inks (not a real ink library: import yours under print inks)' : `Ink library: ${lib.name}`}</span>
+            <select className={select} value={o.inkName ?? ''} onChange={(e) => {
+              const s = lib.swatches.find((x) => x.name === e.target.value)
+              if (s) pick(s)
+            }}>
+              <option value="" disabled>
+                Choose an ink…
+              </option>
+              {lib.swatches.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {nearest && !fromLibrary && (
+          <small>
+            Closest {lib.isDemo ? 'demo ink' : `ink in ${lib.name}`} by screen colour: <b>{nearest.swatch.name}</b> (ΔE {nearest.deltaE.toFixed(1)}). Screen colour can't confirm a printed match; check a printed swatch.{' '}
+            <button className="font-semibold text-accent underline" onClick={() => pick(nearest.swatch)}>
+              Use {nearest.swatch.name}
+            </button>
+          </small>
+        )}
+        <small>
+          Print plate: <b>{oneColourPlateName(shown, fromLibrary ? o.inkName : null)}</b>
+          {fromLibrary ? ' (from your ink library)' : ' (not matched to an ink library)'}
+        </small>
         <small>{o.ink === null ? "The artwork's darkest colour. " : ''}Light areas in the paper's colour stay open, so letter holes and white shapes survive.</small>
       {p.oneColourGaps ? (
         <>

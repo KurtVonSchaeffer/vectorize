@@ -3,6 +3,8 @@ import type { LabelMap } from '../../trace'
 import { downloadsFor } from '../../export/files'
 import { shapesFromSvg } from '../../export/path'
 import { edgeKind } from '../one-colour'
+import { nearestInk, oneColourPlateName } from '../one-colour-ink'
+import { rgbToLab } from '../../palette/color'
 import { runFlat, type FlatOptions } from '../pipeline'
 
 class FakeImageData {
@@ -128,5 +130,34 @@ describe('one-colour cut gaps: real edges only', () => {
     expect(file.oneColour!.flags.map((f) => f.reason)).toEqual(['gap-unsure'])
     // Preserved: the two blocks stay one connected piece.
     expect(shapesFromSvg(file.svg).filter((s) => s.color === file.oneColour!.ink)).toHaveLength(1)
+  })
+})
+
+describe('one-colour ink: library name or custom', () => {
+  const swatch = (name: string, rgb: [number, number, number]) => ({ name, rgb, lab: rgbToLab(rgb) })
+  const library = [swatch('PANTONE 2768 C', [0, 38, 100]), swatch('PANTONE 485 C', [218, 41, 28])]
+
+  it('names the plate after the library ink chosen; a custom colour is marked custom, never given a library name', () => {
+    expect(oneColourPlateName(0x002664, 'PANTONE 2768 C')).toBe('PANTONE 2768 C')
+    // Exactly a library ink's colour, but not chosen from the library: still custom.
+    expect(oneColourPlateName(0x002664, null)).toBe('Custom ink #002664')
+  })
+
+  it('suggests the nearest library ink by screen colour, with how far it is', () => {
+    const n = nearestInk(0x0a2a6a, library)!
+    expect(n.swatch.name).toBe('PANTONE 2768 C')
+    expect(n.deltaE).toBeGreaterThan(0)
+    expect(nearestInk(0x0a2a6a, [])).toBeNull()
+  })
+
+  it('print PDF: the plate carries the library ink name exactly', async () => {
+    const img = image(160, 120, (x, y) => rgba(cover(x, y, 80, 60, 40) > 0 ? mix([255, 255, 255], [10, 40, 100], cover(x, y, 80, 60, 40)) : [255, 255, 255]))
+    const file = runFlat(img, { ...opts(4, true), oneColour: { ink: 0x002664, gapPx: 4, production: true, outputWidthMm: 200 } })
+    const [pdf] = downloadsFor('print', {
+      svg: file.svg, plateSvg: async () => file.svg, cutSvgFromPlates: true, width: 160, height: 120, baseName: 'x',
+      names: new Map(), spotNames: new Map([[0x002664, oneColourPlateName(0x002664, 'PANTONE 2768 C')]]), flat: true,
+    })
+    const text = new TextDecoder('latin1').decode(await (await pdf.make()).arrayBuffer())
+    expect([...text.matchAll(/\/Separation \/(\S+) /g)].map((m) => m[1])).toEqual(['PANTONE#202768#20C'])
   })
 })
