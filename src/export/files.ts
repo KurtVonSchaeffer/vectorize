@@ -15,6 +15,8 @@ export interface DownloadInput {
   svg: string
   /** The same artwork with non-overlapping (knockout) shapes, for print plates and cut files. */
   plateSvg?: () => Promise<string>
+  /** Cut SVGs use the plates too (one colour: gaps, and touching ink as one piece, are in the plates only). */
+  cutSvgFromPlates?: boolean
   /** Coordinate space of the SVG paths. */
   width: number
   height: number
@@ -67,7 +69,8 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
         return new Blob([buildDxf(layers, { width: input.width, height: input.height })], { type: 'application/dxf' })
       },
     }
-    return [{ ...svg, detail: 'For Cricut, Silhouette and vinyl cutters' }, dxf]
+    const cutSvg = input.cutSvgFromPlates && input.plateSvg ? { ...svg, make: async () => new Blob([await input.plateSvg!()], { type: 'image/svg+xml' }) } : svg
+    return [{ ...cutSvg, detail: 'For Cricut, Silhouette and vinyl cutters' }, dxf]
   }
 
   const png: Download = {

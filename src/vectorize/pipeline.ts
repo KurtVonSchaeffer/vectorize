@@ -1,4 +1,7 @@
 import { deltaE2000, rgbToLab } from '../palette/color'
+import { nearGap, productionGapPx, toOneColour, undoGaps, type GapUndo, type OneColourFlag, type OneColourOptions } from './one-colour'
+import { shapesFromSvg } from '../export/path'
+import { validateShapes } from '../export/validate'
 import type { Palette } from '../palette/parse'
 import { applyBrand, type BrandSettings } from '../palette/brand'
 import { colorNames } from '../palette/names'
@@ -32,6 +35,11 @@ export interface JobSettings {
   keepBlends?: boolean
   /** Snap circles, ellipses, stars and polygons to exact geometry (flat art). */
   exactShapes?: boolean
+  /**
+   * One ink for the whole artwork. The gap separates regions that were different colours, and
+   * is cut only into production files (knockout jobs), never into the master vector.
+   */
+  oneColour?: { ink: number | null; gapMm: number; outputWidthMm: number }
   /** Brand colors to snap to or restrict to (flat art). */
   brand?: BrandSettings
   /** Draw gradients as smooth SVG gradients (on screen and web files). */
@@ -62,6 +70,25 @@ export interface FlatOptions {
   gradients?: 'apply' | 'report'
   /** Lettering to rebuild from a font. */
   text?: TextOptions
+  /** Draw everything in one ink (see one-colour.ts). */
+  oneColour?: OneColourOptions
+}
+
+export interface OneColourSummary {
+  /** The ink colour used (the artwork's darkest colour unless one was chosen). */
+  ink: number
+  /** Former colours drawn in the ink, and light ones left open as paper (negative space). */
+  inkRegions: number
+  paperRegions: number
+  /** Boundaries between former colours that got a separation gap (production files only). */
+  gaps: number
+  /**
+   * The gap a print / cut file got, in mm at its output width; null without one. At least 1.5 traced
+   * px, so on a small image it is wider than the gap asked for.
+   */
+  gapMm: number | null
+  /** In traced px. */
+  flags: OneColourFlag[]
 }
 
 export interface PaletteEntry {
@@ -86,6 +113,7 @@ export interface FlatResult {
   gradients: { found: number; kept: number }
   /** Words rebuilt from a font. */
   lettered: number
+  oneColour: OneColourSummary | null
 }
 
 /**
@@ -123,6 +151,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
   const base = prepareImage(input, { ...prep, upscaleSmall: false }, false)
   const scale = base.image.width / sourceWidth
   const speckArea = Math.max(1, (trace.filterSpeckle * scale) ** 2)
+  const one = !lineArt && !spotOn ? s.oneColour : undefined
   return {
     kind: 'flat',
     image: base.image,
@@ -131,10 +160,12 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       lineArt,
       removeColors: s.removeColors,
       transparent: s.transparent,
-      brand: lineArt || spotOn ? undefined : s.brand,
+      brand: lineArt || spotOn || one ? undefined : s.brand,
       // Print PDFs fill gradients as full-color shadings; cut files cut each gradient as one shape.
-      gradients: lineArt || spotOn ? undefined : s.gradients ? 'apply' : 'report',
+      // In one colour a gradient is one region (no gaps inside it), so it is always found.
+      gradients: lineArt || spotOn ? undefined : s.gradients || one ? 'apply' : 'report',
       text: s.lettering?.length && !lineArt ? textOptions(s.lettering, scale, base.image.width, base.image.height) : undefined,
+      oneColour: one ? oneColourOptions(one, s.knockout, base.image.width) : undefined,
       quantize: {
         maxColors: lineArt ? 2 : spotOn ? spot!.settings.maxInks : trace.colors,
         mergeDelta: spotOn || lineArt ? 0 : trace.colorMerge,
@@ -156,10 +187,55 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         cornerAngle: trace.cornerThreshold,
         precision: trace.pathPrecision,
         mode: s.knockout ? 'knockout' : 'stacked',
-        spread: s.knockout ? 0.15 : 0,
+        // Plates are spread so neighbouring inks overlap a little; one ink has nothing to register against.
+        spread: s.knockout && !one ? 0.15 : 0,
         exactShapes: s.exactShapes ?? true,
       },
     },
+  }
+}
+
+/** One colour for this job: the gap in traced px, cut into print / cut files only. */
+function oneColourOptions(one: NonNullable<JobSettings['oneColour']>, production: boolean, width: number): OneColourOptions {
+  const pxPerMm = one.outputWidthMm > 0 ? width / one.outputWidthMm : 0
+  return production ? { ink: one.ink, gapPx: one.gapMm * pxPerMm, production, outputWidthMm: one.outputWidthMm } : { ink: one.ink, gapPx: 0 }
+}
+
+/** Export checks that make a piece hard or impossible to cut. */
+const CUT_PROBLEMS = new Set(['open', 'zero-area', 'self-intersection', 'sliver', 'small'])
+
+/**
+ * A one-colour print / cut file traced, checked with the export checker, and where a problem
+ * piece touches a gap, the gap undone there and the file traced again. Every trace is checked:
+ * after two rounds of undoing gaps in places, any gap still causing a problem means every gap is
+ * undone, so the gap never makes the file harder to cut. `later` repeats the steps that followed one
+ * colour on each map an undo gives back.
+ */
+function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }, later: (map: LabelMap) => LabelMap): { map: LabelMap; traced: ReturnType<typeof traceLabels>; allUndone: boolean } {
+  const one = o.oneColour!
+  const margin = productionGapPx(one.gapPx) + 2
+  let traced = traceLabels(map, o.trace)
+  let undo = cut.undo
+  const flagged = new Set(cut.flags.filter((f) => f.reason === 'cut-limit').map((f) => `${f.x},${f.y}`))
+  for (let round = 0; ; round++) {
+    const checks = validateShapes(shapesFromSvg(traced.svg), { width: map.w, outputWidthMm: one.outputWidthMm!, maxWhere: 10000 })
+    const fromGap = checks
+      .filter((k) => CUT_PROBLEMS.has(k.id) && k.status !== 'ok')
+      .flatMap((k) => k.where)
+      .filter((p) => p.box && nearGap(undo, p.box, margin))
+    if (!fromGap.length) return { map, traced, allUndone: false }
+    for (const p of fromGap) {
+      if (flagged.has(`${p.x},${p.y}`)) continue
+      flagged.add(`${p.x},${p.y}`)
+      cut.flags.push({ x: p.x, y: p.y, reason: 'cut-limit' })
+    }
+    const all = round >= 2
+    const back = undoGaps(undo, all ? [[0, 0, map.w - 1, map.h - 1]] : fromGap.map((p) => p.box!), all ? 0 : margin)
+    undo = back.undo
+    map = later(back.map)
+    traced = traceLabels(map, o.trace)
+    // No gap is left to cause a problem.
+    if (all) return { map, traced, allUndone: true }
   }
 }
 
@@ -209,18 +285,38 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
 
   const bgLabel = backgroundLabel(map)
   const background = bgLabel >= 0 ? map.colors[bgLabel] : o.lineArt ? 0xffffff : null
-  if (o.lineArt && !o.transparent) {
-    // Line art keeps paper out of the shapes; put it back as a white sheet when asked.
-    map = { ...map, colors: map.colors.map((c) => (c < 0 ? 0xffffff : c)) }
-  } else if (o.transparent && bgLabel >= 0) {
-    map = { ...map, colors: map.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
+  let oneColour: OneColourSummary | null = null
+  let gapUndo: GapUndo | undefined
+  if (o.oneColour) {
+    const r = toOneColour(map, bgLabel, o.oneColour)
+    map = r.map
+    const mmPerPx = o.oneColour.outputWidthMm ? o.oneColour.outputWidthMm / map.w : 0
+    oneColour = { ink: r.inkColor, inkRegions: r.ink.length, paperRegions: r.paper.length, gaps: r.gaps, gapMm: r.gapPx && mmPerPx ? r.gapPx * mmPerPx : null, flags: r.flags }
+    if (r.gaps && r.undo && o.oneColour.outputWidthMm) gapUndo = r.undo
   }
-  const palette = paletteOf(map, bgLabel).filter((e) => !map.fills?.[map.colors.indexOf(e.color)])
+  const paper = (m: LabelMap): LabelMap => {
+    // Line art keeps paper out of the shapes; put it back as a white sheet when asked.
+    if (o.lineArt && !o.transparent) return { ...m, colors: m.colors.map((c) => (c < 0 ? 0xffffff : c)) }
+    if (o.transparent && bgLabel >= 0) return { ...m, colors: m.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
+    return m
+  }
+  map = paper(map)
+  let palette = paletteOf(map, bgLabel).filter((e) => !map.fills?.[map.colors.indexOf(e.color)])
+  // One colour: many regions, one ink.
+  if (oneColour) palette = [...new Map(palette.map((e) => [e.color, { ...e, coverage: palette.filter((f) => f.color === e.color).reduce((t, f) => t + f.coverage, 0) }])).values()]
   const knockout = o.trace.mode === 'knockout'
   const text = o.text ? applyText(map, o.text, knockout) : null
   if (text) map = text.map
+  let traced: ReturnType<typeof traceLabels>
+  if (gapUndo && oneColour) {
+    // Undoing a gap starts again from the one-colour map: the steps after it (paper, rebuilt
+    // lettering replacing traced letters) are applied again, so the latest artwork is kept.
+    const later = (m: LabelMap) => (o.text ? applyText(paper(m), o.text, knockout).map : paper(m))
+    const r = traceWithGaps(map, o, { undo: gapUndo, flags: oneColour.flags }, later)
+    ;({ map, traced } = r)
+    if (r.allUndone) [oneColour.gaps, oneColour.gapMm] = [0, null]
+  } else traced = traceLabels(map, o.trace)
   inspect?.(map)
-  const traced = traceLabels(map, o.trace)
   let { svg } = traced
   const { paths, shapes } = traced
   if (text?.layers.length) svg = layersToSvg([...(knockout ? punchLetters(traced.layers, text.holes) : traced.layers), ...text.layers], map.w, map.h)
@@ -235,6 +331,7 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     named: [...branded.named],
     gradients: { found: regions.length, kept: apply ? regions.length : 0 },
     lettered: text?.words ?? 0,
+    oneColour,
   }
 }
 
@@ -423,6 +520,8 @@ export interface TraceResult {
   gradients: { found: number; kept: number }
   /** Words rebuilt from a font. */
   lettered: number
+  /** One-colour mode: what became ink or paper, and where a gap was moved or skipped. */
+  oneColour: OneColourSummary | null
   /** Size of the coordinate space the SVG paths use. */
   width: number
   height: number
@@ -440,11 +539,11 @@ export async function runTraceJob(
     const res = tracers.flat ? await tracers.flat.run(job.image, job.options) : runFlat(job.image, job.options)
     const finalized = finalizeSvg(res.svg, job.image, original)
     const svg = nameSvg(finalized, inkNames({ palette: res.palette, inks: annotate ? res.inks : [], named: res.named }))
-    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, ...size }
+    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, ...size }
   }
   const out = await tracers.vtracer.trace(job.image, toEngineConfig(job.params, job.scale))
   const svg = finalizeSvg(out.svg, job.image, original)
-  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, ...size }
+  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, oneColour: null, ...size }
 }
 
 /**

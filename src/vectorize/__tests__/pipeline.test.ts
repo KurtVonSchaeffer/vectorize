@@ -121,11 +121,13 @@ describe('detectArt', () => {
 
   it('never limits flat artwork to one colour, which merged artwork and background into one blob', () => {
     expect(COLOR_LIMITS).not.toContain(1)
-    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors).toBe(2)
+    // maxColors 1 is the one-colour engine (Color mode → One color): it finds every region first.
+    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors).toBe(12)
+    expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 2 }).colors).toBe(2)
     expect(traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 3 }).colors).toBe(3)
     expect(traceParamsFor('flat', DEFAULT_CLIENT).colors).toBe(12)
     // At the lowest limit a navy mark on cream still traces as a dark mark, not a pale silhouette.
-    const lowest = traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: 1 }).colors
+    const lowest = traceParamsFor('flat', { ...DEFAULT_CLIENT, maxColors: COLOR_LIMITS[0] }).colors
     const r = runFlat(logo(), {
       lineArt: false,
       removeColors: [],
