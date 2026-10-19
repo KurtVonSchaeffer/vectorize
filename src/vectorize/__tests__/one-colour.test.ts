@@ -71,6 +71,15 @@ describe('toOneColour', () => {
     expect(r.map.cov[p]).toBeCloseTo(0.75)
   })
 
+  it('print / cut file: a gap under 1.5 px is widened to 1.5 px, so it clears whole pixels', () => {
+    const m = map(60, 40, [WHITE, 0x3a86ff, 0xffbe0b], (x, y) => (inBox(x, y, 10, 10, 30, 30) ? 1 : inBox(x, y, 30, 10, 50, 30) ? 2 : 0))
+    const r = toOneColour(m, 0, { ink: BLACK, gapPx: 0.5, production: true })
+    // Both pixels along the boundary are mostly paper: the two sides no longer touch through ink.
+    for (const x of [29, 30]) expect(r.map.labels[20 * 60 + x]).toBe(0)
+    // The master's gap (none) and a non-production sub-pixel gap are unchanged.
+    expect(toOneColour(m, 0, { ink: BLACK, gapPx: 0.5 }).map.labels[20 * 60 + 29]).toBe(1)
+  })
+
   it('never cuts into a thin detail or its neighbour: the boundary stays joined and is flagged', () => {
     // A 3 px stripe (detail) between two wide regions; a 4 px gap would eat it.
     const m = map(60, 40, [WHITE, 0x3a86ff, 0xe63946, 0xffbe0b], (x, y) =>
@@ -202,6 +211,39 @@ describe('runFlat in one colour', () => {
     const off = runFlat(img, o(0)), on = runFlat(img, o(0.375))
     expect(problems(on.svg).length).toBeLessThanOrEqual(problems(off.svg).length)
     expect(problems(on.svg)).toEqual([])
+  })
+
+  // Print / cut file options for the disc logo: 240 px traced at 200 mm wide.
+  const cutOpts = (gapPx: number): FlatOptions => ({
+    ...opts(gapPx),
+    oneColour: { ink: BLACK, gapPx, production: true, outputWidthMm: 200 },
+    trace: { ...opts(gapPx).trace, mode: 'knockout', spread: 0 },
+  })
+  const inkPieces = (svg: string) => shapesFromSvg(svg).filter((s) => s.color === BLACK).length
+
+  it('print / cut file: a sub-pixel gap still cuts the centre free of the ring', () => {
+    // 0.5 mm at this size is 0.6 px: before the 1.5 px minimum, the ink stayed one piece joined by bridges.
+    expect(inkPieces(runFlat(logo(), cutOpts(0)).svg)).toBe(1)
+    for (const gapPx of [0.5, 0.75, 1.25, 1.5, 4]) {
+      const r = runFlat(logo(), cutOpts(gapPx))
+      expect(r.oneColour?.gaps).toBe(1)
+      expect(inkPieces(r.svg)).toBe(2)
+    }
+  })
+
+  it('print / cut file: the gap never adds cutting problems, and each undone place is flagged once', () => {
+    const R = [179, 18, 46], Y = [245, 197, 24]
+    // Thin stripes and a stripe one gap wide: places where gaps leave pieces the checker rejects.
+    const img = image(150, 150, (x, y) => (x >= 25 && x < 125 && y >= 25 && y < 125 ? ((y >= 50 && y < 52) || (y >= 80 && y < 83) || (x >= 90 && x < 92) ? [...Y, 255] : [...R, 255]) : [255, 255, 255, 255]) as RGBA)
+    const o = (gapPx: number): FlatOptions => ({ ...opts(gapPx), oneColour: { ink: BLACK, gapPx, production: true, outputWidthMm: 200 }, trace: { ...opts(gapPx).trace, mode: 'knockout', spread: 0 } })
+    const problems = (svg: string) => validateShapes(shapesFromSvg(svg), { width: 150, outputWidthMm: 200 }).filter((k) => ['open', 'zero-area', 'self-intersection', 'sliver', 'small'].includes(k.id) && k.status !== 'ok')
+    const off = problems(runFlat(img, o(0)).svg).length
+    for (const gapPx of [0.375, 1.5, 3]) {
+      const r = runFlat(img, o(gapPx))
+      expect(problems(r.svg).length).toBeLessThanOrEqual(off)
+      const places = r.oneColour!.flags.filter((f) => f.reason === 'cut-limit').map((f) => `${f.x},${f.y}`)
+      expect(new Set(places).size).toBe(places.length)
+    }
   })
 
   it('a gradient is one region: no gaps inside it', () => {

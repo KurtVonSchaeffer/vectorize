@@ -1,5 +1,5 @@
 import { deltaE2000, rgbToLab } from '../palette/color'
-import { nearGap, toOneColour, undoGaps, type GapUndo, type OneColourFlag, type OneColourOptions } from './one-colour'
+import { nearGap, productionGapPx, toOneColour, undoGaps, type GapUndo, type OneColourFlag, type OneColourOptions } from './one-colour'
 import { shapesFromSvg } from '../export/path'
 import { validateShapes } from '../export/validate'
 import type { Palette } from '../palette/parse'
@@ -199,25 +199,34 @@ const CUT_PROBLEMS = new Set(['open', 'zero-area', 'self-intersection', 'sliver'
 
 /**
  * A one-colour print / cut file traced, checked with the export checker, and where a problem
- * piece touches a gap, the gap undone there and the file traced again (twice at most): the gap
- * must never make the file harder to cut.
+ * piece touches a gap, the gap undone there and the file traced again. Every trace is checked:
+ * after two rounds of undoing gaps in places, any gap still causing a problem means every gap is
+ * undone, so the gap never makes the file harder to cut.
  */
-function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }): { map: LabelMap; traced: ReturnType<typeof traceLabels> } {
+function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }): { map: LabelMap; traced: ReturnType<typeof traceLabels>; allUndone: boolean } {
   const one = o.oneColour!
+  const margin = productionGapPx(one.gapPx) + 2
   let traced = traceLabels(map, o.trace)
   let undo = cut.undo
-  for (let round = 0; round < 2; round++) {
+  const flagged = new Set(cut.flags.filter((f) => f.reason === 'cut-limit').map((f) => `${f.x},${f.y}`))
+  for (let round = 0; ; round++) {
     const checks = validateShapes(shapesFromSvg(traced.svg), { width: map.w, outputWidthMm: one.outputWidthMm!, maxWhere: 10000 })
     const fromGap = checks
       .filter((k) => CUT_PROBLEMS.has(k.id) && k.status !== 'ok')
       .flatMap((k) => k.where)
-      .filter((p) => p.box && nearGap(undo, p.box, one.gapPx + 2))
-    if (!fromGap.length) break
-    for (const p of fromGap) cut.flags.push({ x: p.x, y: p.y, reason: 'cut-limit' })
-    ;({ map, undo } = undoGaps(undo, fromGap.map((p) => p.box!), one.gapPx + 2))
+      .filter((p) => p.box && nearGap(undo, p.box, margin))
+    if (!fromGap.length) return { map, traced, allUndone: false }
+    for (const p of fromGap) {
+      if (flagged.has(`${p.x},${p.y}`)) continue
+      flagged.add(`${p.x},${p.y}`)
+      cut.flags.push({ x: p.x, y: p.y, reason: 'cut-limit' })
+    }
+    const all = round >= 2
+    ;({ map, undo } = undoGaps(undo, all ? [[0, 0, map.w - 1, map.h - 1]] : fromGap.map((p) => p.box!), all ? 0 : margin))
     traced = traceLabels(map, o.trace)
+    // No gap is left to cause a problem.
+    if (all) return { map, traced, allUndone: true }
   }
-  return { map, traced }
 }
 
 /** Places rebuilt words in the traced image and renders their coverage (main thread). */
@@ -287,8 +296,11 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   const text = o.text ? applyText(map, o.text, knockout) : null
   if (text) map = text.map
   let traced: ReturnType<typeof traceLabels>
-  if (gapUndo && oneColour) ({ map, traced } = traceWithGaps(map, o, { undo: gapUndo, flags: oneColour.flags }))
-  else traced = traceLabels(map, o.trace)
+  if (gapUndo && oneColour) {
+    const r = traceWithGaps(map, o, { undo: gapUndo, flags: oneColour.flags })
+    ;({ map, traced } = r)
+    if (r.allUndone) oneColour.gaps = 0
+  } else traced = traceLabels(map, o.trace)
   inspect?.(map)
   let { svg } = traced
   const { paths, shapes } = traced

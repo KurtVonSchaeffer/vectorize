@@ -24,7 +24,7 @@ import type { LabelMap } from '../trace'
 export interface OneColourOptions {
   /** The ink, 0xRRGGBB. */
   ink: number
-  /** Separation gap between regions that were different colours, in map px. 0: none (master). */
+  /** Separation gap between regions that were different colours, in map px. 0: none (master). A print / cut file gets at least MIN_GAP_PX. */
   gapPx: number
   /** Regions closer than this (ΔE2000) to the paper colour are paper. Default 15. */
   paperDelta?: number
@@ -63,6 +63,15 @@ export interface OneColourResult {
 const EMPTY = 254
 /** A region that would lose more than this share of its area to symmetric gaps is kept whole. */
 const MAX_LOSS = 0.35
+/**
+ * The narrowest gap a print / cut file gets, in map px. Narrower, the gap only thins the ink along
+ * a boundary: both sides keep partial ink, are merged into one piece and traced as one, so nothing
+ * is cut apart.
+ */
+export const MIN_GAP_PX = 1.5
+
+/** The gap a print / cut file actually gets for a requested gap (0: none). */
+export const productionGapPx = (gapPx: number) => (gapPx > 0 ? Math.max(MIN_GAP_PX, gapPx) : 0)
 
 const labOf = (c: number) => rgbToLab([(c >> 16) & 255, (c >> 8) & 255, c & 255])
 
@@ -86,7 +95,8 @@ export function toOneColour(map: LabelMap, bgLabel: number, o: OneColourOptions)
     colors: colors.map((c, l) => (isInk[l] ? o.ink : l === bgLabel ? c : paper.includes(l) ? -1 : c)),
     fills: map.fills?.map((f, l) => (isInk[l] ? undefined : f)),
   }
-  const cut = o.gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, o.gapPx) : { map: out, gaps: 0, flags: [] }
+  const gapPx = o.production ? productionGapPx(o.gapPx) : o.gapPx
+  const cut = gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, gapPx) : { map: out, gaps: 0, flags: [] }
   if (!o.production) return { ...cut, ink, paper }
   return { ...cut, map: onePiecePerInk(cut.map, isInk), ink, paper, undo: { carved: cut.map, plain: out, isInk } }
 }
