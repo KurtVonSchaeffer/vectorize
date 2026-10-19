@@ -1,0 +1,58 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 720 720] /Contents 4 0 R /Resources << /ColorSpace << /CS0 6 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 386 >>
+stream
+q
+0.9 0 0 -0.9 0 720 cm
+/CS0 cs 1 scn
+701.09 400.5 m
+701.09 566.51 566.51 701.09 400.5 701.09 c
+234.49 701.09 99.91 566.51 99.91 400.5 c
+99.91 234.49 234.49 99.91 400.5 99.91 c
+566.51 99.91 701.09 234.49 701.09 400.5 c
+h
+400.5 256.98 m
+437.96 367.59 l
+554.73 369.04 l
+461.11 438.85 l
+495.82 550.35 l
+400.5 482.88 l
+305.18 550.35 l
+339.89 438.85 l
+246.27 369.04 l
+363.04 367.59 l
+h
+f*
+Q
+endstream
+endobj
+5 0 obj
+<< /Title (1-flat-badge) /Producer (Vectorize) >>
+endobj
+6 0 obj
+[/Separation /Demo#20Green /DeviceRGB << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.169 0.659 0.29] /N 1 >>]
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000254 00000 n 
+0000000690 00000 n 
+0000000755 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R /Info 5 0 R >>
+startxref
+885
+%%EOF

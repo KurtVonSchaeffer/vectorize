@@ -1,0 +1,802 @@
+[
+ {
+  "id": "01-two-colour-badge",
+  "file": "1-flat-badge.png",
+  "what": "Teal ring and yellow centre with a white star, on white; gap at the ring / centre edge",
+  "errors": [],
+  "note": "2 colours drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #0F8A7E (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--1-flat-badge-print.pdf",
+   "pageMm": [
+    200,
+    200
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #0F8A7E",
+     "rgb": [
+      15,
+      138,
+      126
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--1-flat-badge-print.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#0F8A7E"
+   ],
+   "paths": 2,
+   "subpaths": 4
+  },
+  "cutSvg": {
+   "file": "cut--1-flat-badge.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#0F8A7E"
+   ],
+   "paths": 2,
+   "subpaths": 4
+  },
+  "dxf": {
+   "file": "cut--1-flat-badge-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    200
+   ],
+   "layers": [
+    "CUSTOM_INK_0F8A7E"
+   ],
+   "polylines": 4
+  },
+  "masterSvg": {
+   "file": "website-master--1-flat-badge.svg",
+   "size": [
+    "800",
+    "800"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#FFFFFF",
+    "#0F8A7E"
+   ],
+   "paths": 3,
+   "subpaths": 5
+  }
+ },
+ {
+  "id": "02-white-letters",
+  "file": "8-white-letters.png",
+  "what": "White lettering on a teal panel: the letters must be open (holes), not white ink",
+  "errors": [],
+  "note": "1 colour drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #0F8A7E (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--8-white-letters-print.pdf",
+   "pageMm": [
+    200,
+    80
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #0F8A7E",
+     "rgb": [
+      15,
+      138,
+      126
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--8-white-letters-print.svg",
+   "size": [
+    "200mm",
+    "80mm"
+   ],
+   "viewBox": "0 0 800 320",
+   "fills": [
+    "#0F8A7E"
+   ],
+   "paths": 3,
+   "subpaths": 10
+  },
+  "cutSvg": {
+   "file": "cut--8-white-letters.svg",
+   "size": [
+    "200mm",
+    "80mm"
+   ],
+   "viewBox": "0 0 800 320",
+   "fills": [
+    "#0F8A7E"
+   ],
+   "paths": 3,
+   "subpaths": 10
+  },
+  "dxf": {
+   "file": "cut--8-white-letters-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    80
+   ],
+   "layers": [
+    "CUSTOM_INK_0F8A7E"
+   ],
+   "polylines": 10
+  },
+  "masterSvg": {
+   "file": "website-master--8-white-letters.svg",
+   "size": [
+    "800",
+    "320"
+   ],
+   "viewBox": "0 0 800 320",
+   "fills": [
+    "#FFFFFF",
+    "#0F8A7E"
+   ],
+   "paths": 4,
+   "subpaths": 11
+  }
+ },
+ {
+  "id": "03-transparent-png",
+  "file": "4-transparent.png",
+  "what": "Transparent PNG: no background anywhere",
+  "errors": [],
+  "note": "2 colours drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #1D3557 (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--4-transparent-print.pdf",
+   "pageMm": [
+    200,
+    200
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #1D3557",
+     "rgb": [
+      29,
+      53,
+      87
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--4-transparent-print.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 600 600",
+   "fills": [
+    "#1D3557"
+   ],
+   "paths": 2,
+   "subpaths": 3
+  },
+  "cutSvg": {
+   "file": "cut--4-transparent.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 600 600",
+   "fills": [
+    "#1D3557"
+   ],
+   "paths": 2,
+   "subpaths": 3
+  },
+  "dxf": {
+   "file": "cut--4-transparent-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    200
+   ],
+   "layers": [
+    "CUSTOM_INK_1D3557"
+   ],
+   "polylines": 3
+  },
+  "masterSvg": {
+   "file": "website-master--4-transparent.svg",
+   "size": [
+    "600",
+    "600"
+   ],
+   "viewBox": "0 0 600 600",
+   "fills": [
+    "#1D3557"
+   ],
+   "paths": 2,
+   "subpaths": 2
+  }
+ },
+ {
+  "id": "04-gradient-feathers",
+  "file": "feathers.png",
+  "what": "Overlapping gradient feathers: no gaps inside a feather, gaps only where feathers cross",
+  "errors": [],
+  "note": "8 colours drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #4044C5 (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--feathers-print.pdf",
+   "pageMm": [
+    200,
+    200
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #4044C5",
+     "rgb": [
+      64,
+      68,
+      197
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--feathers-print.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 740 740",
+   "fills": [
+    "#4044C5"
+   ],
+   "paths": 5,
+   "subpaths": 5
+  },
+  "cutSvg": {
+   "file": "cut--feathers.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 740 740",
+   "fills": [
+    "#4044C5"
+   ],
+   "paths": 5,
+   "subpaths": 5
+  },
+  "dxf": {
+   "file": "cut--feathers-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    200
+   ],
+   "layers": [
+    "CUSTOM_INK_4044C5"
+   ],
+   "polylines": 5
+  },
+  "masterSvg": {
+   "file": "website-master--feathers.svg",
+   "size": [
+    "740",
+    "740"
+   ],
+   "viewBox": "0 0 740 740",
+   "fills": [
+    "#FFFFFF",
+    "#4044C5"
+   ],
+   "paths": 24,
+   "subpaths": 24
+  }
+ },
+ {
+  "id": "05-stripes",
+  "file": "9-stripes.png",
+  "what": "Red block with yellow stripes: cut into strips at the stripe edges",
+  "errors": [],
+  "note": "2 colours drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #E63A46 (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--9-stripes-print.pdf",
+   "pageMm": [
+    200,
+    120
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #E63A46",
+     "rgb": [
+      230,
+      58,
+      70
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--9-stripes-print.svg",
+   "size": [
+    "200mm",
+    "120mm"
+   ],
+   "viewBox": "0 0 600 360",
+   "fills": [
+    "#E63A46"
+   ],
+   "paths": 12,
+   "subpaths": 12
+  },
+  "cutSvg": {
+   "file": "cut--9-stripes.svg",
+   "size": [
+    "200mm",
+    "120mm"
+   ],
+   "viewBox": "0 0 600 360",
+   "fills": [
+    "#E63A46"
+   ],
+   "paths": 12,
+   "subpaths": 12
+  },
+  "dxf": {
+   "file": "cut--9-stripes-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    120
+   ],
+   "layers": [
+    "CUSTOM_INK_E63A46"
+   ],
+   "polylines": 12
+  },
+  "masterSvg": {
+   "file": "website-master--9-stripes.svg",
+   "size": [
+    "600",
+    "360"
+   ],
+   "viewBox": "0 0 600 360",
+   "fills": [
+    "#FFFFFF",
+    "#E63A46"
+   ],
+   "paths": 8,
+   "subpaths": 8
+  }
+ },
+ {
+  "id": "06-venn-widened-gap",
+  "file": "7-venn.png",
+  "what": "Small image: the gap is widened beyond 0.5 mm, and the note says so",
+  "errors": [],
+  "note": "2 colours drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #1D3557 (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.6 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--7-venn-print.pdf",
+   "pageMm": [
+    200,
+    160
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #1D3557",
+     "rgb": [
+      29,
+      53,
+      87
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--7-venn-print.svg",
+   "size": [
+    "200mm",
+    "160mm"
+   ],
+   "viewBox": "0 0 500 400",
+   "fills": [
+    "#1D3557"
+   ],
+   "paths": 2,
+   "subpaths": 2
+  },
+  "cutSvg": {
+   "file": "cut--7-venn.svg",
+   "size": [
+    "200mm",
+    "160mm"
+   ],
+   "viewBox": "0 0 500 400",
+   "fills": [
+    "#1D3557"
+   ],
+   "paths": 2,
+   "subpaths": 2
+  },
+  "dxf": {
+   "file": "cut--7-venn-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    160
+   ],
+   "layers": [
+    "CUSTOM_INK_1D3557"
+   ],
+   "polylines": 2
+  },
+  "masterSvg": {
+   "file": "website-master--7-venn.svg",
+   "size": [
+    "500",
+    "400"
+   ],
+   "viewBox": "0 0 500 400",
+   "fills": [
+    "#FFFFFF",
+    "#1D3557"
+   ],
+   "paths": 3,
+   "subpaths": 3
+  }
+ },
+ {
+  "id": "07-library-ink",
+  "file": "1-flat-badge.png",
+  "what": "Ink chosen from the ink library (demo inks): plate named after it",
+  "library": true,
+  "errors": [],
+  "note": "2 colours drawn in the ink.",
+  "platePanel": "Print plate: Demo Teal (a demo ink, not a real ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--1-flat-badge-print.pdf",
+   "pageMm": [
+    200,
+    200
+   ],
+   "plates": [
+    {
+     "name": "Demo Teal",
+     "rgb": [
+      0,
+      163,
+      161
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--1-flat-badge-print.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#00A3A1"
+   ],
+   "paths": 2,
+   "subpaths": 4
+  },
+  "cutSvg": {
+   "file": "cut--1-flat-badge.svg",
+   "size": [
+    "200mm",
+    "200mm"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#00A3A1"
+   ],
+   "paths": 2,
+   "subpaths": 4
+  },
+  "dxf": {
+   "file": "cut--1-flat-badge-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    200
+   ],
+   "layers": [
+    "DEMO_TEAL"
+   ],
+   "polylines": 4
+  },
+  "masterSvg": {
+   "file": "website-master--1-flat-badge.svg",
+   "size": [
+    "800",
+    "800"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#FFFFFF",
+    "#00A3A1"
+   ],
+   "paths": 3,
+   "subpaths": 5
+  }
+ },
+ {
+  "id": "08-output-300mm",
+  "file": "2-lettering.jpg",
+  "what": "Output width changed to 300 mm: every file at 300 mm",
+  "widthMm": 300,
+  "errors": [],
+  "note": "1 colour drawn in the ink · 1 light colour left open as negative space.",
+  "platePanel": "Print plate: Custom ink #2C2D42 (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--2-lettering-print.pdf",
+   "pageMm": [
+    300,
+    120
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #2C2D42",
+     "rgb": [
+      44,
+      45,
+      66
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--2-lettering-print.svg",
+   "size": [
+    "300mm",
+    "120mm"
+   ],
+   "viewBox": "0 0 1000 400",
+   "fills": [
+    "#2C2D42"
+   ],
+   "paths": 7,
+   "subpaths": 14
+  },
+  "cutSvg": {
+   "file": "cut--2-lettering.svg",
+   "size": [
+    "300mm",
+    "120mm"
+   ],
+   "viewBox": "0 0 1000 400",
+   "fills": [
+    "#2C2D42"
+   ],
+   "paths": 7,
+   "subpaths": 14
+  },
+  "dxf": {
+   "file": "cut--2-lettering-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    300,
+    120
+   ],
+   "layers": [
+    "CUSTOM_INK_2C2D42"
+   ],
+   "polylines": 14
+  },
+  "masterSvg": {
+   "file": "website-master--2-lettering.svg",
+   "size": [
+    "1000",
+    "400"
+   ],
+   "viewBox": "0 0 1000 400",
+   "fills": [
+    "#2C2D42",
+    "#FFFFFF"
+   ],
+   "paths": 43,
+   "subpaths": 51
+  }
+ },
+ {
+  "id": "09-white-ink-on-navy",
+  "file": "12-navy-garment.png",
+  "what": "White ink chosen, navy garment: the white star prints, the navy does not",
+  "ink": "#ffffff",
+  "errors": [],
+  "note": "1 colour drawn in the ink.",
+  "platePanel": "Print plate: Custom ink #FFFFFF (not matched to an ink library)",
+  "inkCount": "Colors · 1 ink to print",
+  "previewLabel": "Print / cut file · 0.5 mm gaps",
+  "flags": null,
+  "pdf": {
+   "file": "print--12-navy-garment-print.pdf",
+   "pageMm": [
+    200,
+    133.3
+   ],
+   "plates": [
+    {
+     "name": "Custom ink #FFFFFF",
+     "rgb": [
+      255,
+      255,
+      255
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--12-navy-garment-print.svg",
+   "size": [
+    "200mm",
+    "133.333mm"
+   ],
+   "viewBox": "0 0 600 400",
+   "fills": [
+    "#FFFFFF"
+   ],
+   "paths": 1,
+   "subpaths": 2
+  },
+  "cutSvg": {
+   "file": "cut--12-navy-garment.svg",
+   "size": [
+    "200mm",
+    "133.333mm"
+   ],
+   "viewBox": "0 0 600 400",
+   "fills": [
+    "#FFFFFF"
+   ],
+   "paths": 1,
+   "subpaths": 2
+  },
+  "dxf": {
+   "file": "cut--12-navy-garment-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    133.3333
+   ],
+   "layers": [
+    "CUSTOM_INK_FFFFFF"
+   ],
+   "polylines": 2
+  },
+  "masterSvg": {
+   "file": "website-master--12-navy-garment.svg",
+   "size": [
+    "600",
+    "400"
+   ],
+   "viewBox": "0 0 600 400",
+   "fills": [
+    "#1D3557",
+    "#FFFFFF"
+   ],
+   "paths": 2,
+   "subpaths": 3
+  }
+ },
+ {
+  "id": "10-legacy-silhouette",
+  "file": "1-flat-badge.png",
+  "what": "Legacy one-ink silhouette, for comparison (not size-aware: PDF 254 mm)",
+  "legacy": true,
+  "errors": [],
+  "note": "Legacy silhouette: the whole artwork in one print ink as a single shape, without inner shapes or separation gaps. For one ink that keeps inner shapes, choose Color mode → One color. Back to full color",
+  "platePanel": null,
+  "inkCount": "Colors · 1 ink to print",
+  "pdf": {
+   "file": "print--1-flat-badge-print.pdf",
+   "pageMm": [
+    254,
+    254
+   ],
+   "plates": [
+    {
+     "name": "Demo Green",
+     "rgb": [
+      43,
+      168,
+      74
+     ]
+    }
+   ]
+  },
+  "printSvg": {
+   "file": "print--1-flat-badge.svg",
+   "size": [
+    "800",
+    "800"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#2BA84A"
+   ],
+   "paths": 1,
+   "subpaths": 2
+  },
+  "cutSvg": {
+   "file": "cut--1-flat-badge.svg",
+   "size": [
+    "800",
+    "800"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#2BA84A"
+   ],
+   "paths": 1,
+   "subpaths": 2
+  },
+  "dxf": {
+   "file": "cut--1-flat-badge-cut.dxf",
+   "units": "mm",
+   "sizeMm": [
+    200,
+    200
+   ],
+   "layers": [
+    "DEMO_GREEN"
+   ],
+   "polylines": 2
+  },
+  "masterSvg": {
+   "file": "website-master--1-flat-badge.svg",
+   "size": [
+    "800",
+    "800"
+   ],
+   "viewBox": "0 0 800 800",
+   "fills": [
+    "#2BA84A"
+   ],
+   "paths": 1,
+   "subpaths": 2
+  }
+ }
+]

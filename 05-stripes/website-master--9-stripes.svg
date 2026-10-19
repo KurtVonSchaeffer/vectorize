@@ -1,0 +1,15 @@
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="600" height="360" viewBox="0 0 600 360">
+<desc>Inks: #FFFFFF (#FFFFFF); Red (#E63A46)</desc>
+<g data-color="#FFFFFF">
+<path d="M0 0L600 0L600 360L0 360Z" fill="#FFFFFF" fill-rule="evenodd"/>
+</g>
+<g id="Red" data-name="Red" data-color="#E63A46">
+<path id="Red_1" data-ink="Red" d="M50 60L550.21 60L550.21 300.21L50 300.21Z" fill="#E63A46" fill-rule="evenodd"/>
+<path id="Red_2" data-ink="Red" d="M50 90L550.21 90L550.21 100L50 100Z" fill="#E63A46" fill-rule="evenodd"/>
+<path id="Red_3" data-ink="Red" d="M50 130L550.21 130L550.21 140L50 140Z" fill="#E63A46" fill-rule="evenodd"/>
+<path id="Red_4" data-ink="Red" d="M50 170L550.21 170L550.21 180L50 180Z" fill="#E63A46" fill-rule="evenodd"/>
+<path id="Red_5" data-ink="Red" d="M50 210L550.21 210L550.21 220L50 220Z" fill="#E63A46" fill-rule="evenodd"/>
+<path id="Red_6" data-ink="Red" d="M50 250L550.21 250L550.21 260L50 260Z" fill="#E63A46" fill-rule="evenodd"/>
+<path id="Red_7" data-ink="Red" d="M50 290L550.21 290L550.21 300.21L50 300.21Z" fill="#E63A46" fill-rule="evenodd"/>
+</g>
+</svg>
