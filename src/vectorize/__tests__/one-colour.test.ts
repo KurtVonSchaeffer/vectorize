@@ -83,8 +83,9 @@ describe('toOneColour', () => {
   it('print / cut file: a gap under 1.5 px is widened to 1.5 px, so it clears whole pixels', () => {
     const m = map(60, 40, [WHITE, 0x3a86ff, 0xffbe0b], (x, y) => (inBox(x, y, 10, 10, 30, 30) ? 1 : inBox(x, y, 30, 10, 50, 30) ? 2 : 0))
     const r = toOneColour(m, 0, { ink: BLACK, gapPx: 0.5, production: true })
-    // Both pixels along the boundary are mostly paper: the two sides no longer touch through ink.
-    for (const x of [29, 30]) expect(r.map.labels[20 * 60 + x]).toBe(0)
+    // Both pixels along the boundary are mostly paper (no shape: a print / cut file doesn't print the
+    // background): the two sides no longer touch through ink.
+    for (const x of [29, 30]) expect(r.map.labels[20 * 60 + x]).toBeGreaterThanOrEqual(254)
     // The master's gap (none) and a non-production sub-pixel gap are unchanged.
     expect(toOneColour(m, 0, { ink: BLACK, gapPx: 0.5 }).map.labels[20 * 60 + 29]).toBe(1)
   })
@@ -141,7 +142,7 @@ describe('toOneColour', () => {
     const back = undoGaps(r.undo!, [[28, 10, 32, 15]], 0).map
     // Rows 10–15 are joined again; rows below keep the gap.
     expect(back.labels[12 * 60 + 29]).not.toBe(0)
-    expect(back.labels[20 * 60 + 29]).toBe(0)
+    expect(back.labels[20 * 60 + 29]).toBeGreaterThanOrEqual(254)
   })
 
   it('a hairline sliver of a third colour along a gapped boundary becomes part of the gap, flagged', () => {

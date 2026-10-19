@@ -288,7 +288,7 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   let oneColour: OneColourSummary | null = null
   let gapUndo: GapUndo | undefined
   if (o.oneColour) {
-    const r = toOneColour(map, bgLabel, o.oneColour)
+    const r = toOneColour(map, bgLabel, { ...o.oneColour, source: image })
     map = r.map
     const mmPerPx = o.oneColour.outputWidthMm ? o.oneColour.outputWidthMm / map.w : 0
     oneColour = { ink: r.inkColor, inkRegions: r.ink.length, paperRegions: r.paper.length, gaps: r.gaps, gapMm: r.gapPx && mmPerPx ? r.gapPx * mmPerPx : null, flags: r.flags }
@@ -302,8 +302,11 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   }
   map = paper(map)
   let palette = paletteOf(map, bgLabel).filter((e) => !map.fills?.[map.colors.indexOf(e.color)])
-  // One colour: many regions, one ink.
-  if (oneColour) palette = [...new Map(palette.map((e) => [e.color, { ...e, coverage: palette.filter((f) => f.color === e.color).reduce((t, f) => t + f.coverage, 0) }])).values()]
+  // One colour: many regions, one ink. The background is paper, not an ink (even when it's the ink's colour).
+  if (oneColour) {
+    const inks = palette.filter((e) => e.color === oneColour!.ink && !e.background)
+    palette = inks.length ? [{ ...inks[0], coverage: inks.reduce((t, e) => t + e.coverage, 0) }] : []
+  }
   const knockout = o.trace.mode === 'knockout'
   const text = o.text ? applyText(map, o.text, knockout) : null
   if (text) map = text.map

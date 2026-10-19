@@ -591,7 +591,7 @@ export default function App() {
               vectorLabel={gapsShown ? `Print / cut file · ${(widenedGap(result?.oneColour ?? null, gapMm) ?? gapMm).toFixed(1)} mm gaps` : oneOn ? 'Master · one colour, no gaps' : undefined}
               marks={
                 gapsShown && result?.oneColour?.flags.length
-                  ? { points: result.oneColour.flags, size: { width: result.width, height: result.height }, legend: `Red rings: ${result.oneColour.flags.length} places to check, where a gap was left out (to keep detail or keep the file cuttable) or took in a hairline sliver.` }
+                  ? { points: result.oneColour.flags, size: { width: result.width, height: result.height }, legend: `Red rings: ${result.oneColour.flags.length} places to check, where a gap was left out (to keep detail, keep the file cuttable, or because the edge is unclear) or took in a hairline sliver.` }
                   : undefined
               }
             />
@@ -821,10 +821,12 @@ function oneColourNote(r: TraceResult['oneColour'], gapsShown: boolean, askedMm:
     const thin = r.flags.filter((f) => f.reason === 'gap-skipped').length
     const cut = r.flags.filter((f) => f.reason === 'cut-limit').length
     const sliver = r.flags.filter((f) => f.reason === 'gap-sliver').length
+    const unsure = r.flags.filter((f) => f.reason === 'gap-unsure').length
     if (thin) parts.push(`${thin} left joined where a gap would cut into thin detail`)
     if (cut) parts.push(`${cut} left joined where a gap would leave a piece too thin or small to cut`)
+    if (unsure) parts.push(`${unsure} left joined where it isn't clear the colours meet at a real edge rather than in shading`)
     if (sliver) parts.push(`${sliver} hairline ${sliver === 1 ? 'sliver' : 'slivers'} of another colour along a gap became part of it`)
-    if (thin || cut || sliver) parts.push('ringed in red on the preview')
+    if (thin || cut || unsure || sliver) parts.push('ringed in red on the preview')
   }
   return parts.join(' · ') + '.'
 }

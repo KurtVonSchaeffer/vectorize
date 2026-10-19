@@ -32,6 +32,12 @@ export interface OneColourOptions {
   production?: boolean
   /** Print / cut files: the width (mm) they're made at, for the export checker. */
   outputWidthMm?: number
+  /**
+   * The image the map was made from (it may be smaller than the map). Print / cut files use it to
+   * tell a real edge from a step between colour bands of flattened shading (see edgeKind); without
+   * it every boundary counts as an edge.
+   */
+  source?: { data: Uint8ClampedArray; width: number; height: number }
 }
 
 export interface OneColourFlag {
@@ -43,8 +49,9 @@ export interface OneColourFlag {
    * itself), so it was undone there.
    * gap-sliver: a sliver of another colour no wider than the gap, along a boundary that got a gap,
    * became part of the gap.
+   * gap-unsure: it isn't clear this boundary is a real edge rather than shading, so it stays joined.
    */
-  reason: 'gap-skipped' | 'cut-limit' | 'gap-sliver'
+  reason: 'gap-skipped' | 'cut-limit' | 'gap-sliver' | 'gap-unsure'
 }
 
 export interface OneColourResult {
@@ -98,11 +105,12 @@ export function toOneColour(map: LabelMap, bgLabel: number, o: OneColourOptions)
 
   const out: LabelMap = {
     ...map,
-    colors: colors.map((c, l) => (isInk[l] ? inkColor : l === bgLabel ? c : paper.includes(l) ? -1 : c)),
+    // A print / cut file doesn't print the background: it's the paper (or garment, or vinyl backing).
+    colors: colors.map((c, l) => (isInk[l] ? inkColor : l === bgLabel ? (o.production ? -1 : c) : paper.includes(l) ? -1 : c)),
     fills: map.fills?.map((f, l) => (isInk[l] ? undefined : f)),
   }
   const gapPx = o.production ? productionGapPx(o.gapPx) : o.gapPx
-  const cut = gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, gapPx) : { map: out, gaps: 0, flags: [] }
+  const cut = gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, gapPx, colors, o.source) : { map: out, gaps: 0, flags: [] }
   if (!o.production) return { ...cut, gapPx, ink, inkColor, paper }
   return { ...cut, gapPx, map: onePiecePerInk(cut.map, isInk), ink, inkColor, paper, undo: { carved: cut.map, plain: out, isInk } }
 }
@@ -187,7 +195,32 @@ function onePiecePerInk(map: LabelMap, isInk: Uint8Array): LabelMap {
   return { ...map, labels, second, cov }
 }
 
-function carveGaps(map: LabelMap, isInk: Uint8Array, bgLabel: number, gapPx: number): { map: LabelMap; gaps: number; flags: OneColourFlag[] } {
+/**
+ * How a boundary between two former colours looks in the source image: `edge` where the image steps
+ * from one colour to the other within a few pixels (a shape's outline), `shading` where the image
+ * barely changes across it (the step is only between colour bands of a flattened gradient), and
+ * `unsure` in between. Only edges get a gap; shading stays one connected piece.
+ */
+export type EdgeKind = 'edge' | 'shading' | 'unsure'
+/** A source step (ΔE76, median across the boundary) at least this, and half the colours' difference, is an edge. */
+const EDGE_STEP = 8
+/** A step at most this, or a fifth of the colours' difference, is shading. */
+const SHADING_STEP = 4
+export function edgeKind(step: number, colourDiff: number): EdgeKind {
+  if (step >= Math.max(EDGE_STEP, 0.5 * colourDiff)) return 'edge'
+  if (step <= Math.max(SHADING_STEP, 0.2 * colourDiff)) return 'shading'
+  return 'unsure'
+}
+const de76 = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+function carveGaps(
+  map: LabelMap,
+  isInk: Uint8Array,
+  bgLabel: number,
+  gapPx: number,
+  origColors: number[],
+  source?: OneColourOptions['source'],
+): { map: LabelMap; gaps: number; flags: OneColourFlag[] } {
   const { w, h, labels } = map
   const n = w * h
   const fill = bgLabel >= 0 && map.colors[bgLabel] >= 0 ? bgLabel : EMPTY
@@ -221,28 +254,58 @@ function carveGaps(map: LabelMap, isInk: Uint8Array, bgLabel: number, gapPx: num
   const N = pieces.length
   const key = (a: number, b: number) => (a < b ? a * N + b : b * N + a)
   // Shared boundary length per pair of pieces; a few pixels of contact is noise, not a boundary.
-  const shared = new Map<number, { len: number; sx: number; sy: number }>()
-  const touch = (p: number, q: number) => {
+  const shared = new Map<number, { len: number; sx: number; sy: number; steps: number[] }>()
+  // The source image across a boundary: from one pixel before it to one pixel past it (anti-aliased
+  // edges spread over a pixel or two), in the source's own pixels.
+  const srcLab = new Map<number, number[]>()
+  const sourceAt = (x: number, y: number) => {
+    const sx = Math.min(source!.width - 1, Math.max(0, Math.floor(((x + 0.5) * source!.width) / w)))
+    const sy = Math.min(source!.height - 1, Math.max(0, Math.floor(((y + 0.5) * source!.height) / h)))
+    const i = sy * source!.width + sx
+    let lab = srcLab.get(i)
+    if (!lab) srcLab.set(i, (lab = rgbToLab([source!.data[i * 4], source!.data[i * 4 + 1], source!.data[i * 4 + 2]])))
+    return lab
+  }
+  const touch = (p: number, q: number, dx: number, dy: number) => {
     const a = comp[p], b = comp[q]
     if (a < 0 || b < 0 || a === b) return
     const k = key(a, b)
-    const s = shared.get(k) ?? { len: 0, sx: 0, sy: 0 }
+    const s = shared.get(k) ?? { len: 0, sx: 0, sy: 0, steps: [] }
+    const x = p % w, y = (p / w) | 0
     s.len++
-    s.sx += p % w
-    s.sy += (p / w) | 0
+    s.sx += x
+    s.sy += y
+    if (source && s.steps.length < 600) s.steps.push(de76(sourceAt(x - dx, y - dy), sourceAt(x + 2 * dx, y + 2 * dy)))
     shared.set(k, s)
   }
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const p = y * w + x
-      if (x + 1 < w) touch(p, p + 1)
-      if (y + 1 < h) touch(p, p + w)
+      if (x + 1 < w) touch(p, p + 1, 1, 0)
+      if (y + 1 < h) touch(p, p + w, 0, 1)
     }
   const minLen = Math.max(4, 3 * gapPx)
-  const real = (a: number, b: number) => (shared.get(key(a, b))?.len ?? 0) >= minLen
+  const kinds = new Map<number, EdgeKind>()
+  const kindOf = (k: number): EdgeKind => {
+    let kind = kinds.get(k)
+    if (!kind) {
+      const s = shared.get(k)!
+      const steps = s.steps.slice().sort((u, v) => u - v)
+      const a = Math.floor(k / N), b = k % N
+      kind = source && steps.length ? edgeKind(steps[steps.length >> 1], de76(labOf(origColors[pieces[a].label]), labOf(origColors[pieces[b].label]))) : 'edge'
+      kinds.set(k, kind)
+    }
+    return kind
+  }
+  // A boundary that gets a gap: long enough to be a boundary (a few pixels of contact is noise), and
+  // a real edge in the image.
+  const real = (a: number, b: number) => {
+    const k = key(a, b)
+    return (shared.get(k)?.len ?? 0) >= minLen && kindOf(k) === 'edge'
+  }
   const half = gapPx / 2
   const near = new Set<number>()
-  for (const [k, s] of shared) if (s.len >= minLen) [near.add(Math.floor(k / N)), near.add(k % N)]
+  for (const [k, s] of shared) if (s.len >= minLen && kindOf(k) === 'edge') [near.add(Math.floor(k / N)), near.add(k % N)]
 
   // Ink kept in a pixel `db` from a boundary, when `cut` px of gap is taken from this side.
   const keep = (db: number, cut: number) => Math.min(1, Math.max(0, db - cut + 0.5))
@@ -322,7 +385,11 @@ function carveGaps(map: LabelMap, isInk: Uint8Array, bgLabel: number, gapPx: num
     if (s.len < minLen) continue
     const a = Math.floor(k / N), b = k % N
     const at = { x: +(s.sx / s.len).toFixed(1), y: +(s.sy / s.len).toFixed(1) }
-    if (thin[a] || thin[b]) flags.push({ ...at, reason: 'gap-skipped' })
+    const kind = kindOf(k)
+    // Shading inside one shape is rightly joined; an unclear boundary is joined too, but flagged.
+    if (kind === 'shading') continue
+    if (kind === 'unsure') flags.push({ ...at, reason: 'gap-unsure' })
+    else if (thin[a] || thin[b]) flags.push({ ...at, reason: 'gap-skipped' })
     else if (!absorbed[a] && !absorbed[b]) gaps++
   }
   for (let a = 0; a < N; a++) {
