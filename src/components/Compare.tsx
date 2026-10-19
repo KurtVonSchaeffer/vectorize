@@ -8,13 +8,17 @@ interface Props {
   height: number
   /** Shown over the artwork while work is in progress. */
   busy: string | null
+  /** What the vector side shows, when it isn't simply the vector (e.g. a cut file). Default "Vector". */
+  vectorLabel?: string
+  /** Places to ring on the vector side (in the SVG's own coordinates, `marksSize`), with what they mean. */
+  marks?: { points: { x: number; y: number }[]; size: { width: number; height: number }; legend: string }
 }
 
 const ZOOMS = [1, 2, 4]
 const LAYER = 'absolute inset-0 size-full max-w-none object-contain select-none [-webkit-user-drag:none]'
 const LABEL = 'pointer-events-none absolute top-3 rounded-full bg-[rgb(18_20_24/0.72)] px-2.5 py-1 text-xs font-semibold text-white'
 
-export function Compare({ originalUrl, svg, width, height, busy }: Props) {
+export function Compare({ originalUrl, svg, width, height, busy, vectorLabel = 'Vector', marks }: Props) {
   const [split, setSplit] = useState(50)
   const [zoom, setZoom] = useState(1)
   const art = useRef<HTMLDivElement>(null)
@@ -65,7 +69,16 @@ export function Compare({ originalUrl, svg, width, height, busy }: Props) {
             </span>
           </div>
           <span className={cx(LABEL, 'left-3')}>Your image</span>
-          <span className={cx(LABEL, 'right-3')}>Vector</span>
+          {marks && marks.points.length > 0 && (
+            // Over the vector side only; never part of a file.
+            <svg className={cx(LAYER, 'pointer-events-none')} viewBox={`0 0 ${marks.size.width} ${marks.size.height}`} style={{ clipPath: `inset(0 0 0 ${split}%)` }} aria-hidden="true">
+              {rings(marks.points, Math.max(marks.size.width, marks.size.height) / 45).map((c, i) => (
+                <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="none" stroke="#dc2626" strokeWidth={Math.max(marks.size.width, marks.size.height) / 250} />
+              ))}
+            </svg>
+          )}
+          <span className={cx(LABEL, 'left-3')}>Your image</span>
+          <span className={cx(LABEL, 'right-3')}>{vectorLabel}</span>
         </div>
         {busy && (
           <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2.5 whitespace-nowrap rounded-full border border-line bg-card px-4 py-2 text-sm font-semibold shadow-[0_6px_20px_rgb(0_0_0/0.15)]" role="status">
@@ -75,7 +88,10 @@ export function Compare({ originalUrl, svg, width, height, busy }: Props) {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2.5 text-[13px] text-ink-2">
-        <span>Drag the handle to compare. Zoom in to check edges.</span>
+        <span>
+          Drag the handle to compare. Zoom in to check edges.
+          {marks && marks.points.length > 0 && <span className="ml-1 font-semibold text-[#b91c1c]">{marks.legend}</span>}
+        </span>
         <span className="inline-flex rounded-lg border border-line p-0.5" role="group" aria-label="Zoom">
           {ZOOMS.map((z) => (
             <button key={z} className="rounded-md px-2.5 py-1 text-[13px] font-semibold text-ink-2 aria-pressed:bg-ink aria-pressed:text-card" aria-pressed={zoom === z} onClick={() => setZoom(z)}>
@@ -86,4 +102,19 @@ export function Compare({ originalUrl, svg, width, height, busy }: Props) {
       </div>
     </div>
   )
+}
+
+/** Points grouped so overlapping rings become one ring around the group (keeps the artwork visible). */
+function rings(points: { x: number; y: number }[], r: number): { x: number; y: number; r: number }[] {
+  const groups: { x: number; y: number }[][] = []
+  for (const p of points) {
+    const g = groups.find((g) => g.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 2 * r))
+    if (g) g.push(p)
+    else groups.push([p])
+  }
+  return groups.map((g) => {
+    const x = g.reduce((s, p) => s + p.x, 0) / g.length
+    const y = g.reduce((s, p) => s + p.y, 0) / g.length
+    return { x, y, r: r + Math.max(...g.map((p) => Math.hypot(p.x - x, p.y - y))) }
+  })
 }

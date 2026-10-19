@@ -21,18 +21,35 @@ export interface ClientSettings {
   exactShapes: boolean
   /** Keep smooth gradients as SVG gradients instead of color bands. */
   gradients: boolean
+  /** One colour (Color mode → One color): the ink, and the separation gap cut into print and cut files. */
+  oneColour: OneColourSettings
 }
 
 /**
- * The colour limits offered under Fine-tune. One colour isn't offered: the background counts as a
- * colour, so a limit of 1 merged artwork and background into a single blob (a pale silhouette, or
- * near-white for line art). One-colour work goes through print inks (white is paper) until a real
- * one-colour mode exists.
+ * The colour limits offered under Fine-tune. A limit of 1 isn't one of them: the background counts as
+ * a colour, so it merged artwork and background into a single blob. One colour is its own mode
+ * (Color mode → One color), which sets maxColors to 1 to run the one-colour engine.
  */
 export const COLOR_LIMITS = [2, 3, 4, 5, 6, 8, 10, 12, 16, 24]
 const MIN_COLORS = COLOR_LIMITS[0]
 
-export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true }
+export interface OneColourSettings {
+  /** The ink, 0xRRGGBB; null: the artwork's darkest colour. */
+  ink: number | null
+  /**
+   * The ink's name in the customer's ink library, when they chose it from there (the print plate's
+   * name); '' while the library list is open with nothing chosen; null otherwise.
+   */
+  inkName: string | null
+  /** Gap between regions that were different colours, at the output width. 0 = none. */
+  gapMm: number
+  /** Width the file will be printed or cut at, so the gap is a real size. */
+  outputWidthMm: number
+  /** Show the preview with the gaps the print / cut file will have (the master has none). */
+  previewGaps: boolean
+}
+
+export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true, oneColour: { ink: null, inkName: null, gapMm: 0.5, outputWidthMm: 200, previewGaps: false } }
 
 /**
  * Per-image additions to the Detail slider, from what the image is like. Measured on the
@@ -88,7 +105,8 @@ export function traceParamsFor(kind: ArtKind, s: ClientSettings, boost: DetailBo
       return {
         ...preset('logo'),
         ...curves,
-        colors: s.maxColors === null ? 12 : Math.max(MIN_COLORS, s.maxColors),
+        // One colour (maxColors 1) finds every region first (all colours), then draws them in the ink.
+        colors: s.maxColors === null || s.maxColors === 1 ? 12 : Math.max(MIN_COLORS, s.maxColors),
         colorMerge: Math.round(lerp(16, 4, d)),
         filterSpeckle: Math.round(lerp(6, 1, ds)),
       }

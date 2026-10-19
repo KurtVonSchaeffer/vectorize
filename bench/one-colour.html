@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>One-colour acceptance</title>
+    <style>body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111} table{border-collapse:collapse;margin:8px 0} th,td{padding:4px 10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top} section{border-top:2px solid #ddd;margin-top:18px;padding-top:8px} h2{font-size:15px;margin:4px 0} .row{display:flex;gap:8px;flex-wrap:wrap} figure{margin:0;width:180px} figure img{width:180px;height:180px;object-fit:contain;border:1px solid #ccc;background:#fff} figcaption{font-size:11px} .pass{color:#1d8a4b} .fail{color:#c0362c}</style>
+  </head>
+  <body>
+    <h1>One-colour acceptance tests</h1>
+    <p>Each logo is made with Maximum colors = 1: the colour result and its plates (reference), the old one-colour behaviour, the new master (no gaps), and the print / cut file with the gap off, at the default 0.5 mm and at the largest 2 mm (at 200 mm wide).</p>
+    <p><button id="run">Run the test set</button> · or add logos <input id="files" type="file" multiple accept="image/*"></p>
+    <p id="status">Ready.</p>
+    <div id="summary"></div>
+    <div id="cases"></div>
+    <script type="module" src="./one-colour.ts"></script>
+  </body>
+</html>

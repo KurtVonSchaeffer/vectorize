@@ -12,6 +12,7 @@ import { ResultCard, type Chip, type ColorMode } from './components/ResultCard'
 import { Upload } from './components/Upload'
 import { downloadsFor, saveBlob, type Download } from './export/files'
 import { DEMO_PALETTE } from './palette/demo'
+import { oneColourPlateName } from './vectorize/one-colour-ink'
 import { colorNames } from './palette/names'
 import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
@@ -201,6 +202,10 @@ export default function App() {
   // knockout version is traced only when a print PDF or cut file is made.
   const plates = client.purpose !== 'web' && purposeAffectsTrace(kind, inks.enabled)
   const { detail, corners, maxColors, keepBlends, exactShapes, gradients } = client
+  // One colour: Maximum colors = 1 on flat art. The gap is cut only into print plates and cut files.
+  const oneOn = maxColors === 1 && kind === 'flat' && !inks.enabled
+  const { ink: oneInk, gapMm, outputWidthMm, previewGaps } = client.oneColour
+  const gapsShown = oneOn && plates && previewGaps && gapMm > 0
   const buildJob = useMemo(() => {
     if (!input || !source) return null
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
@@ -218,9 +223,11 @@ export default function App() {
         gradients,
         brand,
         lettering: vary.lettering ?? letteringWords,
+        oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
       })
-  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords])
-  const job = useMemo(() => buildJob?.(false) ?? null, [buildJob])
+  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords, oneOn, oneInk, gapMm, outputWidthMm])
+  // The preview is the master, unless the client asked to see the production file's gaps.
+  const job = useMemo(() => buildJob?.(gapsShown) ?? null, [buildJob, gapsShown])
 
   // Recent results, so going back to a previous setting (e.g. Print → Website → Print) is instant.
   const cache = useRef(new Map<string, TraceResult>())
@@ -305,10 +312,18 @@ export default function App() {
       height: result.height,
       baseName,
       names,
-      spotNames: inks.enabled ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name])) : null,
+      spotNames: inks.enabled
+        ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name]))
+        : oneOn && result.oneColour
+          ? new Map([[result.oneColour.ink, oneColourPlateName(result.oneColour.ink, client.oneColour.ink !== null ? client.oneColour.inkName || null : null)]])
+          : null,
       flat: !!chips && chips.length <= 16,
+      // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
+      cutSvgFromPlates: oneOn,
+      // One colour has a chosen output width: the print and cut files (SVG, PDF, DXF) are made at it.
+      outputWidthMm: oneOn ? outputWidthMm : undefined,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob])
+  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName, outputWidthMm])
 
   const download = async (d: Download) => {
     try {
@@ -414,7 +429,14 @@ export default function App() {
         }
       : null
   // The color mode, shown on the result: full color unless the customer chose otherwise.
-  const colorMode: ColorMode = inks.enabled ? (inks.maxInks === 1 ? 'one' : 'custom') : client.maxColors !== null || customPicked === source?.id ? 'custom' : 'full'
+  // One color is the one-colour engine (oneOn). The legacy silhouette (one print ink, white as paper)
+  // is a Custom choice, kept while the two are compared.
+  const legacySilhouette = inks.enabled && inks.maxInks === 1
+  const colorMode: ColorMode = oneOn ? 'one' : inks.enabled || client.maxColors !== null || customPicked === source?.id ? 'custom' : 'full'
+  const openFineTune = (id: string) => {
+    document.querySelectorAll('details').forEach((d) => (d.open = true))
+    requestAnimationFrame(() => document.getElementById(id)?.focus())
+  }
   const setColorMode = (m: ColorMode) => {
     setRemoved([])
     setCustomPicked(m === 'custom' ? (source?.id ?? null) : null)
@@ -422,18 +444,32 @@ export default function App() {
       setInks((s) => ({ ...s, enabled: false }))
       setClient((c) => ({ ...c, maxColors: null }))
     } else if (m === 'one') {
-      setInks((s) => ({ ...s, enabled: true, maxInks: 1, whiteIsPaper: true }))
-      setBrand({ ...brand, mode: 'off' })
-    } else {
-      // Custom: the limits live under Fine-tune → More options (maximum colors, or print inks).
       setInks((s) => ({ ...s, enabled: false }))
-      document.querySelectorAll('details').forEach((d) => (d.open = true))
-      requestAnimationFrame(() => document.getElementById('maxColors')?.focus())
+      setClient((c) => ({ ...c, maxColors: 1 }))
+      setBrand({ ...brand, mode: 'off' })
+      openFineTune('one-ink')
+    } else {
+      // Custom: the limits live under Fine-tune → More options (maximum colors, print inks, or the legacy silhouette).
+      setInks((s) => ({ ...s, enabled: false }))
+      setClient((c) => ({ ...c, maxColors: c.maxColors === 1 ? null : c.maxColors }))
+      openFineTune('maxColors')
     }
+  }
+  // A one-colour ink chosen from the previous library isn't in the new one: keep its colour, drop the
+  // name (the library stays open with nothing chosen), so the plate never carries a stale ink name.
+  const forgetLibraryInk = () => setClient((c) => (c.oneColour.inkName ? { ...c, oneColour: { ...c.oneColour, inkName: '' } } : c))
+  const setLegacySilhouette = (on: boolean) => {
+    setRemoved([])
+    setCustomPicked(source?.id ?? null)
+    setClient((c) => ({ ...c, maxColors: null }))
+    setInks((s) => (on ? { ...s, enabled: true, maxInks: 1, whiteIsPaper: true } : { ...s, enabled: false }))
+    if (on) setBrand({ ...brand, mode: 'off' })
   }
   const inkNote = inks.enabled
     ? {
-        text: inks.maxInks === 1 ? 'Printing in one ink.' : `Colors are matched to at most ${inks.maxInks} print inks${importedPalette ? ' from your library' : ' (demo inks)'}.`,
+        text: legacySilhouette
+          ? 'Legacy silhouette: the whole artwork in one print ink as a single shape, without inner shapes or separation gaps. For one ink that keeps inner shapes, choose Color mode → One color.'
+          : `Colors are matched to at most ${inks.maxInks} print inks${importedPalette ? ' from your library' : ' (demo inks)'}.`,
         undoLabel: 'Back to full color',
         onUndo: () => {
           setRemoved([])
@@ -556,7 +592,19 @@ export default function App() {
       ) : (
         <section className="grid items-start gap-5 min-[941px]:grid-cols-[minmax(0,1fr)_370px]">
           <div className="grid min-w-0 gap-2">
-            <Compare originalUrl={source.url} svg={result?.svg ?? null} width={source.width} height={source.height} busy={busyLabel} />
+            <Compare
+              originalUrl={source.url}
+              svg={result?.svg ?? null}
+              width={source.width}
+              height={source.height}
+              busy={busyLabel}
+              vectorLabel={gapsShown ? `Print / cut file · ${(widenedGap(result?.oneColour ?? null, gapMm) ?? gapMm).toFixed(1)} mm gaps` : oneOn ? 'Master · one colour, no gaps' : undefined}
+              marks={
+                gapsShown && result?.oneColour?.flags.length
+                  ? { points: result.oneColour.flags, size: { width: result.width, height: result.height }, legend: `Red rings: ${result.oneColour.flags.length} places to check, where a gap was left out (to keep detail, keep the file cuttable, or because the edge is unclear) or took in a hairline sliver.` }
+                  : undefined
+              }
+            />
             <div className="pl-1 text-[13px] wrap-anywhere text-ink-2">
               <b className="font-semibold text-ink">{source.name}</b> · {source.width}×{source.height}
             </div>
@@ -596,6 +644,13 @@ export default function App() {
                 }}
                 maxColors={client.maxColors}
                 onMaxColors={(maxColors) => setClient((c) => ({ ...c, maxColors }))}
+                oneColour={client.oneColour}
+                onOneColour={(oneColour) => setClient((c) => ({ ...c, oneColour: { ...c.oneColour, ...oneColour } }))}
+                oneColourGaps={plates}
+                oneColourNote={oneOn ? oneColourNote(result?.oneColour ?? null, gapsShown, gapMm) : null}
+                oneColourInk={oneOn ? (result?.oneColour?.ink ?? null) : null}
+                inkLibrary={{ name: palette.name, swatches: palette.swatches, isDemo: !importedPalette }}
+                legacySilhouette={kind === 'flat' && !oneOn && (!inks.enabled || legacySilhouette) ? { on: legacySilhouette, onChange: setLegacySilhouette } : null}
                 showColors={kind === 'flat' && !inks.enabled}
                 upscale={upscale}
                 onUpscale={setUpscale}
@@ -700,6 +755,7 @@ export default function App() {
                         setImportedPalette(p)
                         savePalette(p)
                         setInks((s) => ({ ...s, overrides: {} }))
+                        forgetLibraryInk()
                         showToast(`Loaded ${p.swatches.length} colors from ${file.name}`)
                       } catch (err) {
                         showToast(err instanceof Error ? err.message : String(err))
@@ -709,6 +765,7 @@ export default function App() {
                       setImportedPalette(null)
                       savePalette(null)
                       setInks((s) => ({ ...s, overrides: {} }))
+                      forgetLibraryInk()
                     }}
                   />
                     }
@@ -757,6 +814,34 @@ function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: bo
         }
       : job.params
   return `${sourceId}|${upscale}|${job.kind}|${job.image.width}x${job.image.height}|${annotate}|${JSON.stringify(opts)}`
+}
+
+/**
+ * A gap the print / cut file got that is wider than the one asked for (it is at least 1.5 traced px);
+ * null when it isn't wider, or when no gap was cut at all.
+ */
+const widenedGap = (r: TraceResult['oneColour'], askedMm: number) => (r && r.gaps > 0 && r.gapMm != null && r.gapMm > askedMm + 0.05 ? r.gapMm : null)
+
+/** What one colour did, in plain words: negative space kept, and gaps moved or skipped to keep detail. */
+function oneColourNote(r: TraceResult['oneColour'], gapsShown: boolean, askedMm: number): string | null {
+  if (!r) return null
+  const parts = [`${r.inkRegions} ${r.inkRegions === 1 ? 'colour' : 'colours'} drawn in the ink`]
+  if (r.paperRegions) parts.push(`${r.paperRegions} light ${r.paperRegions === 1 ? 'colour' : 'colours'} left open as negative space`)
+  if (gapsShown) {
+    parts.push(`gaps cut at ${r.gaps} ${r.gaps === 1 ? 'boundary' : 'boundaries'}`)
+    const wide = widenedGap(r, askedMm)
+    if (wide) parts.push(`gaps are ${wide.toFixed(1)} mm, not the ${askedMm.toFixed(1)} mm you chose: at this image size a narrower gap wouldn't cut the pieces apart (a larger upload allows a narrower gap)`)
+    const thin = r.flags.filter((f) => f.reason === 'gap-skipped').length
+    const cut = r.flags.filter((f) => f.reason === 'cut-limit').length
+    const sliver = r.flags.filter((f) => f.reason === 'gap-sliver').length
+    const unsure = r.flags.filter((f) => f.reason === 'gap-unsure').length
+    if (thin) parts.push(`${thin} left joined where a gap would cut into thin detail`)
+    if (cut) parts.push(`${cut} left joined where a gap would leave a piece too thin or small to cut`)
+    if (unsure) parts.push(`${unsure} left joined where it isn't clear the colours meet at a real edge rather than in shading`)
+    if (sliver) parts.push(`${sliver} hairline ${sliver === 1 ? 'sliver' : 'slivers'} of another colour along a gap became part of it`)
+    if (thin || cut || unsure || sliver) parts.push('ringed in red on the preview')
+  }
+  return parts.join(' · ') + '.'
 }
 
 function friendlyError(err: unknown): string {
