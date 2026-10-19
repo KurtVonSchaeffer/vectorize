@@ -803,8 +803,11 @@ function cacheKey(sourceId: string, upscale: string, job: TraceJob, annotate: bo
   return `${sourceId}|${upscale}|${job.kind}|${job.image.width}x${job.image.height}|${annotate}|${JSON.stringify(opts)}`
 }
 
-/** A gap the print / cut file got that is wider than the one asked for (it is at least 1.5 traced px). */
-const widenedGap = (r: TraceResult['oneColour'], askedMm: number) => (r?.gapMm != null && r.gapMm > askedMm + 0.05 ? r.gapMm : null)
+/**
+ * A gap the print / cut file got that is wider than the one asked for (it is at least 1.5 traced px);
+ * null when it isn't wider, or when no gap was cut at all.
+ */
+const widenedGap = (r: TraceResult['oneColour'], askedMm: number) => (r && r.gaps > 0 && r.gapMm != null && r.gapMm > askedMm + 0.05 ? r.gapMm : null)
 
 /** What one colour did, in plain words: negative space kept, and gaps moved or skipped to keep detail. */
 function oneColourNote(r: TraceResult['oneColour'], gapsShown: boolean, askedMm: number): string | null {
