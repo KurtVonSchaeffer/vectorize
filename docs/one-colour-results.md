@@ -1,6 +1,8 @@
-# One-colour fix, round 2: results for review (uncommitted)
+# One-colour fix, round 2: results for review (historical)
 
-Branch `one-colour` (local, from `main`), kept separate from V8. Not committed, merged or deployed. No new dependencies.
+> **An earlier review round**, kept for the record. It describes the branch `one-colour` before it was committed, recovered and integrated, and its counts and bird observations are from that round. The current status, validation and pending acceptance (CorelDRAW, a RIP or a cutter, and the real bird) are in the pull request that brings one colour into `main`.
+
+Branch `one-colour` (local, from `main`), kept separate from V8. At the time: not committed, merged or deployed. No new dependencies.
 
 ## Your eight points
 

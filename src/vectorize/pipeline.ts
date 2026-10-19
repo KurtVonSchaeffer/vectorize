@@ -1,5 +1,5 @@
 import { deltaE2000, rgbToLab } from '../palette/color'
-import { nearGap, productionGapPx, toOneColour, undoGaps, type GapUndo, type OneColourFlag, type OneColourOptions } from './one-colour'
+import { gapsLeft, nearGap, productionGapPx, toOneColour, undoGaps, type GapUndo, type OneColourFlag, type OneColourOptions } from './one-colour'
 import { shapesFromSvg } from '../export/path'
 import { validateShapes } from '../export/validate'
 import type { Palette } from '../palette/parse'
@@ -211,7 +211,7 @@ const CUT_PROBLEMS = new Set(['open', 'zero-area', 'self-intersection', 'sliver'
  * undone, so the gap never makes the file harder to cut. `later` repeats the steps that followed one
  * colour on each map an undo gives back.
  */
-function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }, later: (map: LabelMap) => LabelMap): { map: LabelMap; traced: ReturnType<typeof traceLabels>; allUndone: boolean } {
+function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flags: OneColourFlag[] }, later: (map: LabelMap) => LabelMap): { map: LabelMap; traced: ReturnType<typeof traceLabels>; gapsLeft: number } {
   const one = o.oneColour!
   const margin = productionGapPx(one.gapPx) + 2
   let traced = traceLabels(map, o.trace)
@@ -223,7 +223,7 @@ function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flag
       .filter((k) => CUT_PROBLEMS.has(k.id) && k.status !== 'ok')
       .flatMap((k) => k.where)
       .filter((p) => p.box && nearGap(undo, p.box, margin))
-    if (!fromGap.length) return { map, traced, allUndone: false }
+    if (!fromGap.length) return { map, traced, gapsLeft: gapsLeft(undo) }
     for (const p of fromGap) {
       if (flagged.has(`${p.x},${p.y}`)) continue
       flagged.add(`${p.x},${p.y}`)
@@ -235,7 +235,7 @@ function traceWithGaps(map: LabelMap, o: FlatOptions, cut: { undo: GapUndo; flag
     map = later(back.map)
     traced = traceLabels(map, o.trace)
     // No gap is left to cause a problem.
-    if (all) return { map, traced, allUndone: true }
+    if (all) return { map, traced, gapsLeft: 0 }
   }
 }
 
@@ -317,7 +317,9 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     const later = (m: LabelMap) => (o.text ? applyText(paper(m), o.text, knockout).map : paper(m))
     const r = traceWithGaps(map, o, { undo: gapUndo, flags: oneColour.flags }, later)
     ;({ map, traced } = r)
-    if (r.allUndone) [oneColour.gaps, oneColour.gapMm] = [0, null]
+    // The summary counts the gaps left in the file, after any undone near a cutting problem.
+    oneColour.gaps = r.gapsLeft
+    if (!r.gapsLeft) oneColour.gapMm = null
   } else traced = traceLabels(map, o.trace)
   inspect?.(map)
   let { svg } = traced

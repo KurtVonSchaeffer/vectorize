@@ -65,6 +65,8 @@ export interface OneColourResult {
   paper: number[]
   /** Boundaries that got a gap. */
   gaps: number
+  /** A pixel on each boundary that got a gap (see gapsLeft). */
+  gapAt: number[]
   /** The gap cut, in map px: a print / cut file's is at least MIN_GAP_PX, so it can be wider than asked. */
   gapPx: number
   flags: OneColourFlag[]
@@ -110,9 +112,9 @@ export function toOneColour(map: LabelMap, bgLabel: number, o: OneColourOptions)
     fills: map.fills?.map((f, l) => (isInk[l] ? undefined : f)),
   }
   const gapPx = o.production ? productionGapPx(o.gapPx) : o.gapPx
-  const cut = gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, gapPx, colors, o.source) : { map: out, gaps: 0, flags: [] }
+  const cut = gapPx > 0 && ink.length >= 2 ? carveGaps(out, isInk, bgLabel, gapPx, colors, o.source) : { map: out, gaps: 0, gapAt: [], flags: [] }
   if (!o.production) return { ...cut, gapPx, ink, inkColor, paper }
-  return { ...cut, gapPx, map: onePiecePerInk(cut.map, isInk), ink, inkColor, paper, undo: { carved: cut.map, plain: out, isInk } }
+  return { ...cut, gapPx, map: onePiecePerInk(cut.map, isInk), ink, inkColor, paper, undo: { carved: cut.map, plain: out, isInk, gapAt: cut.gapAt } }
 }
 
 /** What a print / cut file needs to undo its gap in places (see undoGaps). */
@@ -121,6 +123,8 @@ export interface GapUndo {
   carved: LabelMap
   plain: LabelMap
   isInk: Uint8Array
+  /** A pixel on each boundary that got a gap. */
+  gapAt: number[]
 }
 
 /**
@@ -139,6 +143,9 @@ export function undoGaps(u: GapUndo, areas: [number, number, number, number][], 
   const carved = { ...u.carved, labels, second, cov }
   return { map: onePiecePerInk(carved, u.isInk), undo: { ...u, carved } }
 }
+
+/** Boundaries whose gap is still cut (not undone). */
+export const gapsLeft = (u: GapUndo) => u.gapAt.filter((p) => u.carved.labels[p] !== u.plain.labels[p] || u.carved.cov[p] !== u.plain.cov[p]).length
 
 /** Whether any pixel within an area (plus `margin` map px) is part of a cut gap. */
 export function nearGap(u: GapUndo, [x0, y0, x1, y1]: [number, number, number, number], margin: number): boolean {
@@ -224,7 +231,7 @@ function carveGaps(
   gapPx: number,
   origColors: number[],
   source?: OneColourOptions['source'],
-): { map: LabelMap; gaps: number; flags: OneColourFlag[] } {
+): { map: LabelMap; gaps: number; gapAt: number[]; flags: OneColourFlag[] } {
   const { w, h, labels } = map
   const n = w * h
   const fill = bgLabel >= 0 && map.colors[bgLabel] >= 0 ? bgLabel : EMPTY
@@ -258,7 +265,7 @@ function carveGaps(
   const N = pieces.length
   const key = (a: number, b: number) => (a < b ? a * N + b : b * N + a)
   // Shared boundary length per pair of pieces; a few pixels of contact is noise, not a boundary.
-  const shared = new Map<number, { len: number; sx: number; sy: number; steps: number[] }>()
+  const shared = new Map<number, { len: number; sx: number; sy: number; at: number; steps: number[] }>()
   // The source image across a boundary: from one pixel before it to one pixel past it (anti-aliased
   // edges spread over a pixel or two), in the source's own pixels.
   const srcLab = new Map<number, number[]>()
@@ -274,7 +281,7 @@ function carveGaps(
     const a = comp[p], b = comp[q]
     if (a < 0 || b < 0 || a === b) return
     const k = key(a, b)
-    const s = shared.get(k) ?? { len: 0, sx: 0, sy: 0, steps: [] }
+    const s = shared.get(k) ?? { len: 0, sx: 0, sy: 0, at: p, steps: [] }
     const x = p % w, y = (p / w) | 0
     s.len++
     s.sx += x
@@ -384,7 +391,7 @@ function carveGaps(
   }
 
   const flags: OneColourFlag[] = []
-  let gaps = 0
+  const gapAt: number[] = []
   for (const [k, s] of shared) {
     if (s.len < minLen) continue
     const a = Math.floor(k / N), b = k % N
@@ -394,15 +401,17 @@ function carveGaps(
     if (kind === 'shading') continue
     if (kind === 'unsure') flags.push({ ...at, reason: 'gap-unsure' })
     else if (thin[a] || thin[b]) flags.push({ ...at, reason: 'gap-skipped' })
-    else if (!absorbed[a] && !absorbed[b]) gaps++
+    else if (!absorbed[a] && !absorbed[b]) gapAt.push(s.at)
   }
   for (let a = 0; a < N; a++) {
     if (!absorbed[a]) continue
     const px = pieces[a].px
     const c = px[px.length >> 1]
+    // The wide pieces either side are separated by the gap the sliver became.
+    gapAt.push(c)
     flags.push({ x: c % w, y: Math.floor(c / w), reason: 'gap-sliver' })
   }
-  return { map: { ...map, ...out }, gaps, flags }
+  return { map: { ...map, ...out }, gaps: gapAt.length, gapAt, flags }
 }
 
 /** Squared Euclidean distance to the nearest seed (Felzenszwalb & Huttenlocher), per pixel. */

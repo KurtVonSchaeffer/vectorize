@@ -140,6 +140,15 @@ describe('one-colour cut gaps: real edges only', () => {
     }
   })
 
+  it('a gap through a sliver of a third colour is counted, so the file is still checked for cutting problems', () => {
+    // Blue | 1 px red sliver (anti-aliasing where two edges meet) | green, on white.
+    const img = image(240, 120, (x, y) => rgba(y < 20 || y >= 100 || x < 20 || x >= 220 ? [255, 255, 255] : x < 120 ? [30, 60, 200] : x === 120 ? [220, 40, 40] : [30, 170, 60]))
+    const file = runFlat(img, opts(4, true))
+    expect(file.oneColour!.flags.map((f) => f.reason)).toContain('gap-sliver')
+    expect(file.oneColour!.gaps).toBe(1)
+    expect(shapesFromSvg(file.svg).filter((s) => s.color === file.oneColour!.ink)).toHaveLength(2)
+  })
+
   it('an unclear (blurred) boundary stays joined and is flagged, not cut', () => {
     // Two colour blocks whose boundary is a 12 px blend: neither a crisp edge nor smooth shading.
     const blend = (x: number) => Math.min(1, Math.max(0, (x - 114) / 12))

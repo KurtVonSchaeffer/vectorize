@@ -177,7 +177,7 @@ function OneColour(p: Props) {
           <label className="grid gap-1">
             <span>
               Separation gap: <b>{o.gapMm.toFixed(1)} mm</b> at{' '}
-              <input type="number" min={10} max={5000} step={10} value={o.outputWidthMm} onChange={(e) => p.onOneColour({ outputWidthMm: Math.max(10, Number(e.target.value) || 200) })} className="w-20 rounded border border-line px-1" aria-label="Output width in millimetres" /> mm wide
+              <input type="number" min={10} max={5000} step={10} value={o.outputWidthMm} onChange={(e) => p.onOneColour({ outputWidthMm: Math.min(5000, Math.max(10, Number(e.target.value) || 200)) })} className="w-20 rounded border border-line px-1" aria-label="Output width in millimetres" /> mm wide
             </span>
             <input type="range" min={0} max={2} step={0.1} value={o.gapMm} onChange={(e) => p.onOneColour({ gapMm: Number(e.target.value) })} aria-label="Separation gap in millimetres" />
             <small>Keeps shapes that were different colours apart in the print and cut files. The SVG master keeps every shape whole.</small>

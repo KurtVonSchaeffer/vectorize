@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { LabelMap } from '../../trace'
 import { shapesFromSvg } from '../../export/path'
 import { validateShapes } from '../../export/validate'
-import { toOneColour, undoGaps } from '../one-colour'
+import { gapsLeft, toOneColour, undoGaps } from '../one-colour'
 import { runFlat, type FlatOptions } from '../pipeline'
 import { downloadsFor } from '../../export/files'
 
@@ -143,6 +143,15 @@ describe('toOneColour', () => {
     // Rows 10–15 are joined again; rows below keep the gap.
     expect(back.labels[12 * 60 + 29]).not.toBe(0)
     expect(back.labels[20 * 60 + 29]).toBeGreaterThanOrEqual(254)
+  })
+
+  it('counts the gaps left after some are undone', () => {
+    // Blue | yellow | green: two gapped boundaries; the first one is undone.
+    const m = map(80, 40, [WHITE, 0x3a86ff, 0xffbe0b, 0x2d6a4f], (x, y) => (inBox(x, y, 10, 10, 30, 30) ? 1 : inBox(x, y, 30, 10, 50, 30) ? 2 : inBox(x, y, 50, 10, 70, 30) ? 3 : 0))
+    const r = toOneColour(m, 0, { ink: BLACK, gapPx: 4, production: true })
+    expect(r.gaps).toBe(2)
+    expect(gapsLeft(r.undo!)).toBe(2)
+    expect(gapsLeft(undoGaps(r.undo!, [[26, 8, 34, 32]], 0).undo)).toBe(1)
   })
 
   it('a hairline sliver of a third colour along a gapped boundary becomes part of the gap, flagged', () => {

@@ -455,6 +455,9 @@ export default function App() {
       openFineTune('maxColors')
     }
   }
+  // A one-colour ink chosen from the previous library isn't in the new one: keep its colour, drop the
+  // name (the library stays open with nothing chosen), so the plate never carries a stale ink name.
+  const forgetLibraryInk = () => setClient((c) => (c.oneColour.inkName ? { ...c, oneColour: { ...c.oneColour, inkName: '' } } : c))
   const setLegacySilhouette = (on: boolean) => {
     setRemoved([])
     setCustomPicked(source?.id ?? null)
@@ -752,6 +755,7 @@ export default function App() {
                         setImportedPalette(p)
                         savePalette(p)
                         setInks((s) => ({ ...s, overrides: {} }))
+                        forgetLibraryInk()
                         showToast(`Loaded ${p.swatches.length} colors from ${file.name}`)
                       } catch (err) {
                         showToast(err instanceof Error ? err.message : String(err))
@@ -761,6 +765,7 @@ export default function App() {
                       setImportedPalette(null)
                       savePalette(null)
                       setInks((s) => ({ ...s, overrides: {} }))
+                      forgetLibraryInk()
                     }}
                   />
                     }

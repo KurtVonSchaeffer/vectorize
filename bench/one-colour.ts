@@ -45,7 +45,7 @@ interface Run {
   negativeKept: number | null
   spill: number
   /** Holes of the upload (counters, white shapes; at least 9 px) left at least 80% open, of all. */
-  holes: { open: number; total: number; closed: { x: number; y: number; px: number }[] }
+  holes: { open: number; total: number; isOpen: boolean[]; closed: { x: number; y: number; px: number }[] }
   /** Ink pieces of the master that keep at least half their ink here, of all (at least 9 px). */
   pieces: { kept: number; total: number; lost: { x: number; y: number; px: number }[] }
   oneColour: OneColourSummary | null
@@ -187,7 +187,7 @@ async function inkOf(svgText: string, w: number, h: number, paper: number): Prom
   return ink
 }
 
-async function measure(m: Made, paper: number, cls: ReturnType<typeof classes>, masterPieces: number[][] | null): Promise<Run> {
+async function measure(m: Made, paper: number, cls: ReturnType<typeof classes>, refPieces: number[][] | null): Promise<Run> {
   const { width: w, height: h } = m.image
   const ink = await inkOf(m.r.svg, w, h, paper)
   let art = 0, artInk = 0, neg = 0, negOpen = 0, sur = 0, surInk = 0
@@ -198,7 +198,7 @@ async function measure(m: Made, paper: number, cls: ReturnType<typeof classes>, 
   }
   const pct = (a: number, b: number) => +((100 * a) / Math.max(1, b)).toFixed(1)
   const share = (px: number[], v: number) => px.filter((p) => ink[p] === v).length / px.length
-  const ps = masterPieces ?? []
+  const ps = refPieces ?? []
   return {
     svg: m.r.svg,
     ms: m.ms,
@@ -208,6 +208,7 @@ async function measure(m: Made, paper: number, cls: ReturnType<typeof classes>, 
     holes: {
       open: cls.holes.filter((px) => share(px, 0) >= 0.8).length,
       total: cls.holes.length,
+      isOpen: cls.holes.map((px) => share(px, 0) >= 0.8),
       closed: cls.holes.filter((px) => share(px, 0) < 0.8).map((px) => ({ x: px[0] % w, y: Math.floor(px[0] / w), px: px.length })),
     },
     pieces: { kept: ps.filter((px) => share(px, 1) >= 0.5).length, total: ps.length, lost: ps.filter((px) => share(px, 1) < 0.5).map((px) => ({ x: px[0] % w, y: Math.floor(px[0] / w), px: px.length })) },
@@ -226,7 +227,7 @@ async function runOne(name: string, tests: string, minGaps: number | null, blob:
   const det = detectArt(bitmapToImageData(source.bitmap))
   const colour = make(source, det, { colours: 'auto', file: false })
   if (!colour) {
-    list.insertAdjacentHTML('beforeend', `<p>${name}: ${det.kind}, not traced as flat art; skipped.</p>`)
+    list.insertAdjacentHTML('beforeend', `<p>${escapeHtml(name)}: ${det.kind}, not traced as flat art; skipped.</p>`)
     return
   }
   const paper = det.hasAlpha ? 0xffffff : (colour.r.background ?? det.background ?? 0xffffff)
@@ -246,10 +247,11 @@ async function runOne(name: string, tests: string, minGaps: number | null, blob:
     }
     return (2 * px.length) / Math.max(1, rim) < 1.5 && border > 0.5 * px.length
   }
-  const allPieces = pieces(w, h, (p) => masterInk[p] === 1).filter((px) => px.length >= 9)
-  const masterPieces = allPieces.filter((px) => !isSeam(px))
-  const seams = allPieces.length - masterPieces.length
-  const file = async (m: Made, gapMm: number): Promise<File> => ({ ...(await measure(m, paper, cls, masterPieces)), gapMm, checks: checksOf(m) })
+  const seams = pieces(w, h, (p) => masterInk[p] === 1).filter((px) => px.length >= 9 && isSeam(px)).length
+  // The pieces of artwork, from the prepared image itself (not the master, so a piece the master
+  // dropped is still checked).
+  const artPieces = pieces(w, h, (p) => !cls.isPaper[p]).filter((px) => px.length >= 9)
+  const file = async (m: Made, gapMm: number): Promise<File> => ({ ...(await measure(m, paper, cls, artPieces)), gapMm, checks: checksOf(m) })
   const row: OneColourRow = {
     name,
     tests,
@@ -259,7 +261,7 @@ async function runOne(name: string, tests: string, minGaps: number | null, blob:
     colour: await measure(colour, paper, cls, null),
     colourPlates: await file(make(source, det, { colours: 'auto', file: true })!, 0),
     old: await measure(make(source, det, { colours: 'old', file: false })!, paper, cls, null),
-    master: await measure(master, paper, cls, masterPieces),
+    master: await measure(master, paper, cls, artPieces),
     files: [],
     seams,
     unmerged: await file(make(source, det, { colours: 'one', file: true, gapMm: 0.5, merge: false })!, 0.5),
@@ -272,9 +274,9 @@ async function runOne(name: string, tests: string, minGaps: number | null, blob:
   t('not empty', row.master.inkKept > 0 && row.files.every((f) => f.inkKept > 0), `master ${row.master.inkKept}% of the artwork in ink`)
   if (row.applies) t('one ink', row.master.colours === 1 && row.files.every((f) => f.colours === 1), `master ${row.master.colours}, files ${row.files.map((f) => f.colours).join('/')}`)
   t('artwork kept (master ≥ 97%)', row.master.inkKept >= 97 || !row.applies, `${row.master.inkKept}% (colour version ${row.colour.inkKept}%)`)
-  t('every hole and counter the colour version keeps is open (master and all files)', [row.master, ...row.files].every((r) => r.holes.open >= row.colour.holes.open), `colour ${row.colour.holes.open}/${row.colour.holes.total}; master ${row.master.holes.open}; files ${row.files.map((f) => f.holes.open).join(', ')}`)
+  t('every hole and counter the colour version keeps is open (master and all files)', [row.master, ...row.files].every((r) => row.colour.holes.isOpen.every((open, i) => !open || r.holes.isOpen[i])), `colour ${row.colour.holes.open}/${row.colour.holes.total}; master ${row.master.holes.open}; files ${row.files.map((f) => f.holes.open).join(', ')}`)
   t('no ink outside the artwork (< 1%)', row.master.spill < 1, `${row.master.spill}%`)
-  t('every piece of artwork kept in every file', row.files.every((f) => f.pieces.kept === f.pieces.total), row.files.map((f) => `${f.gapMm} mm: ${f.pieces.kept}/${f.pieces.total}`).join(', ') + (seams ? ` (${seams} border seam(s) not counted)` : ''))
+  t('every piece of artwork kept in the master and every file', [row.master, ...row.files].every((f) => f.pieces.kept === f.pieces.total), `master ${row.master.pieces.kept}/${row.master.pieces.total}, ` + row.files.map((f) => `${f.gapMm} mm: ${f.pieces.kept}/${f.pieces.total}`).join(', ') + (seams ? ` (${seams} border seam(s) not counted)` : ''))
   if (row.applies && minGaps !== null) t(`boundaries separated at the default gap (≥ ${minGaps})`, (std.oneColour?.gaps ?? 0) >= minGaps, `${std.oneColour?.gaps ?? 0}`)
   t('master has no gaps', (row.master.oneColour?.gaps ?? 0) === 0, `${row.master.oneColour?.gaps ?? 0}`)
   t('no gaps when the gap is off', (off.oneColour?.gaps ?? 0) === 0, `${off.oneColour?.gaps ?? 0}`)
@@ -286,6 +288,8 @@ async function runOne(name: string, tests: string, minGaps: number | null, blob:
   render(row, URL.createObjectURL(blob), w)
 }
 
+const escapeHtml = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
 function render(r: OneColourRow, upload: string, w: number) {
   const marked = (f: File) => f.svg.replace('</svg>', (f.oneColour?.flags ?? []).map((x) => `<circle cx="${x.x}" cy="${x.y}" r="${Math.max(4, w / 40)}" fill="none" stroke="#c0362c" stroke-width="${Math.max(1.5, w / 200)}"/>`).join('') + '</svg>')
   const fig = (src: string, title: string, note: string) => `<figure><img src="${src}"><figcaption><b>${title}</b><br>${note}</figcaption></figure>`
@@ -293,7 +297,7 @@ function render(r: OneColourRow, upload: string, w: number) {
   const cut = (f: File) => f.checks.filter((k) => k.status !== 'ok' && k.id !== 'inks').map((k) => `${k.id} ${k.count}`).join(', ') || 'no file problems'
   list.insertAdjacentHTML(
     'beforeend',
-    `<section><h2>${r.name} <small>${r.size} · ${r.kind} · ${r.tests}</small></h2><div class="row">${fig(upload, 'Upload', '')}${fig(svgUrl(r.colour.svg), 'Colour (reference)', `${run(r.colour)}<br>plates: ${cut(r.colourPlates)}`)}${fig(svgUrl(r.old.svg), 'Old: Maximum colors = 1', run(r.old))}${fig(svgUrl(r.master.svg), 'New master (no gaps)', run(r.master))}${r.files.map((f) => fig(svgUrl(marked(f)), `Print / cut file, ${f.gapMm ? `${f.gapMm} mm gap` : 'gap off'}`, `${run(f)}<br>gaps ${f.oneColour?.gaps ?? 0} · joined ${f.oneColour?.flags.length ?? 0} (red)<br>${cut(f)}`)).join('')}</div><table>${r.results.map((x) => `<tr><td class="${x.pass ? 'pass' : 'fail'}">${x.pass ? 'PASS' : 'FAIL'}</td><td>${x.test}</td><td>${x.detail}</td></tr>`).join('')}<tr><td>note</td><td>previous file (0.5 mm, ink not one piece)</td><td>${cut(r.unmerged)}</td></tr></table></section>`,
+    `<section><h2>${escapeHtml(r.name)} <small>${r.size} · ${r.kind} · ${r.tests}</small></h2><div class="row">${fig(upload, 'Upload', '')}${fig(svgUrl(r.colour.svg), 'Colour (reference)', `${run(r.colour)}<br>plates: ${cut(r.colourPlates)}`)}${fig(svgUrl(r.old.svg), 'Old: Maximum colors = 1', run(r.old))}${fig(svgUrl(r.master.svg), 'New master (no gaps)', run(r.master))}${r.files.map((f) => fig(svgUrl(marked(f)), `Print / cut file, ${f.gapMm ? `${f.gapMm} mm gap` : 'gap off'}`, `${run(f)}<br>gaps ${f.oneColour?.gaps ?? 0} · joined ${f.oneColour?.flags.length ?? 0} (red)<br>${cut(f)}`)).join('')}</div><table>${r.results.map((x) => `<tr><td class="${x.pass ? 'pass' : 'fail'}">${x.pass ? 'PASS' : 'FAIL'}</td><td>${x.test}</td><td>${x.detail}</td></tr>`).join('')}<tr><td>note</td><td>previous file (0.5 mm, ink not one piece)</td><td>${cut(r.unmerged)}</td></tr></table></section>`,
   )
 }
 
@@ -315,7 +319,12 @@ document.getElementById('run')!.addEventListener('click', runCases)
 document.getElementById('files')!.addEventListener('change', async (e) => {
   for (const f of (e.target as HTMLInputElement).files ?? []) {
     status.textContent = `Running ${f.name}…`
-    await runOne(f.name, 'uploaded logo', null, f)
+    // One file that can't be read doesn't stop the others.
+    try {
+      await runOne(f.name, 'uploaded logo', null, f)
+    } catch (err) {
+      list.insertAdjacentHTML('beforeend', `<p>${escapeHtml(f.name)}: not run (${escapeHtml(err instanceof Error ? err.message : String(err))}).</p>`)
+    }
   }
   report()
   status.textContent = 'Done.'
