@@ -320,8 +320,10 @@ export default function App() {
       flat: !!chips && chips.length <= 16,
       // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
       cutSvgFromPlates: oneOn,
+      // One colour has a chosen output width: the print and cut files (SVG, PDF, DXF) are made at it.
+      outputWidthMm: oneOn ? outputWidthMm : undefined,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName])
+  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName, outputWidthMm])
 
   const download = async (d: Download) => {
     try {

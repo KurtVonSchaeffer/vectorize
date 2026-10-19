@@ -13,6 +13,8 @@ export interface PdfOptions {
   height: number
   /** Longest page side in points (72 pt = 1 inch). */
   pageSize?: number
+  /** Page width in points, when the artwork has a physical size (overrides pageSize). */
+  widthPt?: number
   title?: string
 }
 
@@ -23,7 +25,7 @@ export interface PdfOptions {
  */
 export function buildPdf(inks: PdfInk[], opts: PdfOptions): Uint8Array {
   const longest = opts.pageSize ?? 720
-  const s = longest / Math.max(opts.width, opts.height)
+  const s = opts.widthPt ? opts.widthPt / opts.width : longest / Math.max(opts.width, opts.height)
   const W = opts.width * s
   const H = opts.height * s
   const f = (v: number) => (Math.round(v * 1000) / 1000).toString()

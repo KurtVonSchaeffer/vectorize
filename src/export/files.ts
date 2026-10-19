@@ -15,8 +15,13 @@ export interface DownloadInput {
   svg: string
   /** The same artwork with non-overlapping (knockout) shapes, for print plates and cut files. */
   plateSvg?: () => Promise<string>
-  /** Cut SVGs use the plates too (one colour: gaps, and touching ink as one piece, are in the plates only). */
+  /**
+   * Print and cut SVGs are the plates too (one colour: no background, gaps, and touching ink as one
+   * piece are in the plates only). The master SVG is unchanged and stays the website download.
+   */
   cutSvgFromPlates?: boolean
+  /** The width print and cut files are made at (one colour's output width): SVG, PDF and DXF all get it. */
+  outputWidthMm?: number
   /** Coordinate space of the SVG paths. */
   width: number
   height: number
@@ -31,9 +36,16 @@ export interface DownloadInput {
 
 /** The primary and secondary file for each purpose. */
 export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download, Download] {
-  const { baseName } = input
+  const { baseName, outputWidthMm: widthMm } = input
   const svgBlob = async () => new Blob([input.svg], { type: 'image/svg+xml' })
   const svg: Download = { label: 'SVG', detail: 'Opens in Illustrator, Inkscape, Figma and browsers', filename: `${baseName}.svg`, make: svgBlob }
+  // The print / cut file as an SVG, at its physical size when it has one.
+  const plateSvg: Download | null =
+    input.cutSvgFromPlates && input.plateSvg
+      ? { ...svg, make: async () => new Blob([widthMm ? physicalSize(await input.plateSvg!(), widthMm, input.width, input.height) : await input.plateSvg!()], { type: 'image/svg+xml' }) }
+      : null
+  // A plate or layer is named after the ink chosen for it (spot name) when there is one.
+  const inkName = (color: number) => input.spotNames?.get(color) ?? input.names.get(color)
 
   if (purpose === 'print') {
     const pdf: Download = {
@@ -48,11 +60,11 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
           shape,
           spotName: input.flat && !shape.gradient ? (input.spotNames?.get(shape.color) ?? input.names.get(shape.color) ?? undefined) : undefined,
         }))
-        const bytes = buildPdf(inks, { width: input.width, height: input.height, title: baseName })
+        const bytes = buildPdf(inks, { width: input.width, height: input.height, title: baseName, widthPt: widthMm ? (widthMm * 72) / 25.4 : undefined })
         return new Blob([bytes as BlobPart], { type: 'application/pdf' })
       },
     }
-    return [pdf, svg]
+    return [pdf, plateSvg ? { ...plateSvg, filename: `${baseName}-print.svg`, detail: 'The print file as an SVG: the same artwork as the PDF' } : svg]
   }
 
   if (purpose === 'cut') {
@@ -65,12 +77,11 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
         const shapes = input.flat ? mergeByColor(all) : all
         let g = 0
         // A gradient is cut from one material, so it's one layer.
-        const layers = shapes.map((shape) => ({ shape, name: shape.gradient ? `GRADIENT ${++g}` : (input.names.get(shape.color) ?? 'COLOR') }))
-        return new Blob([buildDxf(layers, { width: input.width, height: input.height })], { type: 'application/dxf' })
+        const layers = shapes.map((shape) => ({ shape, name: shape.gradient ? `GRADIENT ${++g}` : (inkName(shape.color) ?? 'COLOR') }))
+        return new Blob([buildDxf(layers, { width: input.width, height: input.height, widthMm })], { type: 'application/dxf' })
       },
     }
-    const cutSvg = input.cutSvgFromPlates && input.plateSvg ? { ...svg, make: async () => new Blob([await input.plateSvg!()], { type: 'image/svg+xml' }) } : svg
-    return [{ ...cutSvg, detail: 'For Cricut, Silhouette and vinyl cutters' }, dxf]
+    return [{ ...(plateSvg ?? svg), detail: 'For Cricut, Silhouette and vinyl cutters' }, dxf]
   }
 
   const png: Download = {
@@ -124,4 +135,17 @@ export function saveBlob(blob: Blob, filename: string) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+/**
+ * The SVG at a physical size: the root's width and height in millimetres (height from the
+ * coordinates' aspect ratio); the viewBox, and so every path, is unchanged.
+ */
+export function physicalSize(svg: string, widthMm: number, width: number, height: number): string {
+  const mm = (v: number) => `${+v.toFixed(3)}mm`
+  return svg.replace(/<svg\b([^>]*?)(\/?)>/i, (_, attrs: string, selfClose: string) => {
+    const size = (name: string) => new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`, 'gi')
+    const box = attrs.match(/\sviewBox\s*=\s*("[^"]*"|'[^']*')/i) ? '' : ` viewBox="0 0 ${width} ${height}"`
+    return `<svg${attrs.replace(size('width'), '').replace(size('height'), '')} width="${mm(widthMm)}" height="${mm((widthMm * height) / width)}"${box}${selfClose}>`
+  })
 }
