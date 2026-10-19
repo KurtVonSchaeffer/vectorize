@@ -164,6 +164,10 @@ function onePiecePerInk(map: LabelMap, isInk: Uint8Array): LabelMap {
   // A pixel is part of a piece when any share of it is ink (a 1 px stroke is often mostly ink in
   // pixels whose larger share is paper).
   const touches = (p: number) => ink(map.labels[p]) || (ink(map.second[p]) && map.cov[p] < 1)
+  // But two pixels that are each mostly paper don't join ink to each other: they are the two sides of
+  // a cut gap, and joining them would close it. A mostly-paper pixel joins the piece next to it
+  // through a mostly-ink neighbour.
+  const share = (p: number) => (ink(map.labels[p]) ? map.cov[p] : 0) + (ink(map.second[p]) ? 1 - map.cov[p] : 0)
   const seen = new Uint8Array(n)
   for (let s = 0; s < n; s++) {
     if (seen[s] || !touches(s)) continue
@@ -178,7 +182,7 @@ function onePiecePerInk(map: LabelMap, isInk: Uint8Array): LabelMap {
       if (ink(map.second[p])) votes.set(map.second[p], (votes.get(map.second[p]) ?? 0) + 1 - map.cov[p])
       const x = p % w
       for (const q of [x > 0 ? p - 1 : -1, x + 1 < w ? p + 1 : -1, p - w, p + w])
-        if (q >= 0 && q < n && !seen[q] && touches(q)) {
+        if (q >= 0 && q < n && !seen[q] && touches(q) && (share(p) >= 0.5 || share(q) >= 0.5)) {
           seen[q] = 1
           stack.push(q)
         }

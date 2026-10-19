@@ -121,6 +121,25 @@ describe('one-colour cut gaps: real edges only', () => {
     expect(column.includes(false)).toBe(true)
   })
 
+  it('a gap on a curved boundary between overlapping discs cuts them apart (no background to carve it)', () => {
+    // Red disc with a navy disc drawn over it (Venn), on white, anti-aliased by 4×4 supersampling. Where
+    // the boundary falls between pixel centres matters, so the navy disc is tried at two positions.
+    const RED = [230, 57, 70], NAVY = [29, 53, 87]
+    const disc = (x: number, y: number, cx: number, cy: number, r: number) => {
+      let c = 0
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) c += Math.hypot(x + (i + 0.5) / 4 - cx, y + (j + 0.5) / 4 - cy) < r ? 1 : 0
+      return c / 16
+    }
+    for (const cx of [320, 320.4]) {
+      const venn = image(500, 400, (x, y) => rgba(mix(mix([255, 255, 255], RED, disc(x, y, 180, 200, 120)), NAVY, disc(x, y, cx, 200, 120))))
+      for (const gapPx of [0.5, 1.25, 4]) {
+        const file = runFlat(venn, opts(gapPx, true))
+        expect(file.oneColour!.gaps).toBe(1)
+        expect(shapesFromSvg(file.svg).filter((s) => s.color === file.oneColour!.ink)).toHaveLength(2)
+      }
+    }
+  })
+
   it('an unclear (blurred) boundary stays joined and is flagged, not cut', () => {
     // Two colour blocks whose boundary is a 12 px blend: neither a crisp edge nor smooth shading.
     const blend = (x: number) => Math.min(1, Math.max(0, (x - 114) / 12))
