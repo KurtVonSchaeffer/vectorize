@@ -123,7 +123,8 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   const merged = mergeSimilar(pruned.centers, labs, weights, opts.mergeDelta, opts.maxColors, apart)
   const centers = pureCenters(merged.centers, merged.assign, bins, sum, count)
   // Final assignment by nearest color in RGB, consistent with how edges blend.
-  const assign = nearestRgb(centers, bins, sum, count)
+  const plainAssign = new Int32Array(bins.length)
+  const assign = nearestRgb(centers, bins, sum, count, plainAssign)
 
   // Decide each cluster's final color: its own average, or the nearest swatch.
   const clusterSwatch = centers.map((c) => {
@@ -150,6 +151,8 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   })
 
   const lut = new Uint8Array(BINS).fill(EMPTY)
+  const plainLut = new Uint8Array(BINS).fill(EMPTY)
+  bins.forEach((b, i) => (plainLut[b] = clusterLabel[plainAssign[i]]))
   const inkCoverage = new Map<string, { ink: Ink; weight: number; deSum: number }>()
   bins.forEach((b, i) => {
     const cs = clusterSwatch[assign[i]]
@@ -205,6 +208,7 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
 
   const { width: w, height: h } = src
   const labels = new Uint8Array(w * h)
+  const plainLabels = new Uint8Array(w * h).fill(EMPTY)
   const second = new Uint8Array(w * h).fill(EMPTY)
   const cov = new Float32Array(w * h).fill(1)
   for (let p = 0, i = 0; p < labels.length; p++, i += 4) {
@@ -213,10 +217,13 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
     else {
       const b = binOf(d[i], d[i + 1], d[i + 2])
       labels[p] = paper[b] ? PAPER_LABEL : lut[b]
+      plainLabels[p] = paper[b] ? PAPER_LABEL : plainLut[b]
       second[p] = lutB[b]
       cov[p] = lutCov[b]
     }
   }
+  vetoDistantBlends(w, h, labels, plainLabels)
+  vetoDistantPartners(d, w, h, labels, second, cov, anchors)
   let clean = majorityFilter(majorityFilter(labels, w, h), w, h)
   if (opts.minArea > 1) removeSpecks(clean, w, h, opts.minArea, (members, label, around) => isDetail(members, label, around, d, labelRgb))
   // Pixels relabeled by cleanup no longer carry meaningful blend information.
@@ -389,7 +396,7 @@ function pureCenters(centers: Lab[], assign: Int32Array, bins: number[], sum: Fl
   return centers.map((c, i) => (acc[i][3] ? rgbToLab([acc[i][0] / acc[i][3], acc[i][1] / acc[i][3], acc[i][2] / acc[i][3]]) : c))
 }
 
-function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Float64Array): Int32Array {
+function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Float64Array, plain?: Int32Array): Int32Array {
   const rgbs = centers.map((c) => labToRgb(c))
   const assign = new Int32Array(bins.length)
   bins.forEach((b, i) => {
@@ -405,6 +412,7 @@ function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Fl
         best = j
       }
     })
+    if (plain) plain[i] = best
     assign[i] = Math.sqrt(bd) > BLEND_MIN_DISTANCE ? blendEnd(rgbs, [r, g, bl], best, Math.sqrt(bd)) : best
   })
   return assign
@@ -416,6 +424,93 @@ function lineOffset(c: number[], a: number[], b: number[]): number {
   const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
   const t = len2 ? Math.min(1, Math.max(0, ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2)) : 0
   return Math.hypot(c[0] - a[0] - t * ab[0], c[1] - a[1] - t * ab[1], c[2] - a[2] - t * ab[2])
+}
+
+/**
+ * A color counts as present around a pixel when at least PRESENT_MIN pixels within the radius
+ * carry its label: PRESENT_RADIUS for edge partners (wider let the slivers back: measured 15 dark
+ * pixels at 3 px, 175 at 4, 276 at 5), BLEND_PRESENT_RADIUS for moving a blend pixel to a color
+ * (narrower thinned lettering in compressed logos: Barron JPEG 75 error 4.8 at 3 px, 3.6 at 7).
+ */
+const PRESENT_RADIUS = 3
+const BLEND_PRESENT_RADIUS = 7
+const PRESENT_MIN = 2
+/** A partner with no pixels nearby is kept when the pixel is within this (RGB) of a straight mix... */
+const EXACT_MIX = 4
+/** ...that is between this and 1 − this of the way between the two colors (a real mix). */
+const MIX_MIN = 0.2
+
+/**
+ * A blend pixel is moved to one of the two colors it mixes (blendEnd) only when that color is
+ * actually around it, judged by the pixels' nearest colors: a grey letter edge goes to black or
+ * white, which surround the letters, but a pale feather edge isn't moved to the lettering's black.
+ */
+function vetoDistantBlends(w: number, h: number, labels: Uint8Array, plain: Uint8Array) {
+  const keep: number[] = []
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      const l = labels[p]
+      if (l === EMPTY || plain[p] === EMPTY || l === plain[p]) continue
+      let n = 0
+      for (let yy = Math.max(0, y - BLEND_PRESENT_RADIUS); yy <= Math.min(h - 1, y + BLEND_PRESENT_RADIUS) && n < PRESENT_MIN; yy++)
+        for (let xx = Math.max(0, x - BLEND_PRESENT_RADIUS); xx <= Math.min(w - 1, x + BLEND_PRESENT_RADIUS) && n < PRESENT_MIN; xx++) if (plain[yy * w + xx] === l) n++
+      if (n < PRESENT_MIN) keep.push(p)
+    }
+  for (const p of keep) labels[p] = plain[p]
+}
+
+/**
+ * An edge pixel's partner color places the edge between pixels, so it must be a color that is
+ * actually next to the pixel. It's chosen per color (from all the image's colors), which can pick
+ * one that's nowhere near: the pale edges of a bird's feathers paired with the lettering's black
+ * and drew dark slivers along the feathers. Where the partner has no pixels nearby, the closest
+ * mix with a color that has (or none) replaces it; everywhere else the choice is unchanged.
+ */
+function vetoDistantPartners(d: Uint8ClampedArray, w: number, h: number, labels: Uint8Array, second: Uint8Array, cov: Float32Array, anchors: { lab: number[]; label: number }[]) {
+  const rgbOf = new Map<number, number[]>()
+  for (const a of anchors) if (!rgbOf.has(a.label)) rgbOf.set(a.label, a.lab)
+  const votes = new Uint16Array(256)
+  const seen: number[] = []
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      const s = second[p]
+      if (s === EMPTY || cov[p] >= 1) continue
+      for (let yy = Math.max(0, y - PRESENT_RADIUS); yy <= Math.min(h - 1, y + PRESENT_RADIUS); yy++)
+        for (let xx = Math.max(0, x - PRESENT_RADIUS); xx <= Math.min(w - 1, x + PRESENT_RADIUS); xx++) {
+          const l = labels[yy * w + xx]
+          if (l === EMPTY) continue
+          if (!votes[l]) seen.push(l)
+          votes[l]++
+        }
+      const present = seen.filter((l) => votes[l] >= PRESENT_MIN)
+      for (const l of seen) votes[l] = 0
+      seen.length = 0
+      if (present.includes(s)) continue
+      const P = rgbOf.get(labels[p])
+      const c = [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
+      // An almost exact, real mix keeps its partner even with no pixel of it nearby: a 1 px line
+      // drawn as two 50% rows has no pixel labelled with its color.
+      const S = rgbOf.get(s)
+      if (P && S && lineOffset(c, P, S) <= EXACT_MIX && cov[p] >= MIX_MIN && cov[p] <= 1 - MIX_MIN) continue
+      // The partner isn't here: the closest mix with a color that is, or no partner.
+      second[p] = EMPTY
+      cov[p] = 1
+      if (!P) continue
+      let best = -1
+      let bestOff = Infinity
+      for (const l of present) {
+        if (l === labels[p] || !rgbOf.has(l)) continue
+        const off = lineOffset(c, P, rgbOf.get(l)!)
+        if (off < bestOff) [bestOff, best] = [off, l]
+      }
+      if (best < 0) continue
+      const t = blendRatio(c, P, rgbOf.get(best)!, BLEND_RESIDUAL)
+      if (t === null) continue
+      second[p] = best
+      cov[p] = 1 - t
+    }
 }
 
 /** A color at least this far (RGB) from its nearest cluster may be an edge blend of two others. */
