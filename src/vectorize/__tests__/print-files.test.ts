@@ -5,8 +5,10 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest'
 import { downloadsFor, printWidthMm, PRINT_LONGEST_MM } from '../../export/files'
+import { onePlate, platesOf } from '../../export/plates'
+import { paperOutFor, type WhiteInk } from '../paper'
 import { runFlat, type FlatOptions } from '../pipeline'
-import { circle, colourAt, installImageData, paint, paperPlate, productionOptions, rect, svgPaths, type RGB } from './fidelity/harness'
+import { circle, colourAt, installImageData, paint, paperPlate, productionOptions, rect, renderSvg, svgPaths, type RGB } from './fidelity/harness'
 
 beforeAll(installImageData)
 
@@ -62,6 +64,92 @@ describe('paper background', () => {
     }
     const before = area()
     expect(Math.abs(area('border') - before) / before).toBeLessThan(0.01)
+  }, SLOW)
+})
+
+describe('white-ink modes', () => {
+  it('each choice makes the plates with its paper option; "Print white background too" is today’s files', () => {
+    expect(paperOutFor('none')).toBe('all')
+    expect(paperOutFor('artwork')).toBe('border')
+    expect(paperOutFor('all')).toBeUndefined()
+  })
+
+  it('flags white the artwork encloses (the ambiguous case), and only then', () => {
+    expect(plates(badge()).enclosedPaper).toBe(true)
+    const plain = paint(120, 120, PAPER, [{ rings: [circle(60, 60, 40)], color: BLUE }], 3)
+    expect(plates(plain).paper).toBe(true)
+    expect(plates(plain).enclosedPaper).toBe(false)
+    // Not paper at all: nothing to ask.
+    expect(plates(paint(120, 120, null, [{ rings: [circle(60, 60, 40)], color: BLUE }])).enclosedPaper).toBe(false)
+  }, SLOW)
+})
+
+/**
+ * What a printed garment shows at a point: the plates rendered and laid over the garment colour,
+ * read back as the garment (nothing prints), white ink or a coloured ink.
+ */
+const GARMENTS: Record<string, RGB> = { white: [255, 255, 255], coloured: [31, 59, 92] }
+const onGarment = (svg: string, w: number, h: number, garment: RGB) => {
+  const img = renderSvg(svg, w, h)
+  return (x: number, y: number) => {
+    const p = (Math.floor(y) * w + Math.floor(x)) * 4
+    const a = img.data[p + 3] / 255
+    const c = [0, 1, 2].map((i) => img.data[p + i] * a + garment[i] * (1 - a))
+    const near = (q: RGB) => Math.max(...c.map((v, i) => Math.abs(v - q[i]))) <= 12
+    // On a white garment, white ink and the garment look alike: tell them apart by coverage.
+    if (a < 0.5) return 'garment'
+    if (near(WHITE) || near(PAPER)) return 'white ink'
+    return near(garment) ? 'garment' : 'ink'
+  }
+}
+
+describe('on white and coloured garments', () => {
+  // [mode, background, white lettering inside the badge, blue disc]
+  const expected: [WhiteInk, string, string, string][] = [
+    ['none', 'garment', 'garment', 'ink'],
+    ['artwork', 'garment', 'white ink', 'ink'],
+    ['all', 'white ink', 'white ink', 'ink'],
+  ]
+  for (const [garmentName, garment] of Object.entries(GARMENTS))
+    for (const [mode, bg, letter, disc] of expected)
+      it(`${garmentName} garment, ${mode}: background ${bg}, white lettering ${letter}, disc ${disc}`, () => {
+        const at = onGarment(plates(badge(), paperOutFor(mode)).svg, 120, 120, garment)
+        expect(at(5, 5)).toBe(bg)
+        expect(at(43, 61)).toBe(letter)
+        expect(at(60, 35)).toBe(disc)
+      }, SLOW)
+
+  it('transparency and negative space: the hole of a ring and the empty area show the garment in every mode; white artwork prints white', () => {
+    // A transparent upload: a blue ring (its hole is real negative space) and a white square.
+    const img = paint(140, 120, null, [
+      { rings: [circle(50, 60, 40), circle(50, 60, 18, true)], color: BLUE },
+      { rings: [rect(105, 50, 125, 70)], color: WHITE },
+    ])
+    for (const mode of ['none', 'artwork', 'all'] as const) {
+      const r = plates(img, paperOutFor(mode))
+      expect(r.paper).toBe(false)
+      for (const garment of Object.values(GARMENTS)) {
+        const at = onGarment(r.svg, 140, 120, garment)
+        expect(at(50, 60)).toBe('garment') // the ring's hole
+        expect(at(3, 3)).toBe('garment') // outside the artwork
+        expect(at(50, 30)).toBe('ink') // the ring
+        expect(at(115, 60)).toBe('white ink') // intentional white artwork
+      }
+    }
+  }, SLOW)
+})
+
+describe('plate preview', () => {
+  it('lists the plates the PDF makes, and shows one plate on its own', () => {
+    const svg = plates(badge(), 'border').svg
+    const { plates: list, gradients } = platesOf(svg, () => undefined)
+    expect(gradients).toBe(0)
+    expect(list.length).toBe(2) // blue and the white lettering: no paper plate
+    const blue = list.find((pl) => !isLight(pl.name))!
+    const single = onePlate(svg, blue.color)
+    expect(single).toContain(`path[fill="${blue.name}" i]{display:inline}`)
+    expect(single.replace(/<style>.*?<\/style>/, '')).toBe(svg)
+    expect(platesOf(plates(badge(), 'all').svg, () => undefined).plates.length).toBe(1)
   }, SLOW)
 })
 

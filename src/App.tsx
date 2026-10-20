@@ -11,6 +11,7 @@ import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip, type ColorMode, type WhiteInk } from './components/ResultCard'
 import { Upload } from './components/Upload'
 import { downloadsFor, printWidthMm, saveBlob, type Download } from './export/files'
+import { platesOf } from './export/plates'
 import { DEMO_PALETTE } from './palette/demo'
 import { oneColourPlateName } from './vectorize/one-colour-ink'
 import { colorNames } from './palette/names'
@@ -30,6 +31,7 @@ import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
 import { buildTraceJob, inkNames, runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
+import { paperOutFor } from './vectorize/paper'
 import { CancelledError, TimeoutError, Tracer } from './vectorize/tracer'
 
 const DEBOUNCE_MS = 180
@@ -49,6 +51,7 @@ export default function App() {
   // Print files (flag): for an opaque upload on paper, how much of the white prints as white ink.
   // None unless asked, per upload: white ink is a production decision.
   const [whiteInk, setWhiteInk] = useState<WhiteInk>('none')
+  const [platesOpen, setPlatesOpen] = useState(false)
   const [removed, setRemoved] = useState<number[]>([])
   const [result, setResult] = useState<TraceResult | null>(null)
   // The settings (jobKey) the shown result was traced with; during a re-trace it's the old one.
@@ -127,6 +130,7 @@ export default function App() {
         setDetection(det)
         setTransparent(det.hasAlpha || det.kind === 'lineart')
         setWhiteInk('none')
+        setPlatesOpen(false)
         setRemoved([])
         setLettering({})
         setResult(null)
@@ -335,25 +339,46 @@ export default function App() {
   }, [result?.svg, source, changedOnPurpose])
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
+  const plateSvg = useMemo(() => {
+    if (!result || !source || !plates || !buildJob) return undefined
+    const make = async () => {
+      // Its own worker, so making a file never interrupts the preview.
+      const t = tracers.current!
+      const paperOut = PRINT_FILES ? paperOutFor(whiteInk) : undefined
+      return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true, paperOut ? { paperOut } : {}), source, inks.enabled)).svg
+    }
+    if (!PRINT_FILES) return make
+    // Print files (flag): made once, so the plates previewed are the plates downloaded.
+    let made: Promise<string> | null = null
+    return () => (made ??= make().catch((e) => {
+      made = null
+      throw e
+    }))
+  }, [result, source, plates, buildJob, inks.enabled, whiteInk])
+
+  const spotNames = useMemo(
+    () =>
+      !result
+        ? null
+        : inks.enabled
+          ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name]))
+          : oneOn && result.oneColour
+            ? new Map([[result.oneColour.ink, oneColourPlateName(result.oneColour.ink, client.oneColour.ink !== null ? client.oneColour.inkName || null : null)]])
+            : null,
+    [result, inks.enabled, oneOn, client.oneColour.ink, client.oneColour.inkName],
+  )
+
   const downloads = useMemo(() => {
     if (!result || !source) return null
     const baseName = source.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-') || 'vector'
     return downloadsFor(client.purpose, {
       svg: result.svg,
-      plateSvg: plates && buildJob ? async () => {
-            // Its own worker, so making a file never interrupts the preview.
-            const t = tracers.current!
-            return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true, PRINT_FILES && whiteInk !== 'all' ? { paperOut: whiteInk === 'none' ? 'all' : 'border' } : {}), source, inks.enabled)).svg
-          } : undefined,
+      plateSvg,
       width: result.width,
       height: result.height,
       baseName,
       names,
-      spotNames: inks.enabled
-        ? new Map((result.inks ?? []).map((i) => [rgbInt(i.swatch.rgb), i.swatch.name]))
-        : oneOn && result.oneColour
-          ? new Map([[result.oneColour.ink, oneColourPlateName(result.oneColour.ink, client.oneColour.ink !== null ? client.oneColour.inkName || null : null)]])
-          : null,
+      spotNames,
       flat: !!chips && chips.length <= 16,
       // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
       // Print files (flag): the print / cut SVG is the same artwork as the PDF and DXF, paper left out.
@@ -363,7 +388,24 @@ export default function App() {
       // Print files (flag): full-colour SVG and DXF match the PDF's size (long side 254 mm).
       printWidthMm: PRINT_FILES && !oneOn ? printWidthMm(result.width, result.height) : undefined,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName, outputWidthMm, whiteInk])
+  }, [result, source, client.purpose, names, spotNames, chips, plateSvg, oneOn, outputWidthMm])
+
+  // Print files (flag): the plates as they will print, made on request.
+  const [preview, setPreview] = useState<{ of: () => Promise<string>; svg: string | null; failed: boolean } | null>(null)
+  useEffect(() => {
+    if (!PRINT_FILES || !platesOpen || !plateSvg) return
+    let live = true
+    setPreview({ of: plateSvg, svg: null, failed: false })
+    plateSvg().then(
+      (svg) => live && setPreview({ of: plateSvg, svg, failed: false }),
+      () => live && setPreview({ of: plateSvg, svg: null, failed: true }),
+    )
+    return () => {
+      live = false
+    }
+  }, [platesOpen, plateSvg])
+  const shownPlates = preview && preview.of === plateSvg ? preview : null
+  const plateList = useMemo(() => (shownPlates?.svg ? platesOf(shownPlates.svg, (c) => spotNames?.get(c) ?? names.get(c)) : { plates: [], gradients: 0 }), [shownPlates?.svg, spotNames, names])
 
   const download = async (d: Download) => {
     try {
@@ -702,7 +744,12 @@ export default function App() {
             transparentLocked={transparentLocked}
             onTransparent={setTransparent}
             // Spot inks have their own white-is-paper setting.
-            whiteInk={PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && result?.paper ? { mode: whiteInk, onMode: setWhiteInk } : undefined}
+            whiteInk={PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && result?.paper ? { mode: whiteInk, onMode: setWhiteInk, enclosed: result.enclosedPaper } : undefined}
+            platePreview={
+              PRINT_FILES && plateSvg && result
+                ? { open: platesOpen, onOpen: setPlatesOpen, svg: shownPlates?.svg ?? null, failed: !!shownPlates?.failed, plates: plateList.plates, gradients: plateList.gradients, width: result.width, height: result.height }
+                : undefined
+            }
             downloads={downloads}
             onDownload={download}
             detail={client.detail}

@@ -86,3 +86,26 @@ export function withPaper(map: LabelMap, bgLabel: number, mask: Uint8Array): Lab
   }
   return { ...map, labels, second }
 }
+
+/** Below this share of the image, enclosed paper-coloured areas are noise, not a question. */
+const ENCLOSED_MIN_SHARE = 0.001
+
+/**
+ * Whether the artwork encloses areas of the paper colour (the inside of an "o", white lettering on a
+ * badge). Nothing in the image says whether they are intentional white or paper showing through, so
+ * the white-ink choice decides, and the person should be told.
+ */
+export function enclosesPaper(map: LabelMap, bgLabel: number, mask: Uint8Array): boolean {
+  let n = 0
+  for (let p = 0; p < mask.length; p++) if (!mask[p] && map.labels[p] === bgLabel) n++
+  return n >= Math.max(9, ENCLOSED_MIN_SHARE * mask.length)
+}
+
+/**
+ * White ink in print and cut files for artwork on paper: none (white garments), the white inside
+ * the artwork only (coloured garments), or the background too (today's files).
+ */
+export type WhiteInk = 'none' | 'artwork' | 'all'
+
+/** The paper option print plates are made with for a white-ink choice (undefined: as today). */
+export const paperOutFor = (mode: WhiteInk): 'border' | 'all' | undefined => (mode === 'none' ? 'all' : mode === 'artwork' ? 'border' : undefined)
