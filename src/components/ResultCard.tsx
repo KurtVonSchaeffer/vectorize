@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Purpose } from '../vectorize/client'
 import type { Download } from '../export/files'
+import { onePlate, type Plate } from '../export/plates'
+import type { EnclosedArea, WhiteInk } from '../vectorize/paper'
 import type { AutoCheck } from '../quality/readiness'
 import { btnQuiet, chip, cx, link, range, seg, segBtn, spinnerSmall, swatch } from './ui'
 
@@ -43,7 +45,56 @@ interface Props {
    * are shown as separate facts. None of them is a production approval. Absent, the card reads as before.
    */
   quality?: { autoCheck: AutoCheck; reviewed: boolean; findings: string[]; onReview: () => void; onUnreview: () => void }
+  /**
+   * Print files (behind a flag), for an opaque upload on paper: how much of the white prints as
+   * white ink. `enclosed`: the artwork encloses white that may be intentional or paper. Absent,
+   * nothing is shown.
+   */
+  whiteInk?: WhiteInkProps
+  /** Print files (behind a flag): the print plates, shown before downloading. Absent, nothing is shown. */
+  platePreview?: PlatePreviewProps
 }
+
+export interface WhiteInkProps {
+  mode: WhiteInk
+  onMode: (m: WhiteInk) => void
+  enclosed: boolean
+  /** White artwork only: the lettering is still being read (letter counters not known yet). */
+  readingText: boolean
+  /** White artwork only: the enclosed white areas and what became of them; null while the plates are made. */
+  areas: EnclosedArea[] | null
+}
+
+export interface PlatePreviewProps {
+  open: boolean
+  onOpen: (open: boolean) => void
+  /** The print SVG once made; null while it's being made. */
+  svg: string | null
+  failed: boolean
+  plates: Plate[]
+  /** Gradient shapes: printed in full colour, not on a plate. */
+  gradients: number
+  /** White artwork only: enclosed white areas, marked on the preview, each with a choice. */
+  areas: EnclosedArea[]
+  onChoose: (area: EnclosedArea, white: boolean) => void
+  onChooseAll: (areas: EnclosedArea[], white: boolean) => void
+  width: number
+  height: number
+}
+
+export type { WhiteInk }
+
+export const WHITE_INK: { mode: WhiteInk; label: string; hint: string }[] = [
+  { mode: 'none', label: 'No white ink', hint: 'For white garments: nothing prints in white. The garment shows through the background and every white area.' },
+  { mode: 'artwork', label: 'Print white artwork only', hint: 'For coloured garments: white inside the artwork prints in white ink; the background is left out.' },
+  { mode: 'all', label: 'Print white background too', hint: 'The white background prints in white ink as well, as a white box.' },
+]
+
+/** Garment colours for the plate preview. */
+const GARMENTS = [
+  { label: 'White garment', color: '#ffffff' },
+  { label: 'Coloured garment', color: '#1f3b5c' },
+]
 
 const CHECK_LABEL: Record<AutoCheck, string> = {
   checking: 'Checking against your image…',
@@ -214,6 +265,31 @@ export function ResultCard(p: Props) {
           className="relative m-0 h-[26px] w-11 flex-none cursor-pointer appearance-none rounded-full bg-line transition-colors after:absolute after:top-[3px] after:left-[3px] after:size-5 after:rounded-full after:bg-card after:shadow-[0_1px_3px_rgb(0_0_0/0.3)] after:transition-transform after:content-[''] checked:bg-accent checked:after:translate-x-[18px] disabled:cursor-default disabled:opacity-55" checked={p.transparent} disabled={p.transparentLocked} onChange={(e) => p.onTransparent(e.target.checked)} />
       </label>
 
+      {p.whiteInk && (
+        <div className="grid gap-1.5">
+          <span className="font-medium" id="white-ink-label">
+            White ink in print files
+          </span>
+          <small className="text-[13px] text-ink-2">Changes the print separations and cut files only. Your master vector (the SVG shown here) keeps every colour.</small>
+          <div className={seg} role="group" aria-labelledby="white-ink-label">
+            {WHITE_INK.map((o) => (
+              <button key={o.mode} className={segBtn} aria-pressed={p.whiteInk!.mode === o.mode} onClick={() => p.whiteInk!.onMode(o.mode)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <small className="text-[13px] text-ink-2">{WHITE_INK.find((o) => o.mode === p.whiteInk!.mode)!.hint}</small>
+          {p.whiteInk.enclosed && p.whiteInk.mode === 'none' && (
+            <div className="rounded-[10px] bg-bg px-3 py-2.5 text-[13px] text-ink-2" role="note">
+              <strong className="text-ink">Check the white areas inside your artwork.</strong> They are left out, so the garment shows through them. If any of them are meant to be white (lettering, highlights), choose “Print white artwork only”.
+            </div>
+          )}
+          {p.whiteInk.mode === 'artwork' && <WhiteAreasNote {...p.whiteInk} />}
+        </div>
+      )}
+
+      {p.platePreview && <PlatePreview {...p.platePreview} />}
+
       <div className="grid gap-2">
         <button className="flex items-center justify-center gap-2.5 rounded-xl bg-accent px-[18px] py-[15px] text-base font-bold text-accent-ink enabled:hover:brightness-106" disabled={!p.downloads || p.status !== 'ready'} onClick={() => p.downloads && p.onDownload(p.downloads[0])}>
           <svg className="size-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -292,6 +368,159 @@ function QualityStatus(q: NonNullable<Props['quality']>) {
         )}
         <span className="basis-full text-xs text-ink-2">Covers the vector shown here. Not a production approval: that will also need the print method, size and colours.</span>
       </div>
+    </div>
+  )
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** White artwork only: what happened to the white areas inside the artwork, and what needs checking. */
+function WhiteAreasNote(w: WhiteInkProps) {
+  if (w.readingText || !w.areas)
+    return (
+      <div className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
+        <span className={spinnerSmall} aria-hidden="true" />
+        {w.readingText ? 'Reading the lettering to find the insides of letters…' : 'Checking the white areas inside your artwork…'}
+      </div>
+    )
+  // Slivers inside letters are paper too, but aren't counted as letters' insides.
+  const counters = w.areas.filter((a) => a.kind === 'counter' && !a.thin).length
+  // Thin slivers are one thing to check (see PlatePreview).
+  const open = w.areas.filter((a) => !a.decided && !a.thin).length + (w.areas.some((a) => !a.decided && a.thin) ? 1 : 0)
+  if (!counters && !w.areas.some((a) => a.kind !== 'counter')) return null
+  return (
+    <div className="grid gap-1.5 rounded-[10px] bg-bg px-3 py-2.5 text-[13px] text-ink-2" role="note">
+      {counters > 0 && <span>{plural(counters, 'letter counter (the inside of a letter) is', 'letter counters (the insides of letters) are')} left out, so the garment shows through.</span>}
+      {open > 0 ? (
+        <span>
+          <strong className="text-ink">{open === 1 ? 'One thing needs' : `${open} things need`} checking.</strong> White areas inside the artwork print in white ink, but the image can’t tell white artwork from background showing through. Preview the print plates and choose for each one.
+        </span>
+      ) : (
+        w.areas.some((a) => a.kind !== 'counter') && <span>You chose for every white area inside the artwork.</span>
+      )}
+    </div>
+  )
+}
+
+/** The print plates as they will print, on a white or coloured garment, all together or one at a time. */
+function PlatePreview(v: PlatePreviewProps) {
+  const [garment, setGarment] = useState(GARMENTS[0].color)
+  const [only, setOnly] = useState<number | null>(null)
+  const shown = v.svg && only !== null && v.plates.some((pl) => pl.color === only) ? onePlate(v.svg, only) : v.svg
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!shown) return setUrl(null)
+    const u = URL.createObjectURL(new Blob([shown], { type: 'image/svg+xml' }))
+    setUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [shown])
+  // Every enclosed white area that isn't a letter counter, numbered as on the preview.
+  const marked = v.areas.filter((a) => a.kind !== 'counter' && !a.thin).map((area, i) => ({ area, n: i + 1 }))
+  // Thin slivers are checked together: usually where blended edge colours meet.
+  const thin = v.areas.filter((a) => a.kind !== 'counter' && a.thin)
+  const thinKind = thin.every((a) => a.kind === 'garment') ? 'garment' : thin.every((a) => a.kind === 'white') ? 'white' : null
+  const ring = (a: EnclosedArea) => Math.max(3, Math.hypot(a.box[2] - a.box[0], a.box[3] - a.box[1]) / 2 + 1.5)
+  if (!v.open)
+    return (
+      <button className={btnQuiet} onClick={() => v.onOpen(true)}>
+        Preview print plates
+      </button>
+    )
+  return (
+    <div className="grid gap-2" role="region" aria-label="Print plates preview">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium">Print plates</span>
+        <button className={link} onClick={() => v.onOpen(false)}>
+          Hide
+        </button>
+      </div>
+      <div className={seg} role="group" aria-label="Garment">
+        {GARMENTS.map((g) => (
+          <button key={g.color} className={segBtn} aria-pressed={garment === g.color} onClick={() => setGarment(g.color)}>
+            {g.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid place-items-center overflow-hidden rounded-[10px] border border-line p-3" style={{ background: garment }}>
+        {url ? (
+          <svg viewBox={`0 0 ${v.width} ${v.height}`} className="max-h-64 w-full" role="img" aria-label={only === null ? 'All print plates' : `The ${v.plates.find((pl) => pl.color === only)?.name} plate`}>
+            <image href={url} width={v.width} height={v.height} />
+            {thin.map((area, i) => (
+              <circle key={`t${i}`} cx={area.at[0]} cy={area.at[1]} r={Math.max(2, v.width / 120)} fill="#e0218a" fillOpacity={0.55} aria-hidden="true" />
+            ))}
+            {marked.map(({ area, n }) => (
+              <g key={n} aria-hidden="true">
+                <circle cx={area.at[0]} cy={area.at[1]} r={ring(area)} fill="none" stroke="#e0218a" strokeWidth={Math.max(1, v.width / 160)} strokeDasharray={area.decided ? undefined : `${Math.max(1.5, v.width / 80)}`} />
+                <text x={area.at[0] + (n % 2 ? 1 : -1) * ring(area)} y={area.at[1] - ring(area)} textAnchor={n % 2 ? 'start' : 'end'} fontSize={Math.max(6, v.width / 18)} fontWeight="700" fill="#e0218a" stroke="#fff" strokeWidth={Math.max(0.6, v.width / 300)} paintOrder="stroke">
+                  {n}
+                </text>
+              </g>
+            ))}
+          </svg>
+        ) : v.failed ? (
+          <span className="text-[13px] text-bad">The plates couldn’t be made.</span>
+        ) : (
+          <span className={spinnerSmall} aria-label="Making the print plates" />
+        )}
+      </div>
+      {v.svg && (
+        <>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Plates">
+            <button className={cx(chip, 'pl-3 aria-pressed:border-ink')} aria-pressed={only === null} onClick={() => setOnly(null)}>
+              All plates
+            </button>
+            {v.plates.map((pl) => (
+              <button key={pl.color} className={cx(chip, 'aria-pressed:border-ink')} aria-pressed={only === pl.color} onClick={() => setOnly(only === pl.color ? null : pl.color)}>
+                <span className={cx(swatch, 'size-[18px]')} style={{ background: '#' + pl.color.toString(16).padStart(6, '0') }} aria-hidden="true" />
+                {pl.name}
+              </button>
+            ))}
+          </div>
+          {(marked.length > 0 || thin.length > 0) && (
+            <div className="grid gap-1.5" role="group" aria-label="White areas inside the artwork">
+              <small className="text-[13px] text-ink-2">White areas inside the artwork (marked): white artwork, or background showing through?</small>
+              {marked.map(({ area, n }) => (
+                <div key={n} className="flex items-center justify-between gap-2 text-[13px]">
+                  <span>
+                    Area {n}
+                    {!area.decided && <span className="text-ink-2"> · needs checking</span>}
+                  </span>
+                  <div className={cx(seg, 'w-56 flex-none')} role="group" aria-label={`Area ${n}`}>
+                    <button className={segBtn} aria-pressed={area.kind === 'white'} onClick={() => v.onChoose(area, true)}>
+                      White ink
+                    </button>
+                    <button className={segBtn} aria-pressed={area.kind === 'garment'} onClick={() => v.onChoose(area, false)}>
+                      Garment
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {thin.length > 0 && (
+                <div className="flex items-center justify-between gap-2 text-[13px]">
+                  <span>
+                    {plural(thin.length, 'thin white sliver', 'thin white slivers')} (under 1 mm, dots)
+                    {thin.some((a) => !a.decided) && <span className="text-ink-2"> · needs checking</span>}
+                  </span>
+                  <div className={cx(seg, 'w-56 flex-none')} role="group" aria-label="Thin white slivers">
+                    <button className={segBtn} aria-pressed={thinKind === 'white'} onClick={() => v.onChooseAll(thin, true)}>
+                      White ink
+                    </button>
+                    <button className={segBtn} aria-pressed={thinKind === 'garment'} onClick={() => v.onChooseAll(thin, false)}>
+                      Garment
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {v.gradients > 0 && (
+            <small className="text-[13px] text-ink-2">
+              {v.gradients === 1 ? 'One gradient prints' : `${v.gradients} gradients print`} in full colour, not on a separate plate. They show in “All plates”.
+            </small>
+          )}
+          <small className="text-[13px] text-ink-2">Exactly what the print and cut files contain. Where nothing prints, the garment shows through; white ink on a white garment is hard to see.</small>
+        </>
+      )}
     </div>
   )
 }

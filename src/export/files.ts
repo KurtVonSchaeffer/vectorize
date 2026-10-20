@@ -22,6 +22,11 @@ export interface DownloadInput {
   cutSvgFromPlates?: boolean
   /** The width print and cut files are made at (one colour's output width): SVG, PDF and DXF all get it. */
   outputWidthMm?: number
+  /**
+   * Full colour: the width (mm) the print PDF already has (its longest side PRINT_LONGEST_MM), given
+   * to the print / cut SVG and the DXF too, so every print and cut file has one physical size.
+   */
+  printWidthMm?: number
   /** Coordinate space of the SVG paths. */
   width: number
   height: number
@@ -34,15 +39,23 @@ export interface DownloadInput {
   flat: boolean
 }
 
+/** The long side of a full-colour print PDF (its 720 pt page), which other print files can match. */
+export const PRINT_LONGEST_MM = 254
+
+/** The width (mm) of a full-colour print file whose long side is PRINT_LONGEST_MM. */
+export const printWidthMm = (width: number, height: number) => (PRINT_LONGEST_MM * width) / Math.max(width, height)
+
 /** The primary and secondary file for each purpose. */
 export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download, Download] {
   const { baseName, outputWidthMm: widthMm } = input
+  // Print and cut SVG and DXF: one colour's output width, or full colour's print width.
+  const fileWidthMm = widthMm ?? input.printWidthMm
   const svgBlob = async () => new Blob([input.svg], { type: 'image/svg+xml' })
   const svg: Download = { label: 'SVG', detail: 'Opens in Illustrator, Inkscape, Figma and browsers', filename: `${baseName}.svg`, make: svgBlob }
   // The print / cut file as an SVG, at its physical size when it has one.
   const plateSvg: Download | null =
     input.cutSvgFromPlates && input.plateSvg
-      ? { ...svg, make: async () => new Blob([widthMm ? physicalSize(await input.plateSvg!(), widthMm, input.width, input.height) : await input.plateSvg!()], { type: 'image/svg+xml' }) }
+      ? { ...svg, make: async () => new Blob([fileWidthMm ? physicalSize(await input.plateSvg!(), fileWidthMm, input.width, input.height) : await input.plateSvg!()], { type: 'image/svg+xml' }) }
       : null
   // A plate or layer is named after the ink chosen for it (spot name) when there is one.
   const inkName = (color: number) => input.spotNames?.get(color) ?? input.names.get(color)
@@ -78,7 +91,7 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
         let g = 0
         // A gradient is cut from one material, so it's one layer.
         const layers = shapes.map((shape) => ({ shape, name: shape.gradient ? `GRADIENT ${++g}` : (inkName(shape.color) ?? 'COLOR') }))
-        return new Blob([buildDxf(layers, { width: input.width, height: input.height, widthMm })], { type: 'application/dxf' })
+        return new Blob([buildDxf(layers, { width: input.width, height: input.height, widthMm: fileWidthMm })], { type: 'application/dxf' })
       },
     }
     return [{ ...(plateSvg ?? svg), detail: 'For Cricut, Silhouette and vinyl cutters' }, dxf]

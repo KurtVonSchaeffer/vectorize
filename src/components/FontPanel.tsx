@@ -3,7 +3,7 @@ import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candid
 import { loadIndex } from '../fonts/catalog'
 import { readFromSharpened } from '../fonts/sharpened'
 import { worthSuggesting } from '../fonts/suggest'
-import { smallestTextLine } from '../fonts/textsize'
+import { smallestTextLine, wordBoxes } from '../fonts/textsize'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
 import type { FontCandidate, FontMatch } from '../fonts/match'
@@ -34,6 +34,8 @@ interface Props {
   /** The automatic match found lettering but no font close enough to rebuild it: per such line, its text and closest match. */
   /** The shortest text line found, in source pixels (null when there's no text). */
   onTextSize?: (px: number | null) => void
+  /** The words found, as boxes in source pixels (print files: letter counters are paper). */
+  onWords?: (boxes: [number, number, number, number][]) => void
   onAutoUnmatched?: (lines: { line: number; text: string; closest: FontCandidate & { score: number } | null }[]) => void
   /** A line's best match is close enough to suggest by name (worthSuggesting); the customer decides. */
   onSuggestFont?: (report: FontReport, line: number, match: FontCandidate & { score: number }) => void
@@ -74,7 +76,7 @@ type Online = { status: 'busy' } | { status: 'done'; fonts: OnlineFont[] } | { s
 
 type State = { kind: 'idle' } | { kind: 'busy'; progress: FontProgress } | { kind: 'done'; report: FontReport; lines: TextLine[]; withInstalled: boolean } | { kind: 'error'; message: string }
 
-export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTextSize, onSuggestFont, sharpen }: Props) {
+export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUseFont, onClearFont, auto, onAutoBusy, onAutoUnmatched, onTextSize, onWords, onSuggestFont, sharpen }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   /** The font being placed right now ("line|label"). */
   const [placing, setPlacing] = useState<string | null>(null)
@@ -140,6 +142,7 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
       const report = await readFromSharpened(bitmap, sharp, (image) => findText(image, colors, onProgress, sharp ? bitmap : undefined))
       // report.scale is already in the original's pixels.
       if (live()) onTextSize?.(smallestTextLine(report))
+      if (live()) onWords?.(wordBoxes(report))
       const lines = await matchFonts(report, includeInstalled ? (installed.current ?? []) : [], onProgress)
       if (live()) {
         setOnline({})
