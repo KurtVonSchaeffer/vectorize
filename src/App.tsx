@@ -8,9 +8,9 @@ import { placeSuggestion } from './fonts/suggest'
 import { SMALL_TEXT_PX } from './fonts/textsize'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
-import { ResultCard, type Chip, type ColorMode } from './components/ResultCard'
+import { ResultCard, type Chip, type ColorMode, type WhiteInk } from './components/ResultCard'
 import { Upload } from './components/Upload'
-import { downloadsFor, saveBlob, type Download } from './export/files'
+import { downloadsFor, printWidthMm, saveBlob, type Download } from './export/files'
 import { DEMO_PALETTE } from './palette/demo'
 import { oneColourPlateName } from './vectorize/one-colour-ink'
 import { colorNames } from './palette/names'
@@ -19,7 +19,7 @@ import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
 import { FidelityChecker } from './quality/check'
-import { QUALITY_REPORTING } from './quality/flags'
+import { PRINT_FILES, QUALITY_REPORTING } from './quality/flags'
 import { isReviewed, readiness, type CheckOutcome, type Review } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
@@ -46,6 +46,9 @@ export default function App() {
   const [opening, setOpening] = useState(false)
   const [client, setClient] = useState<ClientSettings>(DEFAULT_CLIENT)
   const [transparent, setTransparent] = useState(false)
+  // Print files (flag): for an opaque upload on paper, how much of the white prints as white ink.
+  // None unless asked, per upload: white ink is a production decision.
+  const [whiteInk, setWhiteInk] = useState<WhiteInk>('none')
   const [removed, setRemoved] = useState<number[]>([])
   const [result, setResult] = useState<TraceResult | null>(null)
   // The settings (jobKey) the shown result was traced with; during a re-trace it's the old one.
@@ -123,6 +126,7 @@ export default function App() {
         })
         setDetection(det)
         setTransparent(det.hasAlpha || det.kind === 'lineart')
+        setWhiteInk('none')
         setRemoved([])
         setLettering({})
         setResult(null)
@@ -214,8 +218,9 @@ export default function App() {
   const buildJob = useMemo(() => {
     if (!input || !source) return null
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
-    // `vary` makes an alternative of the current job (used by the background improver).
-    return (knockout: boolean, vary: { detail?: number; input?: InputImage; lettering?: PlacedWord[] } = {}) =>
+    // `vary` makes an alternative of the current job (used by the background improver), or sets
+    // what only print and cut files get (`paperOut`), so the preview isn't traced again for it.
+    return (knockout: boolean, vary: { detail?: number; input?: InputImage; lettering?: PlacedWord[]; paperOut?: 'border' | 'all' } = {}) =>
       buildTraceJob(vary.input ?? input, source.width, {
         trace: traceParamsFor(kind, { ...c, detail: vary.detail ?? detail }, detection ? detailBoost(detection, source.width, source.height) : undefined),
         prep: prepFor(kind, c),
@@ -229,6 +234,7 @@ export default function App() {
         brand,
         lettering: vary.lettering ?? letteringWords,
         oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
+        ...(vary.paperOut ? { paperOut: vary.paperOut } : {}),
       })
   }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords, oneOn, oneInk, gapMm, outputWidthMm])
   // The preview is the master, unless the client asked to see the production file's gaps.
@@ -337,7 +343,7 @@ export default function App() {
       plateSvg: plates && buildJob ? async () => {
             // Its own worker, so making a file never interrupts the preview.
             const t = tracers.current!
-            return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true), source, inks.enabled)).svg
+            return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true, PRINT_FILES && whiteInk !== 'all' ? { paperOut: whiteInk === 'none' ? 'all' : 'border' } : {}), source, inks.enabled)).svg
           } : undefined,
       width: result.width,
       height: result.height,
@@ -350,11 +356,14 @@ export default function App() {
           : null,
       flat: !!chips && chips.length <= 16,
       // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
-      cutSvgFromPlates: oneOn,
+      // Print files (flag): the print / cut SVG is the same artwork as the PDF and DXF, paper left out.
+      cutSvgFromPlates: oneOn || PRINT_FILES,
       // One colour has a chosen output width: the print and cut files (SVG, PDF, DXF) are made at it.
       outputWidthMm: oneOn ? outputWidthMm : undefined,
+      // Print files (flag): full-colour SVG and DXF match the PDF's size (long side 254 mm).
+      printWidthMm: PRINT_FILES && !oneOn ? printWidthMm(result.width, result.height) : undefined,
     })
-  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName, outputWidthMm])
+  }, [result, source, client.purpose, names, inks.enabled, chips, plates, buildJob, oneOn, client.oneColour.ink, client.oneColour.inkName, outputWidthMm, whiteInk])
 
   const download = async (d: Download) => {
     try {
@@ -692,6 +701,8 @@ export default function App() {
             transparentHint={transparentHint}
             transparentLocked={transparentLocked}
             onTransparent={setTransparent}
+            // Spot inks have their own white-is-paper setting.
+            whiteInk={PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && result?.paper ? { mode: whiteInk, onMode: setWhiteInk } : undefined}
             downloads={downloads}
             onDownload={download}
             detail={client.detail}

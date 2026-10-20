@@ -43,7 +43,24 @@ interface Props {
    * are shown as separate facts. None of them is a production approval. Absent, the card reads as before.
    */
   quality?: { autoCheck: AutoCheck; reviewed: boolean; findings: string[]; onReview: () => void; onUnreview: () => void }
+  /**
+   * Print files (behind a flag), for an opaque upload on paper: how much of the white prints as
+   * white ink. Absent, nothing is shown.
+   */
+  whiteInk?: { mode: WhiteInk; onMode: (m: WhiteInk) => void }
 }
+
+/**
+ * White ink in print and cut files for artwork on paper: none (white material), the white inside
+ * the artwork only (coloured material), or the background too.
+ */
+export type WhiteInk = 'none' | 'artwork' | 'all'
+
+const WHITE_INK: { mode: WhiteInk; label: string; hint: string }[] = [
+  { mode: 'none', label: 'None', hint: 'For white material: every white area is left out, so the material shows through.' },
+  { mode: 'artwork', label: 'Artwork', hint: 'For coloured material: the paper background is left out; white inside the artwork prints in white ink.' },
+  { mode: 'all', label: 'With background', hint: 'The white background prints in white ink too.' },
+]
 
 const CHECK_LABEL: Record<AutoCheck, string> = {
   checking: 'Checking against your image…',
@@ -213,6 +230,22 @@ export function ResultCard(p: Props) {
           type="checkbox"
           className="relative m-0 h-[26px] w-11 flex-none cursor-pointer appearance-none rounded-full bg-line transition-colors after:absolute after:top-[3px] after:left-[3px] after:size-5 after:rounded-full after:bg-card after:shadow-[0_1px_3px_rgb(0_0_0/0.3)] after:transition-transform after:content-[''] checked:bg-accent checked:after:translate-x-[18px] disabled:cursor-default disabled:opacity-55" checked={p.transparent} disabled={p.transparentLocked} onChange={(e) => p.onTransparent(e.target.checked)} />
       </label>
+
+      {p.whiteInk && (
+        <div className="grid gap-1.5">
+          <span className="font-medium" id="white-ink-label">
+            White ink in print files
+          </span>
+          <div className={seg} role="group" aria-labelledby="white-ink-label">
+            {WHITE_INK.map((o) => (
+              <button key={o.mode} className={segBtn} aria-pressed={p.whiteInk!.mode === o.mode} onClick={() => p.whiteInk!.onMode(o.mode)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <small className="text-[13px] text-ink-2">{WHITE_INK.find((o) => o.mode === p.whiteInk!.mode)!.hint}</small>
+        </div>
+      )}
 
       <div className="grid gap-2">
         <button className="flex items-center justify-center gap-2.5 rounded-xl bg-accent px-[18px] py-[15px] text-base font-bold text-accent-ink enabled:hover:brightness-106" disabled={!p.downloads || p.status !== 'ready'} onClick={() => p.downloads && p.onDownload(p.downloads[0])}>

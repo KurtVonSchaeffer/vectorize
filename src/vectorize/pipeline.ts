@@ -9,6 +9,7 @@ import { colorAt, findGradients } from '../palette/gradients'
 import { blendRatio, nameSvg, quantize, type FixedLabels, type Ink, type InkSettings, type QuantizeOptions } from '../palette/quantize'
 import { layersToSvg, traceLabels, type LabelMap, type ShapeCounts, type TracedLayer, type TraceOptions } from '../trace'
 import { removeFlatBackground } from './background'
+import { paperMask, withPaper } from './paper'
 import type { FlatTracer } from './flat-tracer'
 import { finalizeSvg, prepareImage, type InputImage } from './image'
 import type { PlacedWord } from '../fonts/lettering'
@@ -46,6 +47,12 @@ export interface JobSettings {
   gradients?: boolean
   /** Words to rebuild from a font (source-image pixels). */
   lettering?: PlacedWord[]
+  /**
+   * Print plates and cut files on paper (see paper.ts): 'border' leaves the paper background out,
+   * 'all' leaves every area of the paper colour out (no white ink at all). Applies to knockout
+   * jobs in full colour only; the master vector and one-colour files are unaffected.
+   */
+  paperOut?: 'border' | 'all'
 }
 
 /** Rebuilt lettering, in the traced image's pixels. */
@@ -72,6 +79,11 @@ export interface FlatOptions {
   text?: TextOptions
   /** Draw everything in one ink (see one-colour.ts). */
   oneColour?: OneColourOptions
+  /**
+   * A paper background (paper.ts) left out of the shapes: 'border' the background only (white
+   * inside the artwork stays), 'all' every area of the paper colour.
+   */
+  paper?: 'border' | 'all'
 }
 
 export interface OneColourSummary {
@@ -114,6 +126,8 @@ export interface FlatResult {
   /** Words rebuilt from a font. */
   lettered: number
   oneColour: OneColourSummary | null
+  /** The background is paper (light, opaque, framing the artwork): see paper.ts. */
+  paper: boolean
 }
 
 /**
@@ -166,6 +180,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       gradients: lineArt || spotOn ? undefined : s.gradients || one ? 'apply' : 'report',
       text: s.lettering?.length && !lineArt ? textOptions(s.lettering, scale, base.image.width, base.image.height) : undefined,
       oneColour: one ? oneColourOptions(one, s.knockout, base.image.width) : undefined,
+      ...(s.paperOut && s.knockout && !lineArt && !spotOn && !one ? { paper: s.paperOut } : {}),
       quantize: {
         maxColors: lineArt ? 2 : spotOn ? spot!.settings.maxInks : trace.colors,
         mergeDelta: spotOn || lineArt ? 0 : trace.colorMerge,
@@ -294,10 +309,14 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     oneColour = { ink: r.inkColor, inkRegions: r.ink.length, paperRegions: r.paper.length, gaps: r.gaps, gapMm: r.gapPx && mmPerPx ? r.gapPx * mmPerPx : null, flags: r.flags }
     if (r.gaps && r.undo && o.oneColour.outputWidthMm) gapUndo = r.undo
   }
+  // A paper background (paper.ts) is reported for every full-colour result, and left out of print
+  // and cut files when asked, with or without the white inside the artwork.
+  const paperPixels = !o.lineArt && !o.oneColour && !o.transparent && bgLabel >= 0 ? paperMask(map, bgLabel, image) : null
   const paper = (m: LabelMap): LabelMap => {
     // Line art keeps paper out of the shapes; put it back as a white sheet when asked.
     if (o.lineArt && !o.transparent) return { ...m, colors: m.colors.map((c) => (c < 0 ? 0xffffff : c)) }
     if (o.transparent && bgLabel >= 0) return { ...m, colors: m.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
+    if (o.paper && paperPixels) return withPaper(m, bgLabel, o.paper === 'all' ? m.labels.map((l) => (l === bgLabel ? 1 : 0)) : paperPixels)
     return m
   }
   map = paper(map)
@@ -337,6 +356,7 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     gradients: { found: regions.length, kept: apply ? regions.length : 0 },
     lettered: text?.words ?? 0,
     oneColour,
+    paper: !!paperPixels,
   }
 }
 
@@ -527,6 +547,8 @@ export interface TraceResult {
   lettered: number
   /** One-colour mode: what became ink or paper, and where a gap was moved or skipped. */
   oneColour: OneColourSummary | null
+  /** The background is paper (light, opaque, framing the artwork; flat full colour only). */
+  paper: boolean
   /** Size of the coordinate space the SVG paths use. */
   width: number
   height: number
@@ -544,11 +566,11 @@ export async function runTraceJob(
     const res = tracers.flat ? await tracers.flat.run(job.image, job.options) : runFlat(job.image, job.options)
     const finalized = finalizeSvg(res.svg, job.image, original)
     const svg = nameSvg(finalized, inkNames({ palette: res.palette, inks: annotate ? res.inks : [], named: res.named }))
-    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, ...size }
+    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, paper: res.paper, ...size }
   }
   const out = await tracers.vtracer.trace(job.image, toEngineConfig(job.params, job.scale))
   const svg = finalizeSvg(out.svg, job.image, original)
-  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, oneColour: null, ...size }
+  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, oneColour: null, paper: false, ...size }
 }
 
 /**
