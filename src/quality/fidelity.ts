@@ -1,5 +1,5 @@
 import { deltaE2000, rgbToLab } from '../palette/color'
-import { flatten, shapesFromSvg, type ColorShape, type Pt } from '../export/path'
+import { flatten, shapesFromSvg, type ColorShape, type Pt, type Subpath } from '../export/path'
 import { selfIntersects } from '../export/validate'
 import { compareRasters, type Region } from './compare'
 import { lostShading, shadingLoss } from './shading'
@@ -108,6 +108,8 @@ export const CHANGED_IOU = 0.75
 const CHANGED_MIN_AREA = 12
 /** Geometry thresholds (upload px). */
 export const TINY_AREA = 4
+/** Two outlines are the same when every point of each is within this of the other (upload px). */
+const COPY_MATCH = 0.5
 const PAPER_MIN_CHANNEL = 235
 const PAPER_COVER = 0.97
 /** Verdict thresholds, calibrated on the audit set (bench/fidelity-baseline.json). */
@@ -425,25 +427,34 @@ function geometry(svg: string, upload: ImageData) {
     }
   const reg = (r: (typeof rings)[number]): Region => ({ x: Math.floor(r.box[0]), y: Math.floor(r.box[1]), w: Math.ceil(r.box[2] - r.box[0]) + 1, h: Math.ceil(r.box[3] - r.box[1]) + 1, area: Math.round(r.area) })
 
-  // The same outline twice: area within 3% and bounding box within 1 px, in two different paths
-  // (one drawn under the other). Rings of one path are its holes and parts, not copies.
-  const copied: Region[] = []
+  // The same filled outline twice, in two different paths (one drawn under the other): area within
+  // 3% and box within 1 px to find candidates, then every point of each outline within COPY_MATCH
+  // of the other. Holes don't count: two layers with a hole in the same place share an edge but
+  // draw nothing twice. Rings of one path are its holes and parts, not copies.
   const owner: number[] = []
   shapes.forEach((s, i) => s.subpaths.forEach(() => owner.push(i)))
+  const hole = rings.map((r, i) => rings.reduce((n, o, j) => (j !== i && owner[j] === owner[i] && inside(r.pts[0], o.pts) ? n + 1 : n), 0) % 2 === 1)
+  const copied: Region[] = []
   const order = rings.map((_, i) => i).sort((a, b) => rings[a].box[0] - rings[b].box[0])
   for (let s = 0; s < order.length; s++) {
-    const a = rings[order[s]]
-    if (a.area < TINY_AREA) continue
+    const i = order[s]
+    const a = rings[i]
+    if (a.area < TINY_AREA || hole[i]) continue
     for (let t = s + 1; t < order.length && rings[order[t]].box[0] - a.box[0] <= 1; t++) {
-      const b = rings[order[t]]
-      if (owner[order[s]] === owner[order[t]]) continue
-      if (Math.abs(a.area - b.area) <= 0.03 * a.area && a.box.every((v, j) => Math.abs(v - b.box[j]) <= 1)) {
+      const j = order[t]
+      const b = rings[j]
+      if (owner[i] === owner[j] || hole[j]) continue
+      if (Math.abs(a.area - b.area) > 0.03 * a.area || !a.box.every((v, k) => Math.abs(v - b.box[k]) <= 1)) continue
+      if (within(a.pts, b.pts, COPY_MATCH) && within(b.pts, a.pts, COPY_MATCH)) {
         copied.push(reg(a))
         break
       }
     }
   }
-  const crosses = rings.map((r) => r.pts.length < 4000 && selfIntersects(r.pts))
+  // Crossings are tested on a much finer flattening: near-tangent curves flattened coarsely can
+  // appear to cross when they don't (seen on two Firefox outlines).
+  const fine = shapes.flatMap((s) => s.subpaths.map((sp) => fineFlatten(sp, k)))
+  const crosses = fine.map((pts) => pts.length < 40000 && selfIntersects(pts))
   const crossing = rings.filter((_, i) => crosses[i]).map(reg)
   // A crossing outline's lobes cancel in its area, so it is reported as crossing, not as tiny.
   const tiny = rings.filter((r, i) => !crosses[i] && r.area < TINY_AREA).map(reg)
@@ -461,6 +472,54 @@ function geometry(svg: string, upload: ImageData) {
       return light && r.area >= PAPER_COVER * W * H
     })
   return { raster, contours: rings.length, copied, crossing, tiny, paper }
+}
+
+/** A subpath as a polyline with curve steps of at most 0.05 upload px (up to 1024 per curve), scaled by k. */
+function fineFlatten(sp: Subpath, k: number): Pt[] {
+  const pts: Pt[] = [[sp.start[0] * k, sp.start[1] * k]]
+  let cur = sp.start
+  for (const g of sp.segs) {
+    if (g.t === 'L') pts.push([g.p[0] * k, g.p[1] * k])
+    else {
+      const len = (Math.hypot(g.c1[0] - cur[0], g.c1[1] - cur[1]) + Math.hypot(g.c2[0] - g.c1[0], g.c2[1] - g.c1[1]) + Math.hypot(g.p[0] - g.c2[0], g.p[1] - g.c2[1])) * k
+      const n = Math.min(1024, Math.max(2, Math.ceil(len / 0.05)))
+      for (let i = 1; i <= n; i++) {
+        const t = i / n, u = 1 - t
+        pts.push([(u ** 3 * cur[0] + 3 * u * u * t * g.c1[0] + 3 * u * t * t * g.c2[0] + t ** 3 * g.p[0]) * k, (u ** 3 * cur[1] + 3 * u * u * t * g.c1[1] + 3 * u * t * t * g.c2[1] + t ** 3 * g.p[1]) * k])
+      }
+    }
+    cur = g.p
+  }
+  return pts
+}
+
+/** Even-odd: whether a point is inside a closed polyline. */
+function inside([x, y]: Pt, r: Pt[]): boolean {
+  let c = false
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [xi, yi] = r[i]
+    const [xj, yj] = r[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c
+  }
+  return c
+}
+
+/** Whether every point of `a` (up to 200, evenly spread) is within `tol` of the outline `b`. */
+function within(a: Pt[], b: Pt[], tol: number): boolean {
+  const step = Math.max(1, Math.floor(a.length / 200))
+  for (let i = 0; i < a.length; i += step) {
+    const [x, y] = a[i]
+    let near = false
+    for (let k = 0; k < b.length && !near; k++) {
+      const p = b[k], q = b[(k + 1) % b.length]
+      const dx = q[0] - p[0], dy = q[1] - p[1]
+      const L = dx * dx + dy * dy
+      const t = L ? Math.max(0, Math.min(1, ((x - p[0]) * dx + (y - p[1]) * dy) / L)) : 0
+      if (Math.hypot(p[0] + t * dx - x, p[1] + t * dy - y) <= tol) near = true
+    }
+    if (!near) return false
+  }
+  return true
 }
 
 function polyArea(p: Pt[]): number {

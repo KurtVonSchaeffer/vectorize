@@ -3,7 +3,12 @@
 `src/quality/fidelity.ts` (`assessFidelity`) measures a vector result against the uploaded image it
 came from. It is a measurement only: nothing in the app calls it yet, and it does not change how
 artwork is processed (proven byte for byte in `src/vectorize/__tests__/fidelity/golden.test.ts`).
-Later PRs will use it as the before-and-after yardstick and for the readiness message.
+Later PRs will use it as the before-and-after yardstick and to inform the readiness message.
+
+**It is not a production approval.** "ready" means only that none of these checks found a
+problem. Known problems pass it (see Limits), so it must never mark artwork as approved for
+production on its own. Three states stay separate: the vector was generated; automated checks
+found no known problem; a person approved it for production.
 
 ## What it measures
 
@@ -17,8 +22,9 @@ bench; a supersampling stand-in in Node tests), and the SVG text.
 | Shapes changed | For fine features that survive: IoU of the feature with the vector's pixels of that colour around it, under 0.75 | star points cut off, small shapes redrawn |
 | Flattened shading | ΔE2000 over 6 in the upload's smooth interior (`shadingLoss`) | gradients turned into flat bands |
 | Raster content | SVG text: `<image>`, `data:` URIs, `foreignObject`, filters, masks, patterns, clip paths, external references | fidelity bought with embedded pixels |
-| Copied outlines | Two paths with a ring of the same area (±3%) and box (±1 px) | hidden duplicate objects |
-| Self-intersections, tiny contours | Flattened rings, in upload px through the viewBox; tiny is under 4 px² | geometry a cutter or editor trips over |
+| Copied outlines | A filled outline (not a hole) in two different paths: same area (±3%) and box (±1 px), and every point of each within 0.5 px of the other | hidden duplicate objects |
+| Self-intersections | Each outline flattened to steps of at most 0.05 upload px, tested for crossing edges | outlines a cutter or editor trips over |
+| Tiny contours | Outlines under 4 px² that don't cross themselves (a crossing outline's lobes cancel in its area) | specks too small to see or cut |
 | Paper shape | Opaque upload whose SVG has a near-white shape covering ≥ 97% of the canvas | a JPEG's paper that would print as white ink |
 
 Two verdicts, each ready / check / not suitable: **visual** (does it show what the upload shows?) and
@@ -48,7 +54,7 @@ Agreement with the visual review:
   "not suitable"). They are never called ready.
 - The geometry verdict flags three images that look right (Python, Angular, Fluent parrot): they
   do contain hidden duplicate outlines, which the visual review could not see.
-- Measurement time: up to 0.63 s for a 600 × 450 upload in Chromium (target for in-app use: 0.3 s).
+- Measurement time: up to 0.75 s for a 600 × 450 upload in Chromium (target for in-app use: 0.3 s).
 
 ## Limits
 
@@ -62,7 +68,9 @@ Agreement with the visual review:
   so it is not a feature and its loss is not counted.
 - **Sub-pixel shape changes.** A raster comparison at the upload's size can't see changes smaller
   than a pixel: a 16–24 px heptagon drawn as a circle, a round 6 px eye drawn as a quadrilateral.
-  The tracer will have to report its own shape substitutions (PR 5).
+  **Known false negative:** the Kubernetes logo in the audit set (hub heptagon drawn as a circle,
+  spoke corners rounded) is called ready by both verdicts. The tracer will have to report its own
+  shape substitutions (PR 5).
 - **Low-contrast edges.** Edges between colours of equal brightness are invisible to the Sobel
   edge measure.
 - **JPEG noise** counts as difference against a clean vector. Compare results for the same upload,

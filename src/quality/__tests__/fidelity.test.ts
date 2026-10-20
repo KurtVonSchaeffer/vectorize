@@ -58,7 +58,8 @@ describe('finds known reconstruction defects against the upload', () => {
       { rings: [rect(20, 85, 28, 105), rect(35, 85, 43, 105), circle(65, 95, 9), circle(65, 95, 5, true)], color: [1, 108, 165] },
     ])
     const r = measured(img)
-    expect(r.geometry.copiedOutlines).toBeGreaterThanOrEqual(4)
+    // The two bars and the ring's outline; the ring's counter is a hole in both layers, which draws nothing twice.
+    expect(r.geometry.copiedOutlines).toBe(3)
     expect(r.geometryVerdict).toBe('check')
     // It looks right: the copies are hidden, so only the geometry judgement flags them.
     expect(r.visual).toBe('ready')

@@ -1,5 +1,5 @@
 {
- "about": "Fidelity baseline for main @ 4926f81 at default settings (bench/fidelity.html, src/quality/fidelity.ts). review = visual review from the October 2026 audit. Uploads: docs/audits/2026-10-reconstruction/manifest.json.",
+ "about": "Fidelity baseline for main @ 4926f81 at default settings (bench/fidelity.html, src/quality/fidelity.ts). review = visual review from the October 2026 audit. Uploads: docs/audits/2026-10-reconstruction/manifest.json. assessMs varies by machine; every other field is deterministic.",
  "rows": [
   {
    "id": "android",
@@ -40,7 +40,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 161
+   "assessMs": 323
   },
   {
    "id": "javascript",
@@ -81,7 +81,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 194
+   "assessMs": 169
   },
   {
    "id": "vue",
@@ -122,7 +122,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 76
+   "assessMs": 210
   },
   {
    "id": "kubernetes",
@@ -163,7 +163,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 142
+   "assessMs": 225
   },
   {
    "id": "rust",
@@ -204,7 +204,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 62
+   "assessMs": 137
   },
   {
    "id": "react",
@@ -245,7 +245,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 54
+   "assessMs": 71
   },
   {
    "id": "docker",
@@ -279,7 +279,7 @@
    },
    "geometryCounts": {
     "contours": 61,
-    "copiedOutlines": 11,
+    "copiedOutlines": 7,
     "selfIntersecting": 0,
     "tiny": 0,
     "raster": [],
@@ -288,7 +288,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 70
+   "assessMs": 122
   },
   {
    "id": "go",
@@ -329,7 +329,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 78
+   "assessMs": 147
   },
   {
    "id": "python",
@@ -372,7 +372,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 136
+   "assessMs": 204
   },
   {
    "id": "angular",
@@ -415,7 +415,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 91
+   "assessMs": 103
   },
   {
    "id": "firefox",
@@ -449,8 +449,8 @@
    },
    "geometryCounts": {
     "contours": 54,
-    "copiedOutlines": 20,
-    "selfIntersecting": 13,
+    "copiedOutlines": 15,
+    "selfIntersecting": 12,
     "tiny": 3,
     "raster": [],
     "paperShape": false
@@ -461,7 +461,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 108
+   "assessMs": 381
   },
   {
    "id": "ruby",
@@ -495,7 +495,7 @@
    },
    "geometryCounts": {
     "contours": 43,
-    "copiedOutlines": 12,
+    "copiedOutlines": 6,
     "selfIntersecting": 6,
     "tiny": 0,
     "raster": [],
@@ -506,7 +506,7 @@
     "copied-outlines:check",
     "self-intersections:check"
    ],
-   "assessMs": 107
+   "assessMs": 334
   },
   {
    "id": "linux",
@@ -553,7 +553,7 @@
     "copied-outlines:check",
     "self-intersections:check"
    ],
-   "assessMs": 84
+   "assessMs": 151
   },
   {
    "id": "rocket-3d",
@@ -597,7 +597,7 @@
     "lost-detail:not-suitable",
     "tiny-contours:check"
    ],
-   "assessMs": 186
+   "assessMs": 380
   },
   {
    "id": "flag-br",
@@ -631,7 +631,7 @@
    },
    "geometryCounts": {
     "contours": 100,
-    "copiedOutlines": 46,
+    "copiedOutlines": 16,
     "selfIntersecting": 0,
     "tiny": 0,
     "raster": [],
@@ -641,7 +641,7 @@
     "changed-shapes:check",
     "copied-outlines:check"
    ],
-   "assessMs": 626
+   "assessMs": 592
   },
   {
    "id": "flag-mx",
@@ -675,7 +675,7 @@
    },
    "geometryCounts": {
     "contours": 104,
-    "copiedOutlines": 23,
+    "copiedOutlines": 16,
     "selfIntersecting": 19,
     "tiny": 10,
     "raster": [],
@@ -689,7 +689,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 445
+   "assessMs": 748
   },
   {
    "id": "flag-sv",
@@ -723,7 +723,7 @@
    },
    "geometryCounts": {
     "contours": 120,
-    "copiedOutlines": 49,
+    "copiedOutlines": 43,
     "selfIntersecting": 1,
     "tiny": 0,
     "raster": [],
@@ -734,7 +734,7 @@
     "copied-outlines:check",
     "self-intersections:check"
    ],
-   "assessMs": 368
+   "assessMs": 507
   },
   {
    "id": "fluent-rocket",
@@ -768,9 +768,9 @@
    },
    "geometryCounts": {
     "contours": 327,
-    "copiedOutlines": 3,
-    "selfIntersecting": 2,
-    "tiny": 39,
+    "copiedOutlines": 2,
+    "selfIntersecting": 7,
+    "tiny": 34,
     "raster": [],
     "paperShape": false
    },
@@ -780,7 +780,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 514
+   "assessMs": 726
   },
   {
    "id": "fluent-parrot",
@@ -823,7 +823,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 373
+   "assessMs": 256
   },
   {
    "id": "github-mark",
@@ -864,7 +864,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 124
+   "assessMs": 146
   },
   {
    "id": "world-thin",
@@ -905,7 +905,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 141
+   "assessMs": 139
   },
   {
    "id": "python-tiny",
@@ -939,7 +939,7 @@
    },
    "geometryCounts": {
     "contours": 41,
-    "copiedOutlines": 18,
+    "copiedOutlines": 15,
     "selfIntersecting": 3,
     "tiny": 0,
     "raster": [],
@@ -950,7 +950,7 @@
     "self-intersections:check",
     "paper-shape:check"
    ],
-   "assessMs": 13
+   "assessMs": 54
   },
   {
    "id": "docker-small",
@@ -996,7 +996,7 @@
     "tiny-contours:check",
     "paper-shape:check"
    ],
-   "assessMs": 32
+   "assessMs": 42
   },
   {
    "id": "flag-br-web",
@@ -1030,7 +1030,7 @@
    },
    "geometryCounts": {
     "contours": 38,
-    "copiedOutlines": 1,
+    "copiedOutlines": 0,
     "selfIntersecting": 15,
     "tiny": 8,
     "raster": [],
@@ -1038,11 +1038,10 @@
    },
    "issues": [
     "lost-detail:not-suitable",
-    "copied-outlines:check",
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 53
+   "assessMs": 54
   }
  ]
 }
