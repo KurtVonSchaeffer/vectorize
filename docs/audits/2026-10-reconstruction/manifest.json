@@ -1,0 +1,344 @@
+[
+ {
+  "id": "android",
+  "file": "android.png",
+  "cat": "flat",
+  "what": "simple flat-colour logo, transparent",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/android/android.png",
+  "truth": "in/android.png",
+  "truthScale": 1
+ },
+ {
+  "id": "javascript",
+  "file": "javascript.png",
+  "cat": "flat",
+  "what": "flat logo with lettering, opaque square",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/javascript/javascript.png",
+  "truth": "in/javascript.png",
+  "truthScale": 1,
+  "regions": {
+   "lettering": [
+    60,
+    100,
+    280,
+    288
+   ]
+  }
+ },
+ {
+  "id": "vue",
+  "file": "vue.png",
+  "cat": "flat",
+  "what": "overlapping flat shapes",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/vue/vue.png",
+  "truth": "in/vue.png",
+  "truthScale": 1
+ },
+ {
+  "id": "kubernetes",
+  "file": "kubernetes.png",
+  "cat": "negative-space",
+  "what": "negative space (wheel), transparent",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/kubernetes/kubernetes.png",
+  "truth": "in/kubernetes.png",
+  "truthScale": 1,
+  "regions": {
+   "hub": [
+    110,
+    110,
+    178,
+    178
+   ]
+  }
+ },
+ {
+  "id": "rust",
+  "file": "rust.png",
+  "cat": "negative-space",
+  "what": "gear with lettering, fine detail, one colour artwork",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png",
+  "truth": "in/rust.png",
+  "truthScale": 1
+ },
+ {
+  "id": "react",
+  "file": "react.png",
+  "cat": "fine-lines",
+  "what": "thin overlapping ellipses",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/react/react.png",
+  "truth": "in/react.png",
+  "truthScale": 1
+ },
+ {
+  "id": "docker",
+  "file": "docker.png",
+  "cat": "lettering",
+  "what": "wordmark + illustration",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/docker/docker.png",
+  "truth": "in/docker.png",
+  "truthScale": 1,
+  "regions": {
+   "lettering": [
+    0,
+    195,
+    288,
+    288
+   ],
+   "containers": [
+    60,
+    30,
+    210,
+    125
+   ]
+  }
+ },
+ {
+  "id": "go",
+  "file": "go.png",
+  "cat": "lettering",
+  "what": "italic wordmark + fine speed lines",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/go/go.png",
+  "truth": "in/go.png",
+  "truthScale": 1,
+  "regions": {
+   "lettering": [
+    0,
+    50,
+    288,
+    170
+   ]
+  }
+ },
+ {
+  "id": "python",
+  "file": "python.png",
+  "cat": "gradient",
+  "what": "two-colour logo with soft gradients, transparent",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/python/python.png",
+  "truth": "in/python.png",
+  "truthScale": 1
+ },
+ {
+  "id": "angular",
+  "file": "angular.png",
+  "cat": "gradient",
+  "what": "gradient logo with lettering",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/angular/angular.png",
+  "truth": "in/angular.png",
+  "truthScale": 1
+ },
+ {
+  "id": "firefox",
+  "file": "firefox.png",
+  "cat": "complex",
+  "what": "complex multicolour gradients",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/firefox/firefox.png",
+  "truth": "in/firefox.png",
+  "truthScale": 1
+ },
+ {
+  "id": "ruby",
+  "file": "ruby.png",
+  "cat": "gradient",
+  "what": "faceted gem with gradients",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/ruby/ruby.png",
+  "truth": "in/ruby.png",
+  "truthScale": 1
+ },
+ {
+  "id": "linux",
+  "file": "linux.png",
+  "cat": "illustration",
+  "what": "detailed illustration with shading (Tux)",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/github/explore/main/topics/linux/linux.png",
+  "truth": "in/linux.png",
+  "truthScale": 1,
+  "regions": {
+   "face": [
+    90,
+    40,
+    200,
+    140
+   ]
+  }
+ },
+ {
+  "id": "rocket-3d",
+  "file": "rocket-3d.png",
+  "cat": "photo-like",
+  "what": "3D-rendered illustration (photographic shading): control case",
+  "kind": "real upload",
+  "source": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Rocket/3D/rocket_3d.png",
+  "truth": "in/rocket-3d.png",
+  "truthScale": 1
+ },
+ {
+  "id": "flag-br",
+  "file": "flag-br.png",
+  "cat": "lettering",
+  "what": "Brazil flag: small lettering on a curved band",
+  "kind": "master, rendered",
+  "source": "https://raw.githubusercontent.com/lipis/flag-icons/main/flags/4x3/br.svg",
+  "truth": "truth/flag-br.png",
+  "truthScale": 2,
+  "regions": {
+   "lettering": [
+    150,
+    150,
+    450,
+    290
+   ]
+  }
+ },
+ {
+  "id": "flag-mx",
+  "file": "flag-mx.png",
+  "cat": "illustration",
+  "what": "Mexico flag: detailed emblem (eagle, snake, wreath)",
+  "kind": "master, rendered",
+  "source": "https://raw.githubusercontent.com/lipis/flag-icons/main/flags/4x3/mx.svg",
+  "truth": "truth/flag-mx.png",
+  "truthScale": 2,
+  "regions": {
+   "emblem": [
+    225,
+    140,
+    375,
+    300
+   ]
+  }
+ },
+ {
+  "id": "flag-sv",
+  "file": "flag-sv.png",
+  "cat": "lettering",
+  "what": "El Salvador flag: emblem with tiny lettering",
+  "kind": "master, rendered",
+  "source": "https://raw.githubusercontent.com/lipis/flag-icons/main/flags/4x3/sv.svg",
+  "truth": "truth/flag-sv.png",
+  "truthScale": 2,
+  "regions": {
+   "emblem": [
+    245,
+    170,
+    355,
+    280
+   ]
+  }
+ },
+ {
+  "id": "fluent-rocket",
+  "file": "fluent-rocket.png",
+  "cat": "gradient",
+  "what": "Fluent emoji (Color): vector gradients, transparent",
+  "kind": "master, rendered",
+  "source": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Rocket/Color/rocket_color.svg",
+  "truth": "truth/fluent-rocket.png",
+  "truthScale": 2
+ },
+ {
+  "id": "fluent-parrot",
+  "file": "fluent-parrot.png",
+  "cat": "complex",
+  "what": "Fluent emoji (Flat): flat multicolour illustration, transparent",
+  "kind": "master, rendered",
+  "source": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Parrot/Flat/parrot_flat.svg",
+  "truth": "truth/fluent-parrot.png",
+  "truthScale": 2
+ },
+ {
+  "id": "github-mark",
+  "file": "github-mark.png",
+  "cat": "one-colour",
+  "what": "GitHub mark: one colour with negative space, transparent",
+  "kind": "master, rendered (derived: colour set)",
+  "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/github.svg",
+  "truth": "truth/github-mark.png",
+  "truthScale": 2
+ },
+ {
+  "id": "world-thin",
+  "file": "world-thin.png",
+  "cat": "fine-lines",
+  "what": "Line icon at a hairline stroke (0.35 of 24 units, ~6 px)",
+  "kind": "master, rendered (derived: stroke thinned)",
+  "source": "https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/world.svg",
+  "truth": "truth/world-thin.png",
+  "truthScale": 2
+ },
+ {
+  "id": "python-tiny",
+  "file": "python-tiny.jpg",
+  "cat": "low-res-jpeg",
+  "what": "Python logo at 96 px, JPEG quality 45",
+  "kind": "derived from real upload",
+  "source": "explore python.png",
+  "truth": "in/python.png",
+  "truthScale": 3,
+  "truthBg": "#fff",
+  "regions": {
+   "eyes": [
+    20,
+    8,
+    80,
+    90
+   ]
+  }
+ },
+ {
+  "id": "docker-small",
+  "file": "docker-small.jpg",
+  "cat": "low-res-jpeg",
+  "what": "Docker logo at 160 px, JPEG quality 60 (small lettering)",
+  "kind": "derived from real upload",
+  "source": "explore docker.png",
+  "truth": "in/docker.png",
+  "truthScale": 1.8,
+  "truthBg": "#fff",
+  "regions": {
+   "lettering": [
+    0,
+    108,
+    160,
+    160
+   ],
+   "containers": [
+    33,
+    16,
+    117,
+    70
+   ]
+  }
+ },
+ {
+  "id": "flag-br-web",
+  "file": "flag-br-web.jpg",
+  "cat": "low-res-jpeg",
+  "what": "Brazil flag at 240 px, JPEG quality 55",
+  "kind": "derived from master",
+  "source": "flag-br master",
+  "truth": "truth/flag-br.png",
+  "truthScale": 5,
+  "regions": {
+   "lettering": [
+    60,
+    60,
+    180,
+    116
+   ]
+  }
+ }
+]

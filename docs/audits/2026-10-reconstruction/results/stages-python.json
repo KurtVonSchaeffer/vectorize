@@ -1,0 +1,112 @@
+{
+ "quant": [
+  {
+   "step": "assigned",
+   "kmeans": 12,
+   "afterBlendDrop": 4,
+   "afterMerge": 3,
+   "binsUsed": 65,
+   "mergeDelta": 10,
+   "maxColors": 12,
+   "minArea": 16,
+   "colours": 6
+  },
+  {
+   "step": "majority",
+   "colours": 6
+  },
+  {
+   "step": "specks",
+   "colours": 4
+  }
+ ],
+ "gradients": [
+  {
+   "size": 4628,
+   "explained": 1,
+   "rms": 0.1,
+   "range": 61,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  },
+  {
+   "size": 4652,
+   "explained": 1,
+   "rms": 0.1,
+   "range": 60,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  },
+  {
+   "size": 297,
+   "explained": 0,
+   "rms": 0,
+   "range": 12,
+   "fitted": false,
+   "border": 0
+  },
+  {
+   "size": 18641,
+   "explained": 1,
+   "rms": 0.1,
+   "range": 61,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  },
+  {
+   "size": 292,
+   "explained": 0,
+   "rms": 0,
+   "range": 7,
+   "fitted": false,
+   "border": 0
+  },
+  {
+   "size": 18675,
+   "explained": 1,
+   "rms": 0.1,
+   "range": 60,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  }
+ ],
+ "layers": [
+  {
+   "label": 3,
+   "color": "#ffde58",
+   "raw": 2,
+   "traced": 2,
+   "kept": 2,
+   "decisions": [
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 4,
+   "color": "#3d7aaa",
+   "raw": 2,
+   "traced": 2,
+   "kept": 2,
+   "decisions": [
+    "fit",
+    "exact:circle"
+   ]
+  },
+  {
+   "label": 0,
+   "color": "#ffffff",
+   "raw": 2,
+   "traced": 2,
+   "kept": 2,
+   "decisions": [
+    "exact:circle",
+    "exact:circle"
+   ]
+  }
+ ]
+}

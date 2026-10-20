@@ -1,0 +1,125 @@
+diff --git a/src/palette/gradients.ts b/src/palette/gradients.ts
+index 47a7e56..1ef5281 100644
+--- a/src/palette/gradients.ts
++++ b/src/palette/gradients.ts
+@@ -128,8 +128,10 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
+   const rejected: Uint32Array[] = []
+   roots.forEach((r, i) => {
+     if (size[r] < minArea) return
+-    const diag = { explained: 0 }
++    const diag = { explained: 0, rms: 0, range: 0 }
+     const g = fitRegion(lists[i], w, R, G, B, diag)
++    const AUD = (globalThis as unknown as { __audit?: { g?: (x: unknown) => void } }).__audit
++    AUD?.g?.({ size: size[r], explained: Math.round(diag.explained * 1000) / 1000, rms: Math.round(diag.rms * 10) / 10, range: Math.round(diag.range), fitted: !!g, kind: g?.fill.kind, border: Math.round(borderShare(lists[i], w, h) * 100) / 100, pixels: lists[i] })
+     if (g) regions.push(g)
+     else {
+       // Only regions that look like gradients joined together are split: a fit that still
+@@ -362,7 +364,7 @@ function blurred(d: Uint8ClampedArray, w: number, h: number): [Float32Array, Flo
+   return [out[0], out[1], out[2], valid]
+ }
+ 
+-function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number }): GradientRegion | null {
++function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number; rms?: number; range?: number }): GradientRegion | null {
+   const m = pixels.length
+   // Mean color and position.
+   let mr = 0, mg = 0, mb = 0, mx = 0, my = 0
+@@ -396,6 +398,7 @@ function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Ar
+     if (s[i] < smin) smin = s[i]
+     if (s[i] > smax) smax = s[i]
+   }
++  if (diag) diag.range = smax - smin
+   if (smax - smin < MIN_RANGE) return null // a flat color
+ 
+   const xs = new Float32Array(m)
+@@ -436,6 +439,7 @@ function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Ar
+   if (!best) return null
+   const explained = 1 - (best.rms * best.rms * 3) / Math.max(1e-6, variance)
+   if (diag) diag.explained = explained
++  if (diag) diag.rms = best.rms
+   if (best.rms > MAX_RMS || explained < MIN_EXPLAINED) return null
+ 
+   const stops = simplifyStops(best.colors)
+diff --git a/src/palette/quantize.ts b/src/palette/quantize.ts
+index 8a8ca3a..b3f71e6 100644
+--- a/src/palette/quantize.ts
++++ b/src/palette/quantize.ts
+@@ -222,9 +222,12 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
+       cov[p] = lutCov[b]
+     }
+   }
++  const AUD = (globalThis as unknown as { __audit?: { q?: (x: unknown) => void } }).__audit
++  AUD?.q?.({ step: 'assigned', w, h, labels: labels.slice(), colors: labelRgb.slice(), kmeans: clustered.centers.length, afterBlendDrop: pruned.centers.length, afterMerge: merged.centers.length, binsUsed: bins.length, mergeDelta: opts.mergeDelta, maxColors: opts.maxColors, minArea: opts.minArea })
+   vetoDistantBlends(w, h, labels, plainLabels)
+   vetoDistantPartners(d, w, h, labels, second, cov, anchors)
+   let clean = majorityFilter(majorityFilter(labels, w, h), w, h)
++  AUD?.q?.({ step: 'majority', labels: clean.slice() })
+   if (opts.minArea > 1) removeSpecks(clean, w, h, opts.minArea, (members, label, around) => isDetail(members, label, around, d, labelRgb))
+   // Pixels relabeled by cleanup no longer carry meaningful blend information.
+   for (let p = 0; p < clean.length; p++) {
+@@ -234,6 +237,7 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
+     }
+   }
+ 
++  AUD?.q?.({ step: 'specks', labels: clean.slice() })
+   const map: LabelMap = { w, h, labels: clean, second, cov, colors: labelRgb }
+ 
+   const f = Math.max(1, Math.round(opts.upscale))
+diff --git a/src/trace/index.ts b/src/trace/index.ts
+index 42c3af8..17d0e2b 100644
+--- a/src/trace/index.ts
++++ b/src/trace/index.ts
+@@ -225,23 +225,30 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
+         if (y > by1) by1 = y
+       }
+     }
+-    const smooth = keepThin(blur(field, w, h, opts.smoothing, [bx0, by0, bx1, by1]), w, h, level, opts.smoothing)
++    const blurred = blur(field, w, h, opts.smoothing, [bx0, by0, bx1, by1])
++    const smooth = keepThin(blurred, w, h, level, opts.smoothing)
+     const all = contours(smooth, w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
+     const isOwn = (p: number) => labels[p] < 254 && inLayer(rank[labels[p]])
+     const loops = all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
+-    if (!loops.length) continue
++    const AUD = (globalThis as unknown as { __audit?: { t?: (x: unknown) => void } }).__audit
++    const decisions: string[] = []
++    if (!loops.length) {
++      AUD?.t?.({ layer, label: order[layer], color: colors[order[layer]], opts, field: field.slice(), blurred, smooth, raw: contours(field, w, h, 0.5), all, loops, decisions, parts: [] })
++      continue
++    }
+     const label = order[layer]
+     // Drop fragments of this color that a split shape below already draws in full.
+     const kept = loops.filter((l) => !suppressed.some((s) => s.label === label && mostly(sampleOf(l), s.covers)))
+     const below: TracedLayer[] = []
+     const parts = kept.map((loop) => {
+       // The full-image background is a plain rectangle; write it exactly but don't count it.
+-      if (opts.exactShapes && coversImage(loop, w, h)) return `M0 0L${w} 0L${w} ${h}L0 ${h}Z`
++      if (opts.exactShapes && coversImage(loop, w, h)) { decisions.push('canvas'); return `M0 0L${w} 0L${w} ${h}L0 ${h}Z` }
+       const exact = opts.exactShapes ? detectShape(loop, { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing }) : null
+       // An irregular "polygon" may really be a star and a circle whose short arcs passed as
+       // straight edges; prefer the split when it explains the outline.
+       if (exact && exact.kind !== 'polygon') {
+         shapes[exact.kind]++
++        decisions.push('exact:' + exact.kind)
+         return exact.d
+       }
+       // Splitting rebuilds hidden parts and refills holes with flat colors; not for gradients.
+@@ -253,16 +260,20 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
+           shapes.circle++
+           shapes[split.star ? 'star' : 'polygon']++
+           shapes.overlaps++
++          decisions.push('split')
+           return split.d
+         }
+       }
+       if (exact) {
+         shapes[exact.kind]++
++        decisions.push('exact:' + exact.kind)
+         return exact.d
+       }
++      decisions.push('fit')
+       return toPath(fitClosed(loop, { error: opts.error, cornerAngle: opts.cornerAngle }), fmt)
+     })
+     const d = parts.join('')
++    AUD?.t?.({ layer, label, color: colors[label], opts, field: field.slice(), blurred, smooth, raw: contours(field, w, h, 0.5), all, loops, kept, decisions, parts })
+     layers.push(...below.filter((b) => b.d && b.color >= 0))
+     if (d) layers.push({ color: colors[label], d, shapes: groupShapes(kept, parts), fill: fillOf(label) })
+   }
