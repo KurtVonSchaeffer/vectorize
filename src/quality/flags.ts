@@ -31,3 +31,9 @@ export function printFilesOn(search?: string, env: FlagEnv = { value: import.met
   return featureOn('print-files', env, search)
 }
 export const PRINT_FILES = printFilesOn()
+
+/** Clean geometry: reconstruction fixes, starting with shapes drawn twice (docs/clean-geometry.md). */
+export function cleanGeometryOn(search?: string, env: FlagEnv = { value: import.meta.env?.VITE_CLEAN_GEOMETRY, dev }): boolean {
+  return featureOn('clean-geometry', env, search)
+}
+export const CLEAN_GEOMETRY = cleanGeometryOn()

@@ -47,6 +47,13 @@ export interface TraceOptions {
    * don't. Defaults to `minArea`.
    */
   detailArea?: number
+  /**
+   * Stacked output: a layer keeps only the outlines that hold some of its own pixels. It still
+   * extends under the higher layers it surrounds or touches (so no seam shows), but no longer draws
+   * hidden copies of shapes that are all higher layers (separate lettering, a counter inside a
+   * letter), which those layers draw in full (RC8).
+   */
+  connectedStacking?: boolean
 }
 
 /** Exact shapes made, plus how many merged outlines were split into overlapping shapes. */
@@ -228,7 +235,9 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     const smooth = keepThin(blur(field, w, h, opts.smoothing, [bx0, by0, bx1, by1]), w, h, level, opts.smoothing)
     const all = contours(smooth, w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
     const isOwn = (p: number) => labels[p] < 254 && inLayer(rank[labels[p]])
-    const loops = all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
+    let loops = all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
+    if (!knockout && opts.connectedStacking)
+      loops = withoutHiddenCopies(loops, w, h, (p) => rank[labels[p]] === layer || (second[p] < NO_SHAPE && rank[second[p]] === layer && cov[p] < 0.5))
     if (!loops.length) continue
     const label = order[layer]
     // Drop fragments of this color that a split shape below already draws in full.
@@ -267,6 +276,44 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     if (d) layers.push({ color: colors[label], d, shapes: groupShapes(kept, parts), fill: fillOf(label) })
   }
   return { svg: layersToSvg(layers, w, h), paths: layers.length, layers, shapes }
+}
+
+/**
+ * Stacked output: the outlines of a layer without the shapes that hold none of its own pixels. In
+ * a stacked layer, an outline whose area (inside it, outside its holes) is all higher layers is a
+ * hidden copy of shapes those layers draw in full (separate lettering, a counter inside a letter):
+ * it is dropped with its holes. Islands inside those holes are kept, still filled.
+ */
+function withoutHiddenCopies(loops: Point[][], w: number, h: number, own: (p: number) => boolean): Point[][] {
+  const depth = loops.map((l, i) => loops.reduce((d, o, j) => (j !== i && insideLoop(l[0], o) ? d + 1 : d), 0))
+  const dropped = new Set<number>()
+  loops.forEach((loop, i) => {
+    if (depth[i] % 2 === 1) return
+    const holes = loops.filter((l, j) => depth[j] === depth[i] + 1 && insideLoop(l[0], loop))
+    if (regionHas([loop, ...holes], w, h, own)) return
+    dropped.add(i)
+    for (const hole of holes) dropped.add(loops.indexOf(hole))
+  })
+  return dropped.size ? loops.filter((_, i) => !dropped.has(i)) : loops
+}
+
+/** Whether any pixel whose centre is inside the rings (even-odd) satisfies `test`. */
+function regionHas(rings: Point[][], w: number, h: number, test: (p: number) => boolean): boolean {
+  const [, y0, , y1] = bounds(rings[0])
+  for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(h - 1, Math.ceil(y1)); y++) {
+    const cy = y + 0.5
+    const xs: number[] = []
+    for (const r of rings)
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const [ax, ay] = r[j]
+        const [bx, by] = r[i]
+        if (ay <= cy !== by <= cy) xs.push(ax + ((cy - ay) * (bx - ax)) / (by - ay))
+      }
+    xs.sort((a, b) => a - b)
+    for (let k = 0; k + 1 < xs.length; k += 2)
+      for (let x = Math.max(0, Math.ceil(xs[k] - 0.5)); x <= Math.min(w - 1, Math.floor(xs[k + 1] - 0.5)); x++) if (test(y * w + x)) return true
+  }
+  return false
 }
 
 function segDist(p: Point, a: Point, b: Point): number {
