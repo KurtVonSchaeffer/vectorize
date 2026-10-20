@@ -97,6 +97,17 @@ describe('thin lines (RC1)', () => {
     expect(score(on.svg, bars, ring).ring).toBeGreaterThanOrEqual(score(off.svg, bars, ring).ring)
   }, SLOW)
 
+  it('a thin ring is not snapped to a polygon', () => {
+    // A 1.2 px ring's inner edge, traced by the fine-detail rule, once passed as a polygon (straight
+    // sides). (Some small rings snap with the flag off too: shape recognition is separate work.)
+    const img = paint(40, 40, PAPER, [{ rings: [circle(20.3, 20.2, 6), circle(20.3, 20.2, 4.8, true)], color: GREEN }])
+    const ring = (svg: string) => svg.split('\n').find((l) => /Z\s*M/.test(l))
+    const { off, on } = both(img)
+    expect(ring(off.svg)).not.toMatch(/\dL\d/)
+    expect(ring(on.svg)).toBeDefined()
+    expect(ring(on.svg)).not.toMatch(/\dL\d/)
+  }, SLOW)
+
   it('1 px lines off the pixel grid, and a 1 px ring, meet the audit threshold of 0.7', () => {
     // Offsets 0, 0.2, 0.4, 0.6 and 0.8 px. A line split evenly over two pixels has no solid core
     // and keeps the ordinary rule (drawn wider), which still meets the threshold.
@@ -181,4 +192,15 @@ describe('nothing else changes', () => {
     expect(count(on.svg).crossing).toBeLessThanOrEqual(count(off.svg).crossing)
     expect(count(on.svg).tiny).toBeLessThanOrEqual(count(off.svg).tiny)
   }, SLOW)
+})
+
+describe('flag', () => {
+  it('is off in production builds, whatever the address says', async () => {
+    const { fineDetailOn } = await import('../../quality/flags')
+    expect(fineDetailOn('?fine-detail=on', { value: undefined, dev: false })).toBe(false)
+    expect(fineDetailOn('?fine-detail=on', { value: 'off', dev: false })).toBe(false)
+    expect(fineDetailOn('?fine-detail=on', { value: 'preview', dev: false })).toBe(true)
+    expect(fineDetailOn('', { value: 'preview', dev: false })).toBe(false)
+    expect(fineDetailOn('', { value: 'on', dev: false })).toBe(true)
+  })
 })

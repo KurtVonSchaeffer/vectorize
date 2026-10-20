@@ -266,9 +266,10 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
           const b = bounds(l)
           return boxes.some((c) => b[0] >= c[0] - 1 && b[1] >= c[1] - 1 && b[2] <= c[2] + 1 && b[3] <= c[3] + 1)
         }
+        // Every fine outline in those places goes too, so none coincides with an ordinary one.
         const swap = plain.filter(within)
         for (const l of swap) ordinary.add(l)
-        loops = [...loops.filter((l) => !crossing.includes(l)), ...swap]
+        loops = [...loops.filter((l) => !crossing.includes(l) && !within(l)), ...swap]
       }
     }
     if (!knockout && opts.connectedStacking)
@@ -278,10 +279,24 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     // Drop fragments of this color that a split shape below already draws in full.
     const kept = loops.filter((l) => !suppressed.some((s) => s.label === label && mostly(sampleOf(l), s.covers)))
     const below: TracedLayer[] = []
+    const shapeOptions = { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing }
+    const fineTraced = !!opts.crossSection && detailLayer
+    let plain: Point[][] | null = null
+    const plainShape = (loop: Point[], kind: string) => {
+      plain ??= outlines(false)
+      const b = bounds(loop)
+      return plain.some((l) => {
+        const c = bounds(l)
+        return Math.abs(b[0] - c[0]) <= 1 && Math.abs(b[1] - c[1]) <= 1 && Math.abs(b[2] - c[2]) <= 1 && Math.abs(b[3] - c[3]) <= 1 && detectShape(l, shapeOptions)?.kind === kind
+      })
+    }
     const parts = kept.map((loop) => {
       // The full-image background is a plain rectangle; write it exactly but don't count it.
       if (opts.exactShapes && coversImage(loop, w, h)) return `M0 0L${w} 0L${w} ${h}L0 ${h}Z`
-      const exact = opts.exactShapes ? detectShape(loop, { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing }) : null
+      let exact = opts.exactShapes ? detectShape(loop, shapeOptions) : null
+      // An outline the fine-detail rule traced is drawn as an exact shape only when its ordinary
+      // trace is that shape too: a thin ring's inner edge must not snap to a polygon.
+      if (exact && fineTraced && !ordinary.has(loop) && !plainShape(loop, exact.kind)) exact = null
       // An irregular "polygon" may really be a star and a circle whose short arcs passed as
       // straight edges; prefer the split when it explains the outline.
       if (exact && exact.kind !== 'polygon') {
@@ -479,7 +494,8 @@ function groupShapes(loops: Point[][], paths: string[]): string[] {
     }
     return best
   })
-  const depth = (i: number): number => (parents[i] < 0 ? 0 : 1 + depth(parents[i]))
+  // Coinciding outlines can contain each other; such a cycle stops after n steps.
+  const depth = (i: number, steps = 0): number => (parents[i] < 0 || steps > n ? 0 : 1 + depth(parents[i], steps + 1))
   const shapes: string[] = []
   for (let i = 0; i < n; i++) {
     if (depth(i) % 2 === 1 || !paths[i]) continue
