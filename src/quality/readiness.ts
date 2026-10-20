@@ -25,11 +25,16 @@ export type AutoCheck = 'checking' | 'no-known-problems' | 'problems-found' | 'n
 export const autoCheckOf = (c: CheckOutcome | null): AutoCheck =>
   !c || c.state === 'not-checked' ? 'not-checked' : c.state === 'checking' ? 'checking' : c.report.verdict === 'ready' ? 'no-known-problems' : 'problems-found'
 
-/** A person's review of one exact result (its SVG). */
+/**
+ * A person's review of one exact result (its SVG), for one purpose. It covers the result shown:
+ * print and cut files are traced again for production (knockout shapes, gaps), so a review for
+ * print doesn't carry over to cutting, and the production files themselves aren't reviewed here.
+ */
 export interface Review {
   svg: string
+  purpose: 'print' | 'web' | 'cut'
 }
-export const isReviewed = (review: Review | null, svg: string | undefined) => !!review && !!svg && review.svg === svg
+export const isReviewed = (review: Review | null, svg: string | undefined, purpose: Review['purpose']) => !!review && !!svg && review.svg === svg && review.purpose === purpose
 
 export interface ReadinessInput {
   /** Processing: working, done (a result exists), or failed. */

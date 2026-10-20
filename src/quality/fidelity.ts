@@ -132,14 +132,22 @@ const RASTER_CONSTRUCTS: [string, RegExp][] = [
   ['external reference', /\s(?:xlink:)?href="(?!#)/i],
 ]
 
-export function assessFidelity(upload: ImageData, vector: ImageData, svg: string): FidelityReport {
+export interface FidelityOptions {
+  /**
+   * The upload's own width, when `upload` and `vector` were scaled down to compare them: geometry
+   * (tiny contours, copies, crossings) is then still measured in the upload's own pixels.
+   */
+  geometryWidth?: number
+}
+
+export function assessFidelity(upload: ImageData, vector: ImageData, svg: string, opts: FidelityOptions = {}): FidelityReport {
   const { width: w, height: h } = upload
   if (vector.width !== w || vector.height !== h) throw new RangeError(`The vector must be drawn at the upload's size (${w}×${h}), not ${vector.width}×${vector.height}`)
 
   const cmp = compareRasters(upload.data, vector.data, w, h, { tolerance: 1 })
   const feat = features(upload, vector)
   const shade = shadingLoss(upload, vector)
-  const geo = geometry(svg, upload)
+  const geo = geometry(svg, upload, opts.geometryWidth ?? w)
 
   const issues: FidelityIssue[] = []
   const fineArea = feat.fineArea
@@ -421,14 +429,15 @@ function near(l: Int32Array, p: number, label: number, w: number, h: number): bo
 
 // ---------- Geometry: is the SVG genuine, editable vector artwork? ----------
 
-function geometry(svg: string, upload: ImageData) {
+function geometry(svg: string, upload: ImageData, geometryWidth: number) {
   const raster = RASTER_CONSTRUCTS.filter(([, re]) => re.test(svg)).map(([name]) => name)
   const shapes = shapesFromSvg(svg)
-  // Path coordinates are in the SVG's viewBox (traced px); measure in upload px.
+  // Path coordinates are in the SVG's viewBox (traced px); measure in the upload's own px, even
+  // when the images were scaled down to compare them.
   const vb = svg.match(/<svg\b[^>]*\sviewBox="\s*[-\d.e]+[ ,]+[-\d.e]+[ ,]+([\d.e]+)[ ,]+([\d.e]+)/i)
   const wAttr = svg.match(/<svg\b[^>]*\swidth="([\d.]+)/i)
   const units = vb ? Number(vb[1]) : wAttr ? Number(wAttr[1]) : upload.width
-  const k = upload.width / units
+  const k = geometryWidth / units
   const rings: { color: number; pts: Pt[]; area: number; box: [number, number, number, number] }[] = []
   for (const s of shapes as ColorShape[])
     for (const sp of s.subpaths) {
@@ -461,8 +470,6 @@ function geometry(svg: string, upload: ImageData) {
       }
     }
   }
-  // Crossings are tested on a much finer flattening: near-tangent curves flattened coarsely can
-  // appear to cross when they don't (seen on two Firefox outlines).
   // Crossings are tested on a much finer flattening: a coarse one both misses tiny loops and
   // shows near-tangent curves as crossed (both seen in the audit set).
   const crosses = shapes.flatMap((s) => s.subpaths).map((sp) => {
@@ -477,7 +484,7 @@ function geometry(svg: string, upload: ImageData) {
   const d = upload.data
   let opaque = true
   for (let i = 3; i < d.length && opaque; i += 4) if (d[i] < 255) opaque = false
-  const W = upload.width, H = upload.height
+  const W = geometryWidth, H = (upload.height * geometryWidth) / upload.width
   const paper =
     opaque &&
     rings.some((r, i) => {

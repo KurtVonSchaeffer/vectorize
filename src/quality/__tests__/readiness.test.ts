@@ -33,10 +33,11 @@ describe('the automatic check never stands in for a person', () => {
     const report = { verdict: 'ready', issues: [] } as unknown as FidelityReport
     expect(readiness(input({ state: 'checked', report })).reviewed).toBe(false)
     expect(readiness(input({ state: 'checked', report }, { reviewed: true })).reviewed).toBe(true)
-    // A new result (different SVG) is not reviewed until a person looks at it again.
-    expect(isReviewed({ svg: '<svg>a</svg>' }, '<svg>a</svg>')).toBe(true)
-    expect(isReviewed({ svg: '<svg>a</svg>' }, '<svg>b</svg>')).toBe(false)
-    expect(isReviewed(null, '<svg>a</svg>')).toBe(false)
+    // A new result (different SVG), or another purpose, is not reviewed until a person looks again.
+    expect(isReviewed({ svg: '<svg>a</svg>', purpose: 'print' }, '<svg>a</svg>', 'print')).toBe(true)
+    expect(isReviewed({ svg: '<svg>a</svg>', purpose: 'print' }, '<svg>b</svg>', 'print')).toBe(false)
+    expect(isReviewed({ svg: '<svg>a</svg>', purpose: 'print' }, '<svg>a</svg>', 'cut')).toBe(false)
+    expect(isReviewed(null, '<svg>a</svg>', 'print')).toBe(false)
     // Nothing is reviewed while it is still being made or after an error.
     expect(readiness(input(null, { status: 'working', reviewed: true })).reviewed).toBe(false)
     expect(readiness(input(null, { status: 'error', reviewed: true })).reviewed).toBe(false)

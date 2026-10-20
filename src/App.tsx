@@ -291,7 +291,7 @@ export default function App() {
   const [shadingLost, setShadingLost] = useState<{ svg: string; lost: boolean } | null>(null)
   useEffect(() => {
     const svg = result?.svg
-    if (QUALITY_REPORTING || !svg || !source || kind !== 'flat') return
+    if (!svg || !source || kind !== 'flat') return
     let live = true
     shadingLossOf(source.bitmap, svg)
       .then((s) => live && setShadingLost({ svg, lost: lostShading(s) }))
@@ -306,11 +306,13 @@ export default function App() {
   // review of that exact result. Neither is a production approval.
   const [check, setCheck] = useState<{ svg: string; outcome: CheckOutcome } | null>(null)
   const [review, setReview] = useState<Review | null>(null)
+  // Results changed from the upload on purpose (one colour, spot inks, line and pixel art, colours
+  // removed or matched to brand colours, a background removed) can't be compared with it.
+  const changedOnPurpose = oneOn || inks.enabled || kind === 'lineart' || kind === 'pixel' || removed.length > 0 || (transparent && !detection?.hasAlpha) || (result?.named.length ?? 0) > 0
   useEffect(() => {
     const svg = result?.svg
     if (!QUALITY_REPORTING || !svg || !source) return
-    // Recoloured results (one colour, spot inks, line art) differ from the upload on purpose.
-    if (oneOn || inks.enabled || kind === 'lineart' || kind === 'pixel') {
+    if (changedOnPurpose) {
       setCheck({ svg, outcome: { state: 'not-checked', reason: 'unsupported' } })
       return
     }
@@ -321,8 +323,10 @@ export default function App() {
       .then((outcome) => live && setCheck({ svg, outcome }))
     return () => {
       live = false
+      // Measuring a result nobody will see is wasted work.
+      checker.current?.cancel()
     }
-  }, [result?.svg, source, kind, oneOn, inks.enabled])
+  }, [result?.svg, source, changedOnPurpose])
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
   const downloads = useMemo(() => {
@@ -403,15 +407,21 @@ export default function App() {
           : client.purpose === 'cut'
             ? `${counted}${colorCount ? ', clean edges' : ''}. Check small details at your cut size before cutting.`
             : `${colorCount ? `${counted}, clean edges` : counted}, ready for ${client.purpose === 'print' ? 'print' : 'the web'}.`
+  const checkNow: CheckOutcome | null = result && check?.svg === result.svg ? check.outcome : result ? { state: 'checking' } : null
   const quality = QUALITY_REPORTING
     ? readiness({
-        status,
+        // While a new version is traced, the current one stays described (as the old summary does).
+        status: status === 'working' && result ? 'ready' : status,
         counted,
         purpose: client.purpose,
-        warnings: warnings.filter((w): w is string => typeof w === 'string'),
+        warnings: [
+          ...warnings.filter((w): w is string => typeof w === 'string'),
+          // The check reports flattened shading itself; without it, keep the cheaper shading test's warning.
+          ...(flattened && checkNow?.state !== 'checked' ? ['Some shading in your image became flat color.'] : []),
+        ],
         oneInk: inks.enabled && inks.maxInks === 1,
-        check: result && check?.svg === result.svg ? check.outcome : result ? { state: 'checking' } : null,
-        reviewed: isReviewed(review, result?.svg),
+        check: checkNow,
+        reviewed: isReviewed(review, result?.svg, client.purpose),
       })
     : null
   const headline = (
@@ -662,7 +672,7 @@ export default function App() {
                     autoCheck: quality.autoCheck,
                     reviewed: quality.reviewed,
                     findings: quality.findings,
-                    onReview: () => setReview({ svg: result.svg }),
+                    onReview: () => setReview({ svg: result.svg, purpose: client.purpose }),
                     onUnreview: () => setReview(null),
                   }
                 : undefined

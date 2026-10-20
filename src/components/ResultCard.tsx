@@ -290,7 +290,7 @@ function QualityStatus(q: NonNullable<Props['quality']>) {
             Mark as reviewed
           </button>
         )}
-        <span className="basis-full text-xs text-ink-2">Not a production approval: that will also need the print method, size and colours.</span>
+        <span className="basis-full text-xs text-ink-2">Covers the vector shown here. Not a production approval: that will also need the print method, size and colours.</span>
       </div>
     </div>
   )

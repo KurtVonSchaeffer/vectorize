@@ -134,6 +134,23 @@ describe('passes faithful results', () => {
   it('a 40 px five-point star', () => expect(measured(paint(96, 96, BLUE, [{ rings: [regularStar(48, 48, 20)], color: WHITE }])).visual).toBe('ready'), SLOW)
 })
 
+describe('large uploads measured scaled down', () => {
+  it('still measures geometry in the upload’s own pixels', () => {
+    const img = lettering()
+    const svg = vectorize(img).svg
+    const full = assessFidelity(img, renderSvg(svg, img.width, img.height), svg)
+    // The same result compared at half size, as the app does for uploads over its measuring size.
+    const half = renderSvg(svg, img.width / 2, img.height / 2)
+    const scaled = assessFidelity(half, half, svg, { geometryWidth: img.width })
+    expect(scaled.geometry).toEqual(full.geometry)
+    // Without it, a 3×3 px dot (9 px², fine) would be measured at a quarter of its area and called tiny.
+    const dot = svgOf(120, 120, '<path d="M50 50L53 50L53 53L50 53Z" fill="#286EB4"/>')
+    const small = renderSvg(dot, 60, 60)
+    expect(assessFidelity(small, small, dot, { geometryWidth: 120 }).geometry.tiny).toBe(0)
+    expect(assessFidelity(small, small, dot).geometry.tiny).toBe(1)
+  }, SLOW)
+})
+
 describe('documented limits', () => {
   // A 24 px heptagon drawn as a circle differs by under a pixel: invisible to a comparison at the
   // upload's size. The tracer will have to report its own shape substitutions (PR 5).

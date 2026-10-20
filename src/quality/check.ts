@@ -5,8 +5,11 @@ import { rasterizeSvg } from './render'
 
 /** A check that hasn't answered by then is abandoned (and its worker stopped). */
 export const CHECK_TIMEOUT_MS = 10_000
-/** Uploads are measured at most this many px on their longest side. */
-export const CHECK_MAX_SIDE = 800
+/**
+ * Uploads are measured at most this many px on their longest side, as in the calibration
+ * (bench/fidelity.ts). Geometry is measured in the upload's own pixels whatever this is.
+ */
+export const CHECK_MAX_SIDE = 1000
 
 class CheckTimeout extends Error {}
 
@@ -37,15 +40,19 @@ export async function runCheck(measure: (signal: AbortSignal) => Promise<Fidelit
 
 /**
  * Measures an SVG against the upload in a Web Worker (assessFidelity is one long synchronous
- * computation, so it is stopped by terminating the worker). One check at a time: a new one
- * cancels the last.
+ * computation, so it is stopped by terminating the worker). One check at a time: the latest
+ * request wins, and an older one still being prepared never displaces it.
  */
 export class FidelityChecker {
   private worker: Worker | null = null
   private nextId = 1
+  /** The latest check requested; any other is stale. */
+  private latest = 0
   private pending: { id: number; resolve: (r: FidelityReport) => void; reject: (e: Error) => void } | null = null
 
   check(upload: ImageBitmap, svg: string, timeoutMs = CHECK_TIMEOUT_MS): Promise<CheckOutcome> {
+    const id = this.nextId++
+    this.latest = id
     return runCheck(async (signal) => {
       const k = Math.min(1, CHECK_MAX_SIDE / Math.max(upload.width, upload.height))
       const w = Math.max(1, Math.round(upload.width * k))
@@ -55,18 +62,25 @@ export class FidelityChecker {
       g.drawImage(upload, 0, 0, w, h)
       const up = g.getImageData(0, 0, w, h)
       const vec = await rasterizeSvg(svg, w, h)
-      if (signal.aborted) throw new Error('cancelled')
-      return this.measure(up, vec, svg, signal)
+      // Superseded while the images were prepared: leave the newer check alone.
+      if (signal.aborted || id !== this.latest) throw new Error('cancelled')
+      return this.measure(id, up, vec, svg, upload.width, signal)
     }, timeoutMs)
   }
 
-  private measure(upload: ImageData, vector: ImageData, svg: string, signal: AbortSignal): Promise<FidelityReport> {
+  /** Stops the check in progress, if any (its result would no longer be shown). */
+  cancel() {
+    this.latest = 0
+    this.pending?.reject(new Error('cancelled'))
+    this.reset()
+  }
+
+  private measure(id: number, upload: ImageData, vector: ImageData, svg: string, geometryWidth: number, signal: AbortSignal): Promise<FidelityReport> {
     if (this.pending) {
       this.pending.reject(new Error('cancelled'))
       this.reset()
     }
     const worker = this.ensureWorker()
-    const id = this.nextId++
     return new Promise((resolve, reject) => {
       this.pending = { id, resolve, reject }
       signal.addEventListener('abort', () => {
@@ -74,14 +88,14 @@ export class FidelityChecker {
         this.pending.reject(new Error('stopped'))
         this.reset()
       })
-      const req: FidelityRequest = { id, width: upload.width, height: upload.height, upload: upload.data.slice().buffer, vector: vector.data.slice().buffer, svg }
+      // Both images are local to this check, so their pixels are handed over, not copied.
+      const req: FidelityRequest = { id, width: upload.width, height: upload.height, upload: upload.data.buffer as ArrayBuffer, vector: vector.data.buffer as ArrayBuffer, svg, geometryWidth }
       worker.postMessage(req, [req.upload, req.vector])
     })
   }
 
   dispose() {
-    this.pending?.reject(new Error('cancelled'))
-    this.reset()
+    this.cancel()
   }
 
   private ensureWorker(): Worker {
