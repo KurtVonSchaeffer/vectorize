@@ -39,10 +39,18 @@ describe('runCheck: every way a measurement can end', () => {
 })
 
 describe('feature flag', () => {
-  it('is off unless switched on', () => {
-    expect(qualityReportingOn('', undefined)).toBe(false)
-    expect(qualityReportingOn('?quality-reporting=off', 'off')).toBe(false)
-    expect(qualityReportingOn('', 'on')).toBe(true)
-    expect(qualityReportingOn('?a=1&quality-reporting=on', undefined)).toBe(true)
+  const prod = { value: undefined, dev: false }
+  it('is off in a production build, whatever the address says', () => {
+    expect(qualityReportingOn('', prod)).toBe(false)
+    expect(qualityReportingOn('?quality-reporting=on', prod)).toBe(false)
+    expect(qualityReportingOn('?quality-reporting=on', { value: 'off', dev: false })).toBe(false)
+    expect(qualityReportingOn('?quality-reporting=on', { value: 'yes', dev: false })).toBe(false)
+  })
+  it('is on for everyone only when a build switches it on', () => expect(qualityReportingOn('', { value: 'on', dev: false })).toBe(true))
+  it('lets the address switch it on only in preview builds and the local dev server', () => {
+    expect(qualityReportingOn('?quality-reporting=on', { value: 'preview', dev: false })).toBe(true)
+    expect(qualityReportingOn('', { value: 'preview', dev: false })).toBe(false)
+    expect(qualityReportingOn('?a=1&quality-reporting=on', { value: undefined, dev: true })).toBe(true)
+    expect(qualityReportingOn('', { value: undefined, dev: true })).toBe(false)
   })
 })

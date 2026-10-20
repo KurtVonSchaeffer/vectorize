@@ -20,7 +20,7 @@ import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
 import { FidelityChecker } from './quality/check'
 import { QUALITY_REPORTING } from './quality/flags'
-import { isApproved, readiness, type Approval, type CheckOutcome } from './quality/readiness'
+import { isReviewed, readiness, type CheckOutcome, type Review } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
@@ -303,9 +303,9 @@ export default function App() {
   const flattened = kind === 'flat' && !!result && shadingLost?.svg === result.svg && shadingLost.lost
 
   // Quality reporting (behind a flag): the result measured against the upload, and a person's
-  // production approval of that exact result. The measurement never approves anything.
+  // review of that exact result. Neither is a production approval.
   const [check, setCheck] = useState<{ svg: string; outcome: CheckOutcome } | null>(null)
-  const [approval, setApproval] = useState<Approval | null>(null)
+  const [review, setReview] = useState<Review | null>(null)
   useEffect(() => {
     const svg = result?.svg
     if (!QUALITY_REPORTING || !svg || !source) return
@@ -411,7 +411,7 @@ export default function App() {
         warnings: warnings.filter((w): w is string => typeof w === 'string'),
         oneInk: inks.enabled && inks.maxInks === 1,
         check: result && check?.svg === result.svg ? check.outcome : result ? { state: 'checking' } : null,
-        approved: isApproved(approval, result?.svg),
+        reviewed: isReviewed(review, result?.svg),
       })
     : null
   const headline = (
@@ -660,10 +660,10 @@ export default function App() {
               quality && result
                 ? {
                     autoCheck: quality.autoCheck,
-                    approved: quality.approved,
+                    reviewed: quality.reviewed,
                     findings: quality.findings,
-                    onApprove: () => setApproval({ svg: result.svg }),
-                    onWithdraw: () => setApproval(null),
+                    onReview: () => setReview({ svg: result.svg }),
+                    onUnreview: () => setReview(null),
                   }
                 : undefined
             }

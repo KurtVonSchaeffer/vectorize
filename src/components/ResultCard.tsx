@@ -39,10 +39,10 @@ interface Props {
   onCorners: (v: number) => void
   more: ReactNode
   /**
-   * Quality reporting (behind a flag): generated, automatically checked and production-approved
-   * are shown as separate facts. Absent, the card reads as before.
+   * Quality reporting (behind a flag): generated, automatically checked and reviewed by a person
+   * are shown as separate facts. None of them is a production approval. Absent, the card reads as before.
    */
-  quality?: { autoCheck: AutoCheck; approved: boolean; findings: string[]; onApprove: () => void; onWithdraw: () => void }
+  quality?: { autoCheck: AutoCheck; reviewed: boolean; findings: string[]; onReview: () => void; onUnreview: () => void }
 }
 
 const CHECK_LABEL: Record<AutoCheck, string> = {
@@ -262,7 +262,7 @@ export function ResultCard(p: Props) {
   )
 }
 
-/** The automatic check and the production approval, as two separate lines. */
+/** The automatic check and a person's review, as two separate lines. */
 function QualityStatus(q: NonNullable<Props['quality']>) {
   return (
     <div className="grid gap-2 rounded-[10px] border border-line px-3 py-2.5 text-[13px]" role="status">
@@ -280,16 +280,17 @@ function QualityStatus(q: NonNullable<Props['quality']>) {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
-        <span className={cx('font-semibold', q.approved ? 'text-good' : 'text-ink-2')}>{q.approved ? 'Approved for production by you' : 'Not approved for production yet'}</span>
-        {q.approved ? (
-          <button className={link} onClick={q.onWithdraw}>
-            Withdraw approval
+        <span className={cx('font-semibold', q.reviewed ? 'text-good' : 'text-ink-2')}>{q.reviewed ? 'Artwork reviewed by you' : 'Artwork not reviewed yet'}</span>
+        {q.reviewed ? (
+          <button className={link} onClick={q.onUnreview}>
+            Undo
           </button>
         ) : (
-          <button className={link} onClick={q.onApprove}>
-            I've reviewed it: approve
+          <button className={link} onClick={q.onReview}>
+            Mark as reviewed
           </button>
         )}
+        <span className="basis-full text-xs text-ink-2">Not a production approval: that will also need the print method, size and colours.</span>
       </div>
     </div>
   )

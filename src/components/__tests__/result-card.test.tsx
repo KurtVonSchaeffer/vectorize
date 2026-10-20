@@ -45,17 +45,24 @@ describe('result card without quality reporting matches main', () => {
 })
 
 describe('result card with quality reporting', () => {
-  const quality = (autoCheck: 'no-known-problems' | 'problems-found', approved: boolean) => ({ autoCheck, approved, findings: autoCheck === 'problems-found' ? ['12 small details are missing.'] : [], onApprove: () => {}, onWithdraw: () => {} })
-  it('shows the vector as created, the check and the approval separately, never "Ready"', () => {
+  const quality = (autoCheck: 'no-known-problems' | 'problems-found', reviewed: boolean) => ({ autoCheck, reviewed, findings: autoCheck === 'problems-found' ? ['12 small details are missing.'] : [], onReview: () => {}, onUnreview: () => {} })
+  it('shows the vector as created, the check and the review separately, never "Ready"', () => {
     const html = renderToStaticMarkup(<ResultCard {...props('ready')} summary="4 colors. Automatic checks found problems." quality={quality('problems-found', false)} />)
     expect(html).toContain('Vector created')
     expect(html).not.toMatch(/>Ready</)
     expect(html).toContain('Automatic check: problems found')
     expect(html).toContain('12 small details are missing.')
-    expect(html).toContain('Not approved for production yet')
+    expect(html).toContain('Artwork not reviewed yet')
+    expect(html).toContain('Mark as reviewed')
   })
-  it('says approved only when a person approved it', () => {
-    expect(renderToStaticMarkup(<ResultCard {...props('ready')} quality={quality('no-known-problems', false)} />)).not.toContain('Approved for production by you')
-    expect(renderToStaticMarkup(<ResultCard {...props('ready')} quality={quality('no-known-problems', true)} />)).toContain('Approved for production by you')
+  it('says reviewed only when a person marked it, and never claims production approval', () => {
+    const before = renderToStaticMarkup(<ResultCard {...props('ready')} quality={quality('no-known-problems', false)} />)
+    const after = renderToStaticMarkup(<ResultCard {...props('ready')} quality={quality('no-known-problems', true)} />)
+    expect(before).not.toContain('Artwork reviewed by you')
+    expect(after).toContain('Artwork reviewed by you')
+    for (const html of [before, after]) {
+      expect(html).toContain('Not a production approval')
+      expect(html).not.toMatch(/approved for production|production approved/i)
+    }
   })
 })

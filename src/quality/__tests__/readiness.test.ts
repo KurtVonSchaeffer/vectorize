@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { assessFidelity, type FidelityReport } from '../fidelity'
-import { autoCheckOf, isApproved, readiness, type CheckOutcome, type ReadinessInput } from '../readiness'
+import { autoCheckOf, isReviewed, readiness, type CheckOutcome, type ReadinessInput } from '../readiness'
 import { circle, installImageData, paint, rect, regularPolygon, renderSvg, vectorize, type RGB } from '../../vectorize/__tests__/fidelity/harness'
 
 beforeAll(installImageData)
@@ -12,40 +12,47 @@ function measuredReport(upload: ImageData): FidelityReport {
   const svg = vectorize(upload).svg
   return assessFidelity(upload, renderSvg(svg, upload.width, upload.height), svg)
 }
-const input = (check: CheckOutcome | null, more: Partial<ReadinessInput> = {}): ReadinessInput => ({ status: 'ready', counted: '3 colors', purpose: 'print', warnings: [], oneInk: false, check, approved: false, ...more })
+const input = (check: CheckOutcome | null, more: Partial<ReadinessInput> = {}): ReadinessInput => ({ status: 'ready', counted: '3 colors', purpose: 'print', warnings: [], oneInk: false, check, reviewed: false, ...more })
 
-/** Claims the old status line made without measuring anything. */
-const UNSUPPORTED_CLAIMS = /ready for print|ready for the web|clean edges|production[- ]ready/i
+/** Claims nothing in the app has verified: readiness for print and production approval. */
+const UNSUPPORTED_CLAIMS = /ready for print|ready for the web|clean edges|production[- ]ready|approved/i
 
-describe('the automatic check never approves artwork', () => {
-  it('a known false negative (a heptagon drawn as a circle) reads as "no known problems", not approved', () => {
+describe('the automatic check never stands in for a person', () => {
+  it('a known false negative (a heptagon drawn as a circle) reads as "no known problems", not reviewed', () => {
     const img = paint(96, 96, null, [{ rings: [rect(8, 8, 88, 88)], color: BLUE }, { rings: [regularPolygon(48, 48, 12, 7)], color: [255, 255, 255] }])
     const report = measuredReport(img)
     expect(report.verdict).toBe('ready') // the documented false negative
     const r = readiness(input({ state: 'checked', report }))
     expect(r.autoCheck).toBe('no-known-problems')
-    expect(r.approved).toBe(false)
+    expect(r.reviewed).toBe(false)
     expect(r.summary).toMatch(/can miss small changes, so review it/)
     expect(r.summary).not.toMatch(UNSUPPORTED_CLAIMS)
   }, SLOW)
 
-  it('approval comes only from a person, for the exact result they reviewed', () => {
+  it('only a person marks a result as reviewed, for the exact result they looked at', () => {
     const report = { verdict: 'ready', issues: [] } as unknown as FidelityReport
-    expect(readiness(input({ state: 'checked', report })).approved).toBe(false)
-    expect(readiness(input({ state: 'checked', report }, { approved: true })).approved).toBe(true)
-    // A new result (different SVG) is not approved until a person approves it again.
-    expect(isApproved({ svg: '<svg>a</svg>' }, '<svg>a</svg>')).toBe(true)
-    expect(isApproved({ svg: '<svg>a</svg>' }, '<svg>b</svg>')).toBe(false)
-    expect(isApproved(null, '<svg>a</svg>')).toBe(false)
-    // Nothing is approved while it is still being made or after an error.
-    expect(readiness(input(null, { status: 'working', approved: true })).approved).toBe(false)
-    expect(readiness(input(null, { status: 'error', approved: true })).approved).toBe(false)
+    expect(readiness(input({ state: 'checked', report })).reviewed).toBe(false)
+    expect(readiness(input({ state: 'checked', report }, { reviewed: true })).reviewed).toBe(true)
+    // A new result (different SVG) is not reviewed until a person looks at it again.
+    expect(isReviewed({ svg: '<svg>a</svg>' }, '<svg>a</svg>')).toBe(true)
+    expect(isReviewed({ svg: '<svg>a</svg>' }, '<svg>b</svg>')).toBe(false)
+    expect(isReviewed(null, '<svg>a</svg>')).toBe(false)
+    // Nothing is reviewed while it is still being made or after an error.
+    expect(readiness(input(null, { status: 'working', reviewed: true })).reviewed).toBe(false)
+    expect(readiness(input(null, { status: 'error', reviewed: true })).reviewed).toBe(false)
   })
 
-  it('keeps generated, automatically checked and approved as separate facts', () => {
+  it('a reviewed result still reports what the check found, and is not called approved', () => {
+    const report = { verdict: 'check', issues: [{ message: '3 outlines cross themselves.' }] } as unknown as FidelityReport
+    const r = readiness(input({ state: 'checked', report }, { reviewed: true }))
+    expect(r.summary).toBe('3 colors. Automatic checks found problems. You marked this version as reviewed.')
+    expect(r.findings).toEqual(['3 outlines cross themselves.'])
+  })
+
+  it('keeps generated, automatically checked and reviewed as separate facts', () => {
     const r = readiness(input({ state: 'checking' }))
-    expect(r).toMatchObject({ generated: true, autoCheck: 'checking', approved: false })
-    expect(readiness(input(null, { status: 'working' }))).toMatchObject({ generated: false, autoCheck: 'not-checked', approved: false })
+    expect(r).toMatchObject({ generated: true, autoCheck: 'checking', reviewed: false })
+    expect(readiness(input(null, { status: 'working' }))).toMatchObject({ generated: false, autoCheck: 'not-checked', reviewed: false })
   })
 })
 
@@ -54,7 +61,7 @@ describe('a check that fails or times out never reads as fine', () => {
     it(`not checked (${reason})`, () => {
       const r = readiness(input({ state: 'not-checked', reason }))
       expect(r.autoCheck).toBe('not-checked')
-      expect(r.approved).toBe(false)
+      expect(r.reviewed).toBe(false)
       expect(r.summary).toMatch(/couldn't be checked automatically/)
       expect(r.summary).not.toMatch(/no known problems/)
     })
@@ -91,8 +98,8 @@ describe('no unsupported claims in any state', () => {
   for (const purpose of ['print', 'web', 'cut'] as const)
     it(`for ${purpose}`, () => {
       for (const check of checks)
-        for (const approved of [false, true])
+        for (const reviewed of [false, true])
           for (const warnings of [[], ['Photos become thousands of small shapes.']])
-            for (const oneInk of [false, true]) expect(readiness(input(check, { purpose, approved, warnings, oneInk })).summary).not.toMatch(UNSUPPORTED_CLAIMS)
+            for (const oneInk of [false, true]) expect(readiness(input(check, { purpose, reviewed, warnings, oneInk })).summary).not.toMatch(UNSUPPORTED_CLAIMS)
     })
 })
