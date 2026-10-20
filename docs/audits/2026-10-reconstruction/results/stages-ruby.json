@@ -1,0 +1,210 @@
+{
+ "quant": [
+  {
+   "step": "assigned",
+   "kmeans": 12,
+   "afterBlendDrop": 12,
+   "afterMerge": 7,
+   "binsUsed": 493,
+   "mergeDelta": 10,
+   "maxColors": 12,
+   "minArea": 16,
+   "colours": 10
+  },
+  {
+   "step": "majority",
+   "colours": 10
+  },
+  {
+   "step": "specks",
+   "colours": 10
+  }
+ ],
+ "gradients": [
+  {
+   "size": 4048,
+   "explained": 0.997,
+   "rms": 0.6,
+   "range": 88,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  },
+  {
+   "size": 10435,
+   "explained": 0.201,
+   "rms": 13,
+   "range": 128,
+   "fitted": false,
+   "border": 0.08
+  },
+  {
+   "size": 301,
+   "explained": 0.756,
+   "rms": 6.9,
+   "range": 122,
+   "fitted": false,
+   "border": 0
+  },
+  {
+   "size": 347,
+   "explained": 0.512,
+   "rms": 3,
+   "range": 34,
+   "fitted": false,
+   "border": 0
+  },
+  {
+   "size": 17471,
+   "explained": 0.868,
+   "rms": 6.8,
+   "range": 247,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  },
+  {
+   "size": 852,
+   "explained": 0.902,
+   "rms": 6.3,
+   "range": 140,
+   "fitted": true,
+   "kind": "linear",
+   "border": 0
+  },
+  {
+   "size": 45095,
+   "explained": 0.242,
+   "rms": 18.6,
+   "range": 253,
+   "fitted": false,
+   "border": 0.05
+  }
+ ],
+ "layers": [
+  {
+   "label": 0,
+   "color": "#a70501",
+   "raw": 1,
+   "traced": 1,
+   "kept": 1,
+   "decisions": [
+    "fit"
+   ]
+  },
+  {
+   "label": 7,
+   "color": "#ad1104",
+   "raw": 4,
+   "traced": 26,
+   "kept": 3,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 5,
+   "color": "#8a0801",
+   "raw": 10,
+   "traced": 27,
+   "kept": 4,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 4,
+   "color": "#d02010",
+   "raw": 3,
+   "traced": 3,
+   "kept": 3,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 3,
+   "color": "#e06041",
+   "raw": 4,
+   "traced": 4,
+   "kept": 4,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 1,
+   "color": "#fffefe",
+   "raw": 5,
+   "traced": 4,
+   "kept": 2,
+   "decisions": [
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 8,
+   "color": "#fbece8",
+   "raw": 13,
+   "traced": 11,
+   "kept": 9,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 2,
+   "color": "#e89684",
+   "raw": 14,
+   "traced": 11,
+   "kept": 10,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit"
+   ]
+  },
+  {
+   "label": 6,
+   "color": "#f1cac2",
+   "raw": 13,
+   "traced": 7,
+   "kept": 7,
+   "decisions": [
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit",
+    "fit"
+   ]
+  }
+ ]
+}
