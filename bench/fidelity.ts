@@ -68,7 +68,7 @@ async function measure(blob: Blob, file: string): Promise<Row> {
   const upload = g.getImageData(0, 0, w, h)
   const vector = await rasterizeSvg(svg, w, h)
   const t1 = performance.now()
-  const report = assessFidelity(upload, vector, svg)
+  const report = assessFidelity(upload, vector, svg, { geometryWidth: source.width })
   const assessMs = Math.round(performance.now() - t1)
   return {
     file,

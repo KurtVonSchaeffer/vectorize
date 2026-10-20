@@ -18,6 +18,9 @@ import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
+import { FidelityChecker } from './quality/check'
+import { QUALITY_REPORTING } from './quality/flags'
+import { isReviewed, readiness, type CheckOutcome, type Review } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
@@ -94,6 +97,8 @@ export default function App() {
   }, [])
   const enhancer = useRef<Enhancer>(null)
   useEffect(() => () => enhancer.current?.dispose(), [])
+  const checker = useRef<FidelityChecker>(null)
+  useEffect(() => () => checker.current?.dispose(), [])
 
   const showToast = useCallback((text: string, undo?: () => void) => setToast({ text, undo }), [])
   useEffect(() => {
@@ -296,6 +301,32 @@ export default function App() {
     }
   }, [result?.svg, source, kind])
   const flattened = kind === 'flat' && !!result && shadingLost?.svg === result.svg && shadingLost.lost
+
+  // Quality reporting (behind a flag): the result measured against the upload, and a person's
+  // review of that exact result. Neither is a production approval.
+  const [check, setCheck] = useState<{ svg: string; outcome: CheckOutcome } | null>(null)
+  const [review, setReview] = useState<Review | null>(null)
+  // Results changed from the upload on purpose (one colour, spot inks, line and pixel art, colours
+  // removed or matched to brand colours, a background removed) can't be compared with it.
+  const changedOnPurpose = oneOn || inks.enabled || kind === 'lineart' || kind === 'pixel' || removed.length > 0 || (transparent && !detection?.hasAlpha) || (result?.named.length ?? 0) > 0
+  useEffect(() => {
+    const svg = result?.svg
+    if (!QUALITY_REPORTING || !svg || !source) return
+    if (changedOnPurpose) {
+      setCheck({ svg, outcome: { state: 'not-checked', reason: 'unsupported' } })
+      return
+    }
+    let live = true
+    setCheck({ svg, outcome: { state: 'checking' } })
+    ;(checker.current ??= new FidelityChecker())
+      .check(source.bitmap, svg)
+      .then((outcome) => live && setCheck({ svg, outcome }))
+    return () => {
+      live = false
+      // Measuring a result nobody will see is wasted work.
+      checker.current?.cancel()
+    }
+  }, [result?.svg, source, changedOnPurpose])
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
   const downloads = useMemo(() => {
@@ -376,19 +407,41 @@ export default function App() {
           : client.purpose === 'cut'
             ? `${counted}${colorCount ? ', clean edges' : ''}. Check small details at your cut size before cutting.`
             : `${colorCount ? `${counted}, clean edges` : counted}, ready for ${client.purpose === 'print' ? 'print' : 'the web'}.`
-  const headline = {
-    flat: 'Your artwork is now a sharp vector',
-    photo: 'Your image is now a vector',
-    lineart: 'Your drawing is now clean line art',
-    pixel: 'Your pixel art is now a vector',
-  }[kind]
+  const checkNow: CheckOutcome | null = result && check?.svg === result.svg ? check.outcome : result ? { state: 'checking' } : null
+  const quality = QUALITY_REPORTING
+    ? readiness({
+        // While a new version is traced, the current one stays described (as the old summary does).
+        status: status === 'working' && result ? 'ready' : status,
+        counted,
+        purpose: client.purpose,
+        warnings: [
+          ...warnings.filter((w): w is string => typeof w === 'string'),
+          // The check reports flattened shading itself; without it, keep the cheaper shading test's warning.
+          ...(flattened && checkNow?.state !== 'checked' ? ['Some shading in your image became flat color.'] : []),
+        ],
+        oneInk: inks.enabled && inks.maxInks === 1,
+        check: checkNow,
+        reviewed: isReviewed(review, result?.svg, client.purpose),
+      })
+    : null
+  const headline = (
+    QUALITY_REPORTING
+      ? // Says what was made, not how good it is: that is the check's and the reviewer's to say.
+        { flat: 'Your artwork is now a vector', photo: 'Your image is now a vector', lineart: 'Your drawing is now line art', pixel: 'Your pixel art is now a vector' }
+      : {
+          flat: 'Your artwork is now a sharp vector',
+          photo: 'Your image is now a vector',
+          lineart: 'Your drawing is now clean line art',
+          pixel: 'Your pixel art is now a vector',
+        }
+  )[kind]
 
   const blendNote = result && flatKind
     ? client.keepBlends
       ? { text: 'Edge smudges are kept as extra colors.', undoLabel: 'Clean them up', onUndo: () => setClient((c) => ({ ...c, keepBlends: false })) }
       : result.blendsRemoved > 0
         ? {
-            text: 'We cleaned up fuzzy edges and compression smudges, so only your real colors remain.',
+            text: QUALITY_REPORTING ? 'We cleaned up fuzzy edges and compression smudges.' : 'We cleaned up fuzzy edges and compression smudges, so only your real colors remain.',
             undoLabel: 'Undo',
             onUndo: () => setClient((c) => ({ ...c, keepBlends: true })),
           }
@@ -612,7 +665,18 @@ export default function App() {
           <ResultCard
             status={status}
             headline={headline}
-            summary={summary}
+            summary={quality?.summary ?? summary}
+            quality={
+              quality && result
+                ? {
+                    autoCheck: quality.autoCheck,
+                    reviewed: quality.reviewed,
+                    findings: quality.findings,
+                    onReview: () => setReview({ svg: result.svg, purpose: client.purpose }),
+                    onUnreview: () => setReview(null),
+                  }
+                : undefined
+            }
             error={traceError}
             onRetry={() => {
               setTraceError(null)

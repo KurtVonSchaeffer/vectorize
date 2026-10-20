@@ -110,6 +110,8 @@ const CHANGED_MIN_AREA = 12
 export const TINY_AREA = 4
 /** Two outlines are the same when every point of each is within this of the other (upload px). */
 const COPY_MATCH = 0.5
+/** Curve step (upload px) for the self-intersection test. */
+const FINE_STEP = 0.05
 const PAPER_MIN_CHANNEL = 235
 const PAPER_COVER = 0.97
 /** Verdict thresholds, calibrated on the audit set (bench/fidelity-baseline.json). */
@@ -130,14 +132,22 @@ const RASTER_CONSTRUCTS: [string, RegExp][] = [
   ['external reference', /\s(?:xlink:)?href="(?!#)/i],
 ]
 
-export function assessFidelity(upload: ImageData, vector: ImageData, svg: string): FidelityReport {
+export interface FidelityOptions {
+  /**
+   * The upload's own width, when `upload` and `vector` were scaled down to compare them: geometry
+   * (tiny contours, copies, crossings) is then still measured in the upload's own pixels.
+   */
+  geometryWidth?: number
+}
+
+export function assessFidelity(upload: ImageData, vector: ImageData, svg: string, opts: FidelityOptions = {}): FidelityReport {
   const { width: w, height: h } = upload
   if (vector.width !== w || vector.height !== h) throw new RangeError(`The vector must be drawn at the upload's size (${w}×${h}), not ${vector.width}×${vector.height}`)
 
   const cmp = compareRasters(upload.data, vector.data, w, h, { tolerance: 1 })
   const feat = features(upload, vector)
   const shade = shadingLoss(upload, vector)
-  const geo = geometry(svg, upload)
+  const geo = geometry(svg, upload, opts.geometryWidth ?? w)
 
   const issues: FidelityIssue[] = []
   const fineArea = feat.fineArea
@@ -158,7 +168,7 @@ export function assessFidelity(upload: ImageData, vector: ImageData, svg: string
   if (geo.copied.length)
     issues.push({ id: 'copied-outlines', kind: 'geometry', severity: 'check', count: geo.copied.length, where: top(geo.copied), message: `${geo.copied.length} ${geo.copied.length === 1 ? 'outline is' : 'outlines are'} drawn twice, one copy hidden under the other.` })
   if (geo.crossing.length)
-    issues.push({ id: 'self-intersections', kind: 'geometry', severity: 'check', count: geo.crossing.length, where: top(geo.crossing), message: `${geo.crossing.length} ${geo.crossing.length === 1 ? 'outline crosses' : 'outlines cross'} itself.` })
+    issues.push({ id: 'self-intersections', kind: 'geometry', severity: 'check', count: geo.crossing.length, where: top(geo.crossing), message: `${geo.crossing.length} ${geo.crossing.length === 1 ? 'outline crosses itself' : 'outlines cross themselves'}.` })
   if (geo.tiny.length)
     issues.push({ id: 'tiny-contours', kind: 'geometry', severity: 'check', count: geo.tiny.length, where: top(geo.tiny), message: `${geo.tiny.length} ${geo.tiny.length === 1 ? 'shape is' : 'shapes are'} smaller than ${TINY_AREA} px², too small to see or cut.` })
   if (geo.paper)
@@ -208,6 +218,14 @@ function features(upload: ImageData, vector: ImageData) {
   const tv = transparency(vector.data, n)
   const palette = paletteOf(U, tu, w, h)
   const labs = palette.map((c) => rgbToLab(c))
+  // ΔE2000 between palette colours, computed once per pair.
+  const de = new Map<number, number>()
+  const apart = (a: number, b: number) => {
+    const key = a < b ? a * 64 + b : b * 64 + a
+    let d = de.get(key)
+    if (d === undefined) de.set(key, (d = deltaE2000(labs[a], labs[b])))
+    return d
+  }
   const lu = labelWith(U, tu, palette, n)
   const lv = labelWith(V, tv, palette, n)
 
@@ -266,7 +284,7 @@ function features(upload: ImageData, vector: ImageData) {
   areas.forEach((a, i) => {
     if (i === largest || a.core < MIN_CORE || a.label === TRANSPARENT) return
     let stands = a.touches.size > 0
-    for (const t of a.touches) if (t === TRANSPARENT ? false : deltaE2000(labs[a.label], labs[t]) < FEATURE_DE) stands = false
+    for (const t of a.touches) if (t !== TRANSPARENT && apart(a.label, t) < FEATURE_DE) stands = false
     if (!stands) return
     count_++
     const region: Region = { x: a.x0, y: a.y0, w: a.x1 - a.x0 + 1, h: a.y1 - a.y0 + 1, area: a.px.length }
@@ -411,14 +429,15 @@ function near(l: Int32Array, p: number, label: number, w: number, h: number): bo
 
 // ---------- Geometry: is the SVG genuine, editable vector artwork? ----------
 
-function geometry(svg: string, upload: ImageData) {
+function geometry(svg: string, upload: ImageData, geometryWidth: number) {
   const raster = RASTER_CONSTRUCTS.filter(([, re]) => re.test(svg)).map(([name]) => name)
   const shapes = shapesFromSvg(svg)
-  // Path coordinates are in the SVG's viewBox (traced px); measure in upload px.
+  // Path coordinates are in the SVG's viewBox (traced px); measure in the upload's own px, even
+  // when the images were scaled down to compare them.
   const vb = svg.match(/<svg\b[^>]*\sviewBox="\s*[-\d.e]+[ ,]+[-\d.e]+[ ,]+([\d.e]+)[ ,]+([\d.e]+)/i)
   const wAttr = svg.match(/<svg\b[^>]*\swidth="([\d.]+)/i)
   const units = vb ? Number(vb[1]) : wAttr ? Number(wAttr[1]) : upload.width
-  const k = upload.width / units
+  const k = geometryWidth / units
   const rings: { color: number; pts: Pt[]; area: number; box: [number, number, number, number] }[] = []
   for (const s of shapes as ColorShape[])
     for (const sp of s.subpaths) {
@@ -451,10 +470,12 @@ function geometry(svg: string, upload: ImageData) {
       }
     }
   }
-  // Crossings are tested on a much finer flattening: near-tangent curves flattened coarsely can
-  // appear to cross when they don't (seen on two Firefox outlines).
-  const fine = shapes.flatMap((s) => s.subpaths.map((sp) => fineFlatten(sp, k)))
-  const crosses = fine.map((pts) => pts.length < 40000 && selfIntersects(pts))
+  // Crossings are tested on a much finer flattening: a coarse one both misses tiny loops and
+  // shows near-tangent curves as crossed (both seen in the audit set).
+  const crosses = shapes.flatMap((s) => s.subpaths).map((sp) => {
+    const pts = fineFlatten(sp, k)
+    return pts.length < 40000 && selfIntersects(pts)
+  })
   const crossing = rings.filter((_, i) => crosses[i]).map(reg)
   // A crossing outline's lobes cancel in its area, so it is reported as crossing, not as tiny.
   const tiny = rings.filter((r, i) => !crosses[i] && r.area < TINY_AREA).map(reg)
@@ -463,7 +484,7 @@ function geometry(svg: string, upload: ImageData) {
   const d = upload.data
   let opaque = true
   for (let i = 3; i < d.length && opaque; i += 4) if (d[i] < 255) opaque = false
-  const W = upload.width, H = upload.height
+  const W = geometryWidth, H = (upload.height * geometryWidth) / upload.width
   const paper =
     opaque &&
     rings.some((r, i) => {
@@ -474,7 +495,7 @@ function geometry(svg: string, upload: ImageData) {
   return { raster, contours: rings.length, copied, crossing, tiny, paper }
 }
 
-/** A subpath as a polyline with curve steps of at most 0.05 upload px (up to 1024 per curve), scaled by k. */
+/** A subpath as a polyline with curve steps of at most FINE_STEP upload px (up to 1024 per curve), scaled by k. */
 function fineFlatten(sp: Subpath, k: number): Pt[] {
   const pts: Pt[] = [[sp.start[0] * k, sp.start[1] * k]]
   let cur = sp.start
@@ -482,7 +503,7 @@ function fineFlatten(sp: Subpath, k: number): Pt[] {
     if (g.t === 'L') pts.push([g.p[0] * k, g.p[1] * k])
     else {
       const len = (Math.hypot(g.c1[0] - cur[0], g.c1[1] - cur[1]) + Math.hypot(g.c2[0] - g.c1[0], g.c2[1] - g.c1[1]) + Math.hypot(g.p[0] - g.c2[0], g.p[1] - g.c2[1])) * k
-      const n = Math.min(1024, Math.max(2, Math.ceil(len / 0.05)))
+      const n = Math.min(1024, Math.max(2, Math.ceil(len / FINE_STEP)))
       for (let i = 1; i <= n; i++) {
         const t = i / n, u = 1 - t
         pts.push([(u ** 3 * cur[0] + 3 * u * u * t * g.c1[0] + 3 * u * t * t * g.c2[0] + t ** 3 * g.p[0]) * k, (u ** 3 * cur[1] + 3 * u * u * t * g.c1[1] + 3 * u * t * t * g.c2[1] + t ** 3 * g.p[1]) * k])

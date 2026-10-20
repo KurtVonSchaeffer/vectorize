@@ -219,10 +219,5 @@ describe('background (RC2)', () => {
   }, SLOW)
 })
 
-describe('readiness (RC3)', () => {
-  // assessFidelity (quality/fidelity.ts) now measures what the vector lost against the upload, but
-  // the app's status line doesn't use it yet; these become real cases when it does (PR 1b).
-  it.todo('does not call a result ready for print when a star, eye or other small shape changed class')
-  it.todo('does not call a result ready for print when lettering strokes were lost')
-  it.todo('does not call a result ready for print when an opaque paper background became a plate')
-})
+// Readiness (RC3) is covered in src/quality/__tests__/readiness.test.ts: no result reads as
+// production-approved from an automatic check, and none claims "clean edges" or "ready for print".

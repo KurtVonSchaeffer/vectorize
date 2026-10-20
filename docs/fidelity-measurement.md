@@ -7,8 +7,34 @@ Later PRs will use it as the before-and-after yardstick and to inform the readin
 
 **It is not a production approval.** "ready" means only that none of these checks found a
 problem. Known problems pass it (see Limits), so it must never mark artwork as approved for
-production on its own. Three states stay separate: the vector was generated; automated checks
-found no known problem; a person approved it for production.
+production on its own. The states stay separate: the vector was generated; automated checks
+found no known problem; a person reviewed it; and, later, production approval, which will also
+need the production method, the output size, the colours and the checks that apply to them.
+
+## In the app (behind a flag)
+
+Quality reporting is unfinished and off for everyone by default. It is switched on by the build:
+
+| `VITE_QUALITY_REPORTING` | Effect |
+| --- | --- |
+| unset (production today) | Off. `?quality-reporting=on` in the address is ignored. |
+| `preview` | Off, unless the address has `?quality-reporting=on`. Set it only for Vercel's Preview environment, so reviewers can try it on preview deployments. |
+| `on` | On for everyone using that build: a release decision. |
+
+The local dev server (`npm run dev`) also honours `?quality-reporting=on`. Switched on, the
+result card shows three separate facts:
+
+1. **Vector created**: a vector was made. The headline says only that.
+2. **Automatic check**: checking, no known problems, problems found (with what was found), or not
+   checked. The check runs in a Web Worker (`src/quality/check.ts`) with a 10 s limit. An error, a
+   timeout, a malformed report, or a result the check can't measure (one colour, spot inks, line
+   art, pixel art) reads as "not checked", never as fine.
+3. **Artwork reviewed**: only a person marks it ("Mark as reviewed"), and only for the exact
+   result they saw. Any change to the result clears it. The automatic check can never set it, and
+   the card says it is not a production approval.
+
+The status line no longer claims "clean edges" or "ready for print". With the flag off, the app
+reads exactly as before (tested against main in `src/components/__tests__/result-card.test.tsx`).
 
 ## What it measures
 
@@ -54,7 +80,7 @@ Agreement with the visual review:
   "not suitable"). They are never called ready.
 - The geometry verdict flags three images that look right (Python, Angular, Fluent parrot): they
   do contain hidden duplicate outlines, which the visual review could not see.
-- Measurement time: up to 0.75 s for a 600 × 450 upload in Chromium (target for in-app use: 0.3 s).
+- Measurement time: up to 0.43 s for a 600 × 450 upload in Chromium (3.6 s for all 24 uploads). In the app it runs in a Web Worker, so the page stays responsive.
 
 ## Limits
 
