@@ -85,7 +85,10 @@ async function measure(blob: Blob, file: string) {
     const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)!
     const pdf = buildPdf(shapes.map((shape) => ({ shape })), { width: +vb[1], height: +vb[2], title: 'x' })
     const dxf = buildDxf(shapes.map((shape) => ({ shape, name: 'C' })), { width: +vb[1], height: +vb[2] })
+    row[clean ? "changedAfter" : "changedBefore"] = f.issues.find((i) => i.id === "changed-shapes")?.where ?? []
     if (clean) row.pairs = copiedPairs(svg)
+    if (clean && q.get("keep")) row.svgAfter = svg
+    if (!clean && q.get("keep")) row.svgBefore = svg
     if (clean) row.copiedWhere = f.issues.find((i) => i.id === 'copied-outlines')?.where ?? []
     row[clean ? "after" : "before"] = {
       paths: (svg.match(/<path\b/g) ?? []).length,
@@ -105,6 +108,26 @@ async function measure(blob: Blob, file: string) {
       dxfEntities: (dxf.match(/\nLWPOLYLINE\n|\nPOLYLINE\n|\nSPLINE\n/g) ?? []).length,
       dxfOk: dxf.trimEnd().endsWith('EOF'),
     }
+  }
+  // Print plates and cut files (knockout): measured too, with and without the option.
+  for (const clean of [false, true]) {
+    const kjob = buildTraceJob(source, source.width, {
+      trace: traceParamsFor(det.kind, DEFAULT_CLIENT, detailBoost(det, source.width, source.height)),
+      prep: prepFor(det.kind, DEFAULT_CLIENT),
+      spot: { settings: DEFAULT_INKS, palette: DEMO_PALETTE },
+      removeColors: [],
+      transparent: det.hasAlpha || det.kind === 'lineart',
+      knockout: true,
+      keepBlends: DEFAULT_CLIENT.keepBlends,
+      exactShapes: DEFAULT_CLIENT.exactShapes,
+      gradients: DEFAULT_CLIENT.gradients,
+      brand: undefined,
+      cleanGeometry: clean,
+    })
+    if (kjob.kind !== 'flat') break
+    const ksvg = finalizeSvg(runFlat(kjob.image, kjob.options).svg, kjob.image, source)
+    const kf = assessFidelity(upload, await rasterizeSvg(ksvg, w, h), ksvg, { geometryWidth: source.width })
+    row[clean ? 'knockoutAfter' : 'knockoutBefore'] = { copied: kf.geometry.copiedOutlines, hash: await sha(ksvg) }
   }
   row.renderDiff = compare(renders.before, renders.after)
   // New transparency: opaque in the upload and before, see-through after (a gap or a lost shape).
@@ -137,6 +160,11 @@ function copiedPairs(svg: string) {
         out.push(`${a.fill}(path ${a.k}, ${a.n} rings) = ${b.fill}(path ${b.k}, ${b.n} rings) area ${Math.round(a.area)} at ${a.box.map(Math.round).join(',')}`)
     }
   return out
+}
+
+async function sha(text: string) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(d)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 const status = document.getElementById('status')!

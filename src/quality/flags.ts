@@ -37,3 +37,9 @@ export function cleanGeometryOn(search?: string, env: FlagEnv = { value: import.
   return featureOn('clean-geometry', env, search)
 }
 export const CLEAN_GEOMETRY = cleanGeometryOn()
+
+/** Fine detail: in the master artwork, thin lines keep their width and length (docs/fine-detail.md). */
+export function fineDetailOn(search?: string, env: FlagEnv = { value: import.meta.env?.VITE_FINE_DETAIL, dev }): boolean {
+  return featureOn('fine-detail', env, search)
+}
+export const FINE_DETAIL = fineDetailOn()

@@ -5,6 +5,12 @@ export interface FitOptions {
   error: number
   /** Turning angle (degrees) above which a point is kept as a sharp corner. */
   cornerAngle: number
+  /**
+   * Straight stretches of the outline (points within STRAIGHT_TOLERANCE of one line for at least
+   * STRAIGHT_MIN_LENGTH) are drawn as exact straight segments, and the curves next to them meet them
+   * tangentially: straight edges stay straight, with fewer anchors, and a thin bar's sides don't bulge.
+   */
+  straightRuns?: boolean
 }
 
 /** A cubic Bézier: start, two controls, end. */
@@ -21,6 +27,17 @@ export function fitClosed(loop: Point[], opts: FitOptions): Cubic[] {
 
   const n = pts.length
   const curves: Cubic[] = []
+  if (!corners.length && opts.straightRuns) {
+    // A loop with straight stretches but no corners (a thin bar with rounded ends): start it at a
+    // stretch's start, so the stretches aren't cut, and fit it as one run back to that point.
+    const lines = straightStretches([...pts, ...pts.slice(0, n >> 1)])
+    const start = lines.find(([a]) => a < n)?.[0]
+    if (start !== undefined) {
+      const run = [...pts.slice(start), ...pts.slice(0, start + 1)]
+      const t = norm(sub(run[1], run[0]))
+      return fitWithLines(run, t, neg(t), opts.error)
+    }
+  }
   if (!corners.length) {
     // Fully smooth loop: fit it in two halves with matching tangents at the joins.
     const half = n >> 1
@@ -45,9 +62,67 @@ export function fitClosed(loop: Point[], opts: FitOptions): Cubic[] {
     if (run.length < 2) continue
     const t1 = sa ? sa.outDir : leftTangent(run)
     const t2 = sb ? neg(sb.inDir) : rightTangent(run)
-    curves.push(...fitCubic(run, t1, t2, opts.error))
+    curves.push(...(opts.straightRuns ? fitWithLines(run, t1, t2, opts.error) : fitCubic(run, t1, t2, opts.error)))
   }
   return curves
+}
+
+/** Points within this distance (px) of one line form a straight stretch… */
+const STRAIGHT_TOLERANCE = 0.12
+/** …when it is at least this long (px). */
+const STRAIGHT_MIN_LENGTH = 3
+
+/**
+ * Fits an open run: its straight stretches as exact lines, the parts between as cubics whose ends
+ * follow the neighbouring lines' directions.
+ */
+function fitWithLines(run: Point[], t1: Point, t2: Point, error: number): Cubic[] {
+  const lines = straightStretches(run)
+  if (!lines.length) return fitCubic(run, t1, t2, error)
+  const out: Cubic[] = []
+  let at = 0
+  let tin = t1
+  for (const [a, b] of lines) {
+    const dir = norm(sub(run[b], run[a]))
+    if (a > at) out.push(...fitCubic(run.slice(at, a + 1), tin, neg(dir), error))
+    const d = dist(run[a], run[b]) / 3
+    out.push([run[a], add(run[a], mul(dir, d)), sub(run[b], mul(dir, d)), run[b]])
+    at = b
+    tin = dir
+  }
+  if (at < run.length - 1) out.push(...fitCubic(run.slice(at), tin, t2, error))
+  return out
+}
+
+/** Maximal straight stretches [start, end] of a run, in order, not overlapping. */
+function straightStretches(run: Point[]): [number, number][] {
+  const out: [number, number][] = []
+  let i = 0
+  while (i < run.length - 2) {
+    let j = i + 2
+    let good = -1
+    while (j < run.length && straightBetween(run, i, j)) good = j++
+    if (good > 0 && dist(run[i], run[good]) >= STRAIGHT_MIN_LENGTH) {
+      out.push([i, good])
+      i = good
+    } else i++
+  }
+  return out
+}
+function straightBetween(run: Point[], i: number, j: number): boolean {
+  const a = run[i]
+  const b = run[j]
+  const len = dist(a, b)
+  if (len < 1e-6) return false
+  for (let k = i + 1; k < j; k++) {
+    const p = run[k]
+    const off = Math.abs((b[0] - a[0]) * (a[1] - p[1]) - (a[0] - p[0]) * (b[1] - a[1])) / len
+    if (off > STRAIGHT_TOLERANCE) return false
+    // Points must also progress along the line (no doubling back).
+    const along = ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / len
+    if (along < -STRAIGHT_TOLERANCE || along > len + STRAIGHT_TOLERANCE) return false
+  }
+  return true
 }
 
 /**

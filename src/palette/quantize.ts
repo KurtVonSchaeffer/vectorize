@@ -58,6 +58,11 @@ export interface QuantizeOptions {
   smoothing: number
   /** Keep edge-blend clusters as real colors (normally they're folded away). */
   keepBlends?: boolean
+  /**
+   * Fine detail (behind a flag): noise cleanup leaves solid pixels alone, so the ends of 1 px
+   * lines and the tips of small points aren't trimmed (see majorityFilter).
+   */
+  keepSolidDetail?: boolean
 }
 
 /**
@@ -224,7 +229,9 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   }
   vetoDistantBlends(w, h, labels, plainLabels)
   vetoDistantPartners(d, w, h, labels, second, cov, anchors)
-  let clean = majorityFilter(majorityFilter(labels, w, h), w, h)
+  // A pixel that is solidly its own colour, unlike the colour around it, is detail, not noise.
+  const solid = opts.keepSolidDetail ? (p: number, own: number, around: number) => isSolid(d, p, labelRgb[own], labelRgb[around]) : undefined
+  let clean = majorityFilter(majorityFilter(labels, w, h, solid), w, h, solid)
   if (opts.minArea > 1) removeSpecks(clean, w, h, opts.minArea, (members, label, around) => isDetail(members, label, around, d, labelRgb))
   // Pixels relabeled by cleanup no longer carry meaningful blend information.
   for (let p = 0; p < clean.length; p++) {
@@ -751,7 +758,7 @@ const PAPER_LABEL = 254
  * Pixels on a 1px line always have two same-label neighbors, so lines survive.
  * Originally transparent pixels are left alone.
  */
-function majorityFilter(src: Uint8Array, w: number, h: number): Uint8Array {
+function majorityFilter(src: Uint8Array, w: number, h: number, keep?: (p: number, own: number, around: number) => boolean): Uint8Array {
   const out = new Uint8Array(src)
   const counts = new Uint16Array(256)
   const seen: number[] = []
@@ -788,7 +795,7 @@ function majorityFilter(src: Uint8Array, w: number, h: number): Uint8Array {
         }
         counts[l] = 0
       }
-      if (ownCount <= 2 && bestCount >= 5) out[p] = best
+      if (ownCount <= 2 && bestCount >= 5 && !keep?.(p, own, best)) out[p] = best
     }
   }
   return out
@@ -883,6 +890,22 @@ function isDetail(members: number[], label: number, around: number[], d: Uint8Cl
     if (t > best) best = t
   }
   return best >= DETAIL_SOLID
+}
+
+/**
+ * Whether pixel p is solidly its own label's colour against the colour around it (the test
+ * isDetail applies to a whole region): the two colours differ clearly, and the pixel sits at
+ * least DETAIL_SOLID of the way from the surrounding colour to its own.
+ */
+function isSolid(d: Uint8ClampedArray, p: number, own: number | undefined, out: number | undefined): boolean {
+  if (own === undefined || out === undefined) return false
+  const L = [(own >> 16) & 255, (own >> 8) & 255, own & 255]
+  const E = [(out >> 16) & 255, (out >> 8) & 255, out & 255]
+  const v = [L[0] - E[0], L[1] - E[1], L[2] - E[2]]
+  const len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+  if (len2 < DETAIL_CONTRAST * DETAIL_CONTRAST) return false
+  const t = ((d[p * 4] - E[0]) * v[0] + (d[p * 4 + 1] - E[1]) * v[1] + (d[p * 4 + 2] - E[2]) * v[2]) / len2
+  return t >= DETAIL_SOLID
 }
 
 /** Clusters smaller than this share of the inked area are candidates for being blend fringe. */

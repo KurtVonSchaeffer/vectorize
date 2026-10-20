@@ -42,6 +42,11 @@ export interface JobSettings {
    */
   cleanGeometry?: boolean
   /**
+   * Fine detail (behind a flag): in the master artwork, thin lines and their ends keep their width
+   * and length. Print plates and cut files, one colour and spot inks are unchanged.
+   */
+  fineDetail?: boolean
+  /**
    * One ink for the whole artwork. The gap separates regions that were different colours, and
    * is cut only into production files (knockout jobs), never into the master vector.
    */
@@ -181,6 +186,9 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
   const scale = base.image.width / sourceWidth
   const speckArea = Math.max(1, (trace.filterSpeckle * scale) ** 2)
   const one = !lineArt && !spotOn ? s.oneColour : undefined
+  // Fine detail is for the master (stacked) artwork only. In print plates and cut files, which must
+  // tile without gaps, the audit set showed new hairline gaps and crossings (docs/fine-detail.md).
+  const fine = !!s.fineDetail && !one && !spotOn && !s.knockout
   return {
     kind: 'flat',
     image: base.image,
@@ -216,6 +224,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         upscale: 1,
         smoothing: 0,
         keepBlends: s.keepBlends,
+        ...(fine ? { keepSolidDetail: true } : {}),
       },
       trace: {
         smoothing: trace.smoothing,
@@ -231,6 +240,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         spread: s.knockout && !one ? 0.15 : 0,
         exactShapes: s.exactShapes ?? true,
         ...(s.cleanGeometry && !one ? { connectedStacking: true } : {}),
+        ...(fine ? { crossSection: true, straightRuns: true } : {}),
       },
     },
   }
