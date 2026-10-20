@@ -20,7 +20,7 @@ import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
 import { FidelityChecker } from './quality/check'
-import { PRINT_FILES, QUALITY_REPORTING } from './quality/flags'
+import { CLEAN_GEOMETRY, PRINT_FILES, QUALITY_REPORTING } from './quality/flags'
 import { isReviewed, readiness, type CheckOutcome, type Review } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
@@ -239,6 +239,7 @@ export default function App() {
         exactShapes,
         gradients,
         brand,
+        ...(CLEAN_GEOMETRY ? { cleanGeometry: true } : {}),
         lettering: vary.lettering ?? letteringWords,
         oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
         ...(vary.paperOut ? { paperOut: vary.paperOut, paperWords: vary.paperWords, whiteChoices: vary.whiteChoices } : {}),

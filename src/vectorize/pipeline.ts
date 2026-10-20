@@ -37,6 +37,11 @@ export interface JobSettings {
   /** Snap circles, ellipses, stars and polygons to exact geometry (flat art). */
   exactShapes?: boolean
   /**
+   * Clean geometry (behind a flag): stacked layers extend only under the shapes they touch, so no
+   * shape is drawn twice (see TraceOptions.connectedStacking). One colour is unchanged.
+   */
+  cleanGeometry?: boolean
+  /**
    * One ink for the whole artwork. The gap separates regions that were different colours, and
    * is cut only into production files (knockout jobs), never into the master vector.
    */
@@ -225,6 +230,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         // Plates are spread so neighbouring inks overlap a little; one ink has nothing to register against.
         spread: s.knockout && !one ? 0.15 : 0,
         exactShapes: s.exactShapes ?? true,
+        ...(s.cleanGeometry && !one ? { connectedStacking: true } : {}),
       },
     },
   }
