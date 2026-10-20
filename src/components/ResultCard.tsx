@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Purpose } from '../vectorize/client'
 import type { Download } from '../export/files'
 import { onePlate, type Plate } from '../export/plates'
@@ -365,8 +365,13 @@ function PlatePreview(v: PlatePreviewProps) {
   const [garment, setGarment] = useState(GARMENTS[0].color)
   const [only, setOnly] = useState<number | null>(null)
   const shown = v.svg && only !== null && v.plates.some((pl) => pl.color === only) ? onePlate(v.svg, only) : v.svg
-  const url = useMemo(() => (shown ? URL.createObjectURL(new Blob([shown], { type: 'image/svg+xml' })) : null), [shown])
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!shown) return setUrl(null)
+    const u = URL.createObjectURL(new Blob([shown], { type: 'image/svg+xml' }))
+    setUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [shown])
   if (!v.open)
     return (
       <button className={btnQuiet} onClick={() => v.onOpen(true)}>
