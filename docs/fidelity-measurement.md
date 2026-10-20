@@ -10,6 +10,22 @@ problem. Known problems pass it (see Limits), so it must never mark artwork as a
 production on its own. Three states stay separate: the vector was generated; automated checks
 found no known problem; a person approved it for production.
 
+## In the app (behind a flag)
+
+With quality reporting switched on (`VITE_QUALITY_REPORTING=on` at build time, or
+`?quality-reporting=on` in the address), the result card shows three separate facts:
+
+1. **Vector created**: a vector was made. The headline says only that.
+2. **Automatic check**: checking, no known problems, problems found (with what was found), or not
+   checked. The check runs in a Web Worker (`src/quality/check.ts`) with a 10 s limit. An error, a
+   timeout, a malformed report, or a result the check can't measure (one colour, spot inks, line
+   art, pixel art) reads as "not checked", never as fine.
+3. **Production approval**: only a person gives it ("I've reviewed it: approve"), and only for the
+   exact result they saw. Any change to the result withdraws it. The automatic check can never set it.
+
+The status line no longer claims "clean edges" or "ready for print". With the flag off, the app
+reads exactly as before (tested against main in `src/components/__tests__/result-card.test.tsx`).
+
 ## What it measures
 
 Inputs: the upload, the SVG drawn at the upload's size (the browser's renderer in the app and the
@@ -54,7 +70,7 @@ Agreement with the visual review:
   "not suitable"). They are never called ready.
 - The geometry verdict flags three images that look right (Python, Angular, Fluent parrot): they
   do contain hidden duplicate outlines, which the visual review could not see.
-- Measurement time: up to 0.75 s for a 600 × 450 upload in Chromium (target for in-app use: 0.3 s).
+- Measurement time: up to 0.43 s for a 600 × 450 upload in Chromium (3.6 s for all 24 uploads). In the app it runs in a Web Worker, so the page stays responsive.
 
 ## Limits
 

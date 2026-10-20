@@ -18,6 +18,9 @@ import { parsePaletteFile, type Palette } from './palette/parse'
 import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
+import { FidelityChecker } from './quality/check'
+import { QUALITY_REPORTING } from './quality/flags'
+import { isApproved, readiness, type Approval, type CheckOutcome } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
@@ -94,6 +97,8 @@ export default function App() {
   }, [])
   const enhancer = useRef<Enhancer>(null)
   useEffect(() => () => enhancer.current?.dispose(), [])
+  const checker = useRef<FidelityChecker>(null)
+  useEffect(() => () => checker.current?.dispose(), [])
 
   const showToast = useCallback((text: string, undo?: () => void) => setToast({ text, undo }), [])
   useEffect(() => {
@@ -286,7 +291,7 @@ export default function App() {
   const [shadingLost, setShadingLost] = useState<{ svg: string; lost: boolean } | null>(null)
   useEffect(() => {
     const svg = result?.svg
-    if (!svg || !source || kind !== 'flat') return
+    if (QUALITY_REPORTING || !svg || !source || kind !== 'flat') return
     let live = true
     shadingLossOf(source.bitmap, svg)
       .then((s) => live && setShadingLost({ svg, lost: lostShading(s) }))
@@ -296,6 +301,28 @@ export default function App() {
     }
   }, [result?.svg, source, kind])
   const flattened = kind === 'flat' && !!result && shadingLost?.svg === result.svg && shadingLost.lost
+
+  // Quality reporting (behind a flag): the result measured against the upload, and a person's
+  // production approval of that exact result. The measurement never approves anything.
+  const [check, setCheck] = useState<{ svg: string; outcome: CheckOutcome } | null>(null)
+  const [approval, setApproval] = useState<Approval | null>(null)
+  useEffect(() => {
+    const svg = result?.svg
+    if (!QUALITY_REPORTING || !svg || !source) return
+    // Recoloured results (one colour, spot inks, line art) differ from the upload on purpose.
+    if (oneOn || inks.enabled || kind === 'lineart' || kind === 'pixel') {
+      setCheck({ svg, outcome: { state: 'not-checked', reason: 'unsupported' } })
+      return
+    }
+    let live = true
+    setCheck({ svg, outcome: { state: 'checking' } })
+    ;(checker.current ??= new FidelityChecker())
+      .check(source.bitmap, svg)
+      .then((outcome) => live && setCheck({ svg, outcome }))
+    return () => {
+      live = false
+    }
+  }, [result?.svg, source, kind, oneOn, inks.enabled])
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
   const downloads = useMemo(() => {
@@ -376,19 +403,35 @@ export default function App() {
           : client.purpose === 'cut'
             ? `${counted}${colorCount ? ', clean edges' : ''}. Check small details at your cut size before cutting.`
             : `${colorCount ? `${counted}, clean edges` : counted}, ready for ${client.purpose === 'print' ? 'print' : 'the web'}.`
-  const headline = {
-    flat: 'Your artwork is now a sharp vector',
-    photo: 'Your image is now a vector',
-    lineart: 'Your drawing is now clean line art',
-    pixel: 'Your pixel art is now a vector',
-  }[kind]
+  const quality = QUALITY_REPORTING
+    ? readiness({
+        status,
+        counted,
+        purpose: client.purpose,
+        warnings: warnings.filter((w): w is string => typeof w === 'string'),
+        oneInk: inks.enabled && inks.maxInks === 1,
+        check: result && check?.svg === result.svg ? check.outcome : result ? { state: 'checking' } : null,
+        approved: isApproved(approval, result?.svg),
+      })
+    : null
+  const headline = (
+    QUALITY_REPORTING
+      ? // Says what was made, not how good it is: that is the check's and the reviewer's to say.
+        { flat: 'Your artwork is now a vector', photo: 'Your image is now a vector', lineart: 'Your drawing is now line art', pixel: 'Your pixel art is now a vector' }
+      : {
+          flat: 'Your artwork is now a sharp vector',
+          photo: 'Your image is now a vector',
+          lineart: 'Your drawing is now clean line art',
+          pixel: 'Your pixel art is now a vector',
+        }
+  )[kind]
 
   const blendNote = result && flatKind
     ? client.keepBlends
       ? { text: 'Edge smudges are kept as extra colors.', undoLabel: 'Clean them up', onUndo: () => setClient((c) => ({ ...c, keepBlends: false })) }
       : result.blendsRemoved > 0
         ? {
-            text: 'We cleaned up fuzzy edges and compression smudges, so only your real colors remain.',
+            text: QUALITY_REPORTING ? 'We cleaned up fuzzy edges and compression smudges.' : 'We cleaned up fuzzy edges and compression smudges, so only your real colors remain.',
             undoLabel: 'Undo',
             onUndo: () => setClient((c) => ({ ...c, keepBlends: true })),
           }
@@ -612,7 +655,18 @@ export default function App() {
           <ResultCard
             status={status}
             headline={headline}
-            summary={summary}
+            summary={quality?.summary ?? summary}
+            quality={
+              quality && result
+                ? {
+                    autoCheck: quality.autoCheck,
+                    approved: quality.approved,
+                    findings: quality.findings,
+                    onApprove: () => setApproval({ svg: result.svg }),
+                    onWithdraw: () => setApproval(null),
+                  }
+                : undefined
+            }
             error={traceError}
             onRetry={() => {
               setTraceError(null)

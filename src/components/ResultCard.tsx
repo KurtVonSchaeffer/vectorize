@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { Purpose } from '../vectorize/client'
 import type { Download } from '../export/files'
+import type { AutoCheck } from '../quality/readiness'
 import { btnQuiet, chip, cx, link, range, seg, segBtn, spinnerSmall, swatch } from './ui'
 
 export type ColorMode = 'full' | 'one' | 'custom'
@@ -37,6 +38,18 @@ interface Props {
   onDetail: (v: number) => void
   onCorners: (v: number) => void
   more: ReactNode
+  /**
+   * Quality reporting (behind a flag): generated, automatically checked and production-approved
+   * are shown as separate facts. Absent, the card reads as before.
+   */
+  quality?: { autoCheck: AutoCheck; approved: boolean; findings: string[]; onApprove: () => void; onWithdraw: () => void }
+}
+
+const CHECK_LABEL: Record<AutoCheck, string> = {
+  checking: 'Checking against your image…',
+  'no-known-problems': 'Automatic check: no known problems',
+  'problems-found': 'Automatic check: problems found',
+  'not-checked': 'Not checked automatically',
 }
 
 const USES: { id: Purpose; label: string; note: string; icon: ReactNode }[] = [
@@ -90,7 +103,7 @@ export function ResultCard(p: Props) {
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
               <path d="M3 8.5l3 3 7-7" />
             </svg>
-            Ready
+            {p.quality ? 'Vector created' : 'Ready'}
           </span>
         )}
         {p.status === 'working' && (
@@ -111,6 +124,7 @@ export function ResultCard(p: Props) {
         ) : (
           <p className="text-ink-2">{p.summary}</p>
         )}
+        {p.status === 'ready' && p.quality && <QualityStatus {...p.quality} />}
       </div>
 
       <div className="grid gap-2.5">
@@ -245,5 +259,38 @@ export function ResultCard(p: Props) {
         </div>
       </details>
     </aside>
+  )
+}
+
+/** The automatic check and the production approval, as two separate lines. */
+function QualityStatus(q: NonNullable<Props['quality']>) {
+  return (
+    <div className="grid gap-2 rounded-[10px] border border-line px-3 py-2.5 text-[13px]" role="status">
+      <div className="grid gap-1">
+        <span className={cx('flex items-center gap-1.5 font-semibold', q.autoCheck === 'problems-found' ? 'text-warn' : 'text-ink-2')}>
+          {q.autoCheck === 'checking' && <span className={spinnerSmall} aria-hidden="true" />}
+          {CHECK_LABEL[q.autoCheck]}
+        </span>
+        {q.findings.length > 0 && (
+          <ul className="grid list-disc gap-0.5 pl-4 text-ink-2">
+            {q.findings.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
+        <span className={cx('font-semibold', q.approved ? 'text-good' : 'text-ink-2')}>{q.approved ? 'Approved for production by you' : 'Not approved for production yet'}</span>
+        {q.approved ? (
+          <button className={link} onClick={q.onWithdraw}>
+            Withdraw approval
+          </button>
+        ) : (
+          <button className={link} onClick={q.onApprove}>
+            I've reviewed it: approve
+          </button>
+        )}
+      </div>
+    </div>
   )
 }

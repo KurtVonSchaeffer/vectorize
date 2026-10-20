@@ -40,7 +40,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 323
+   "assessMs": 166
   },
   {
    "id": "javascript",
@@ -81,7 +81,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 169
+   "assessMs": 145
   },
   {
    "id": "vue",
@@ -122,7 +122,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 210
+   "assessMs": 76
   },
   {
    "id": "kubernetes",
@@ -163,7 +163,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 225
+   "assessMs": 96
   },
   {
    "id": "rust",
@@ -204,7 +204,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 137
+   "assessMs": 69
   },
   {
    "id": "react",
@@ -245,7 +245,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 71
+   "assessMs": 55
   },
   {
    "id": "docker",
@@ -288,7 +288,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 122
+   "assessMs": 130
   },
   {
    "id": "go",
@@ -329,7 +329,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 147
+   "assessMs": 49
   },
   {
    "id": "python",
@@ -372,7 +372,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 204
+   "assessMs": 81
   },
   {
    "id": "angular",
@@ -415,7 +415,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 103
+   "assessMs": 66
   },
   {
    "id": "firefox",
@@ -461,7 +461,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 381
+   "assessMs": 169
   },
   {
    "id": "ruby",
@@ -506,7 +506,7 @@
     "copied-outlines:check",
     "self-intersections:check"
    ],
-   "assessMs": 334
+   "assessMs": 194
   },
   {
    "id": "linux",
@@ -553,7 +553,7 @@
     "copied-outlines:check",
     "self-intersections:check"
    ],
-   "assessMs": 151
+   "assessMs": 82
   },
   {
    "id": "rocket-3d",
@@ -597,7 +597,7 @@
     "lost-detail:not-suitable",
     "tiny-contours:check"
    ],
-   "assessMs": 380
+   "assessMs": 253
   },
   {
    "id": "flag-br",
@@ -641,7 +641,7 @@
     "changed-shapes:check",
     "copied-outlines:check"
    ],
-   "assessMs": 592
+   "assessMs": 336
   },
   {
    "id": "flag-mx",
@@ -689,7 +689,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 748
+   "assessMs": 425
   },
   {
    "id": "flag-sv",
@@ -734,7 +734,7 @@
     "copied-outlines:check",
     "self-intersections:check"
    ],
-   "assessMs": 507
+   "assessMs": 241
   },
   {
    "id": "fluent-rocket",
@@ -780,7 +780,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 726
+   "assessMs": 349
   },
   {
    "id": "fluent-parrot",
@@ -823,7 +823,7 @@
    "issues": [
     "copied-outlines:check"
    ],
-   "assessMs": 256
+   "assessMs": 217
   },
   {
    "id": "github-mark",
@@ -864,7 +864,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 146
+   "assessMs": 119
   },
   {
    "id": "world-thin",
@@ -905,7 +905,7 @@
     "paperShape": false
    },
    "issues": [],
-   "assessMs": 139
+   "assessMs": 125
   },
   {
    "id": "python-tiny",
@@ -950,7 +950,7 @@
     "self-intersections:check",
     "paper-shape:check"
    ],
-   "assessMs": 54
+   "assessMs": 33
   },
   {
    "id": "docker-small",
@@ -996,7 +996,7 @@
     "tiny-contours:check",
     "paper-shape:check"
    ],
-   "assessMs": 42
+   "assessMs": 52
   },
   {
    "id": "flag-br-web",
@@ -1041,7 +1041,7 @@
     "self-intersections:check",
     "tiny-contours:check"
    ],
-   "assessMs": 54
+   "assessMs": 44
   }
  ]
 }
