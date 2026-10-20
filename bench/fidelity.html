@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fidelity baseline</title>
+    <style>body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111} table{border-collapse:collapse} td,th{padding:3px 8px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top} td:last-child{max-width:60ch}</style>
+  </head>
+  <body>
+    <h1>Fidelity baseline</h1>
+    <p>Each upload is processed at the default settings and measured against itself (src/quality/fidelity.ts). Nothing leaves the browser.</p>
+    <p><input type="file" id="pick" multiple accept="image/*" aria-label="Uploads to measure" /></p>
+    <p id="status">Loading…</p>
+    <table><thead><tr><th>file</th><th>verdict</th><th>visual</th><th>geometry</th><th>edge recall %</th><th>fine lost</th><th>lost area %</th><th>changed</th><th>shading %</th><th>copies</th><th>self-x</th><th>tiny</th><th>paper</th><th>issues</th></tr></thead><tbody id="rows"></tbody></table>
+    <script type="module" src="./fidelity.ts"></script>
+  </body>
+</html>

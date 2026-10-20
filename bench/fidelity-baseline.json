@@ -1,0 +1,1048 @@
+{
+ "about": "Fidelity baseline for main @ 4926f81 at default settings (bench/fidelity.html, src/quality/fidelity.ts). review = visual review from the October 2026 audit. Uploads: docs/audits/2026-10-reconstruction/manifest.json.",
+ "rows": [
+  {
+   "id": "android",
+   "file": "android.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/android/android.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "06c5700f077f690681531890e54a2bc1015a12cf27dfddab08cfb91a5d37d451",
+   "paths": 1,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.15,
+   "wrongShare": 0,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0
+   },
+   "geometryCounts": {
+    "contours": 3,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 161
+  },
+  {
+   "id": "javascript",
+   "file": "javascript.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/javascript/javascript.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "059913b71a2e29524d4581e2d3b835bb41bec17728e1be7ea65ea2af805d2c74",
+   "paths": 3,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.55,
+   "wrongShare": 0,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.6926
+   },
+   "geometryCounts": {
+    "contours": 3,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 194
+  },
+  {
+   "id": "vue",
+   "file": "vue.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/vue/vue.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "fcfc6a18143b2e8879dd2cb9c25f36f974dccd9d8ff0eb8b909d364be41dec51",
+   "paths": 2,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.37,
+   "wrongShare": 0.0026,
+   "features": {
+    "count": 1,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.0
+   },
+   "geometryCounts": {
+    "contours": 2,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 76
+  },
+  {
+   "id": "kubernetes",
+   "file": "kubernetes.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/kubernetes/kubernetes.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "9685200380092e666c7857f4e7610e7d355b79b72f566b15c9d07dab663dd669",
+   "paths": 2,
+   "review": "review",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.75,
+   "wrongShare": 0.0001,
+   "features": {
+    "count": 1,
+    "fine": 1,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.5221
+   },
+   "geometryCounts": {
+    "contours": 10,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 142
+  },
+  {
+   "id": "rust",
+   "file": "rust.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "ab3feb789edde5ab6e974ba51e79059fbef573e60404d24376629f33cb237dce",
+   "paths": 1,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 1.74,
+   "wrongShare": 0.0072,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0
+   },
+   "geometryCounts": {
+    "contours": 10,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 62
+  },
+  {
+   "id": "react",
+   "file": "react.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/react/react.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "8df63172106ff752096377f57df0c90eeca0942489011de7b29606075f6fb8ee",
+   "paths": 2,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 0.823,
+   "meanError": 1.17,
+   "wrongShare": 0,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.0067
+   },
+   "geometryCounts": {
+    "contours": 15,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 54
+  },
+  {
+   "id": "docker",
+   "file": "docker.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/docker/docker.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "94bc39422613c86b07f3368a9c37b47e5b31243cc3e77802c8dde097507df68f",
+   "paths": 45,
+   "review": "review",
+   "verdict": "check",
+   "visual": "ready",
+   "geometry": "check",
+   "edgeRecall": 0.9973,
+   "edgePrecision": 0.7855,
+   "meanError": 3.77,
+   "wrongShare": 0.007,
+   "features": {
+    "count": 3,
+    "fine": 3,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.6248
+   },
+   "geometryCounts": {
+    "contours": 61,
+    "copiedOutlines": 11,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "copied-outlines:check"
+   ],
+   "assessMs": 70
+  },
+  {
+   "id": "go",
+   "file": "go.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/go/go.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "89f45db0a9fa3af8c31c0576f991afdbb3298640d68b55bb00038132f4263f37",
+   "paths": 4,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.35,
+   "wrongShare": 0.0005,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0
+   },
+   "geometryCounts": {
+    "contours": 5,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 78
+  },
+  {
+   "id": "python",
+   "file": "python.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/python/python.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "a02e42d4ffb68309d57cf8b640fd2b04e9cca1944d528567e2634a8e40d9e4b8",
+   "paths": 6,
+   "review": "ready",
+   "verdict": "check",
+   "visual": "ready",
+   "geometry": "check",
+   "edgeRecall": 1,
+   "edgePrecision": 0.9966,
+   "meanError": 0.61,
+   "wrongShare": 0.001,
+   "features": {
+    "count": 2,
+    "fine": 2,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.1576
+   },
+   "geometryCounts": {
+    "contours": 6,
+    "copiedOutlines": 2,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "copied-outlines:check"
+   ],
+   "assessMs": 136
+  },
+  {
+   "id": "angular",
+   "file": "angular.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/angular/angular.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "70024fdc9e2cc1645ff5d397186d6f8384623281b4f321bf5ea2d43f5ea2c657",
+   "paths": 10,
+   "review": "ready",
+   "verdict": "check",
+   "visual": "ready",
+   "geometry": "check",
+   "edgeRecall": 0.999,
+   "edgePrecision": 1,
+   "meanError": 0.78,
+   "wrongShare": 0,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0.7567
+   },
+   "geometryCounts": {
+    "contours": 10,
+    "copiedOutlines": 6,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "copied-outlines:check"
+   ],
+   "assessMs": 91
+  },
+  {
+   "id": "firefox",
+   "file": "firefox.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/firefox/firefox.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "2e779af162307d53a4c67f3af1167014ad82f1ad2617da38f027da03e38a565e",
+   "paths": 41,
+   "review": "not-suitable",
+   "verdict": "check",
+   "visual": "check",
+   "geometry": "check",
+   "edgeRecall": 0.9624,
+   "edgePrecision": 0.7193,
+   "meanError": 5.68,
+   "wrongShare": 0.0012,
+   "features": {
+    "count": 8,
+    "fine": 7,
+    "lost": 6,
+    "lostArea": 0.2124,
+    "changed": 1
+   },
+   "shading": {
+    "share": 0.1868,
+    "meanDeltaE": 3.9403
+   },
+   "geometryCounts": {
+    "contours": 54,
+    "copiedOutlines": 20,
+    "selfIntersecting": 13,
+    "tiny": 3,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:check",
+    "copied-outlines:check",
+    "self-intersections:check",
+    "tiny-contours:check"
+   ],
+   "assessMs": 108
+  },
+  {
+   "id": "ruby",
+   "file": "ruby.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/ruby/ruby.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "0f7d617df271351e7afe957cf8738289cb5d863b7adcc851868bbd72ae27fe90",
+   "paths": 35,
+   "review": "not-suitable",
+   "verdict": "not-suitable",
+   "visual": "not-suitable",
+   "geometry": "check",
+   "edgeRecall": 0.9765,
+   "edgePrecision": 0.7975,
+   "meanError": 5.73,
+   "wrongShare": 0.0075,
+   "features": {
+    "count": 12,
+    "fine": 12,
+    "lost": 8,
+    "lostArea": 0.5556,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0.0216,
+    "meanDeltaE": 1.8067
+   },
+   "geometryCounts": {
+    "contours": 43,
+    "copiedOutlines": 12,
+    "selfIntersecting": 6,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:not-suitable",
+    "copied-outlines:check",
+    "self-intersections:check"
+   ],
+   "assessMs": 107
+  },
+  {
+   "id": "linux",
+   "file": "linux.png",
+   "source": "https://raw.githubusercontent.com/github/explore/main/topics/linux/linux.png",
+   "kind": "flat",
+   "size": [
+    288,
+    288
+   ],
+   "svgSha256": "195b6507f145aa3f06446e8e2ff518ccdd8d7aff2495ca36e2b2969eac0fc3f4",
+   "paths": 37,
+   "review": "not-suitable",
+   "verdict": "not-suitable",
+   "visual": "not-suitable",
+   "geometry": "check",
+   "edgeRecall": 0.8653,
+   "edgePrecision": 0.8578,
+   "meanError": 3.61,
+   "wrongShare": 0.0104,
+   "features": {
+    "count": 10,
+    "fine": 10,
+    "lost": 6,
+    "lostArea": 0.6293,
+    "changed": 3
+   },
+   "shading": {
+    "share": 0.0587,
+    "meanDeltaE": 1.1087
+   },
+   "geometryCounts": {
+    "contours": 43,
+    "copiedOutlines": 16,
+    "selfIntersecting": 1,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:not-suitable",
+    "changed-shapes:check",
+    "missed-edges:check",
+    "copied-outlines:check",
+    "self-intersections:check"
+   ],
+   "assessMs": 84
+  },
+  {
+   "id": "rocket-3d",
+   "file": "rocket-3d.png",
+   "source": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Rocket/3D/rocket_3d.png",
+   "kind": "photo",
+   "size": [
+    256,
+    256
+   ],
+   "svgSha256": "cac693b596f74efb6468492e6195609495e25cae80b119638a006af0811365c6",
+   "paths": 318,
+   "review": "not-suitable",
+   "verdict": "not-suitable",
+   "visual": "not-suitable",
+   "geometry": "check",
+   "edgeRecall": 0.9833,
+   "edgePrecision": 0.9705,
+   "meanError": 3.27,
+   "wrongShare": 0.0,
+   "features": {
+    "count": 9,
+    "fine": 7,
+    "lost": 6,
+    "lostArea": 0.6571,
+    "changed": 1
+   },
+   "shading": {
+    "share": 0.1313,
+    "meanDeltaE": 2.5593
+   },
+   "geometryCounts": {
+    "contours": 325,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 6,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:not-suitable",
+    "tiny-contours:check"
+   ],
+   "assessMs": 186
+  },
+  {
+   "id": "flag-br",
+   "file": "flag-br.png",
+   "source": "https://raw.githubusercontent.com/lipis/flag-icons/main/flags/4x3/br.svg",
+   "kind": "flat",
+   "size": [
+    600,
+    450
+   ],
+   "svgSha256": "539ab500fa2368c6d5ab90c58b7a935c13cc070aade61a8880eb99e14cfca8f0",
+   "paths": 55,
+   "review": "review",
+   "verdict": "check",
+   "visual": "check",
+   "geometry": "check",
+   "edgeRecall": 0.9974,
+   "edgePrecision": 0.9998,
+   "meanError": 0.44,
+   "wrongShare": 0.0002,
+   "features": {
+    "count": 55,
+    "fine": 51,
+    "lost": 2,
+    "lostArea": 0.0025,
+    "changed": 12
+   },
+   "shading": {
+    "share": 0.0,
+    "meanDeltaE": 0.0235
+   },
+   "geometryCounts": {
+    "contours": 100,
+    "copiedOutlines": 46,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "changed-shapes:check",
+    "copied-outlines:check"
+   ],
+   "assessMs": 626
+  },
+  {
+   "id": "flag-mx",
+   "file": "flag-mx.png",
+   "source": "https://raw.githubusercontent.com/lipis/flag-icons/main/flags/4x3/mx.svg",
+   "kind": "flat",
+   "size": [
+    600,
+    450
+   ],
+   "svgSha256": "e5aef8b7cd6d7b188b4580a9f98217783c4fe0f0297b56967aa83b650251e3da",
+   "paths": 73,
+   "review": "not-suitable",
+   "verdict": "check",
+   "visual": "check",
+   "geometry": "check",
+   "edgeRecall": 0.8859,
+   "edgePrecision": 0.9904,
+   "meanError": 1.17,
+   "wrongShare": 0.0028,
+   "features": {
+    "count": 157,
+    "fine": 155,
+    "lost": 77,
+    "lostArea": 0.1767,
+    "changed": 62
+   },
+   "shading": {
+    "share": 0.0009,
+    "meanDeltaE": 0.0152
+   },
+   "geometryCounts": {
+    "contours": 104,
+    "copiedOutlines": 23,
+    "selfIntersecting": 19,
+    "tiny": 10,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:check",
+    "changed-shapes:check",
+    "missed-edges:check",
+    "copied-outlines:check",
+    "self-intersections:check",
+    "tiny-contours:check"
+   ],
+   "assessMs": 445
+  },
+  {
+   "id": "flag-sv",
+   "file": "flag-sv.png",
+   "source": "https://raw.githubusercontent.com/lipis/flag-icons/main/flags/4x3/sv.svg",
+   "kind": "flat",
+   "size": [
+    600,
+    450
+   ],
+   "svgSha256": "d5108acd9c01390bda4777e4d179eb059ffdfa0743cff222d9c28e32e8ee030f",
+   "paths": 102,
+   "review": "not-suitable",
+   "verdict": "check",
+   "visual": "check",
+   "geometry": "check",
+   "edgeRecall": 0.9173,
+   "edgePrecision": 0.9945,
+   "meanError": 1.01,
+   "wrongShare": 0.0033,
+   "features": {
+    "count": 66,
+    "fine": 64,
+    "lost": 8,
+    "lostArea": 0.0078,
+    "changed": 38
+   },
+   "shading": {
+    "share": 0.0014,
+    "meanDeltaE": 0.0269
+   },
+   "geometryCounts": {
+    "contours": 120,
+    "copiedOutlines": 49,
+    "selfIntersecting": 1,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "changed-shapes:check",
+    "copied-outlines:check",
+    "self-intersections:check"
+   ],
+   "assessMs": 368
+  },
+  {
+   "id": "fluent-rocket",
+   "file": "fluent-rocket.png",
+   "source": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Rocket/Color/rocket_color.svg",
+   "kind": "photo",
+   "size": [
+    512,
+    512
+   ],
+   "svgSha256": "3f6f34f482fab8ec125a03f67eb6b12ffbace5ccdaf896d9913e440e2ec5912c",
+   "paths": 276,
+   "review": "not-suitable",
+   "verdict": "not-suitable",
+   "visual": "not-suitable",
+   "geometry": "check",
+   "edgeRecall": 0.9887,
+   "edgePrecision": 0.9686,
+   "meanError": 2.76,
+   "wrongShare": 0.0001,
+   "features": {
+    "count": 7,
+    "fine": 6,
+    "lost": 4,
+    "lostArea": 0.3746,
+    "changed": 1
+   },
+   "shading": {
+    "share": 0.0716,
+    "meanDeltaE": 2.402
+   },
+   "geometryCounts": {
+    "contours": 327,
+    "copiedOutlines": 3,
+    "selfIntersecting": 2,
+    "tiny": 39,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:not-suitable",
+    "copied-outlines:check",
+    "self-intersections:check",
+    "tiny-contours:check"
+   ],
+   "assessMs": 514
+  },
+  {
+   "id": "fluent-parrot",
+   "file": "fluent-parrot.png",
+   "source": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Parrot/Flat/parrot_flat.svg",
+   "kind": "flat",
+   "size": [
+    512,
+    512
+   ],
+   "svgSha256": "cd479756ace2c58f1ebc1e7111726bb76a90a69f853a641a872974db24e40ce9",
+   "paths": 16,
+   "review": "ready",
+   "verdict": "check",
+   "visual": "ready",
+   "geometry": "check",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.27,
+   "wrongShare": 0.0004,
+   "features": {
+    "count": 14,
+    "fine": 7,
+    "lost": 1,
+    "lostArea": 0.0023,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0
+   },
+   "geometryCounts": {
+    "contours": 17,
+    "copiedOutlines": 7,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "copied-outlines:check"
+   ],
+   "assessMs": 373
+  },
+  {
+   "id": "github-mark",
+   "file": "github-mark.png",
+   "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/github.svg",
+   "kind": "flat",
+   "size": [
+    400,
+    400
+   ],
+   "svgSha256": "6ed38c588a6b74510671670c361ffc1d7e832215313560692c894bb491f8612a",
+   "paths": 1,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 0.9953,
+   "edgePrecision": 1,
+   "meanError": 0.59,
+   "wrongShare": 0.0018,
+   "features": {
+    "count": 0,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0
+   },
+   "geometryCounts": {
+    "contours": 1,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 124
+  },
+  {
+   "id": "world-thin",
+   "file": "world-thin.png",
+   "source": "https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/world.svg",
+   "kind": "lineart",
+   "size": [
+    400,
+    400
+   ],
+   "svgSha256": "3091020b1349db1878de853b4cd5a5f01d447ec07ac28e3d22de773b61fecffd",
+   "paths": 1,
+   "review": "ready",
+   "verdict": "ready",
+   "visual": "ready",
+   "geometry": "ready",
+   "edgeRecall": 1,
+   "edgePrecision": 1,
+   "meanError": 0.83,
+   "wrongShare": 0.0037,
+   "features": {
+    "count": 10,
+    "fine": 0,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0,
+    "meanDeltaE": 0
+   },
+   "geometryCounts": {
+    "contours": 10,
+    "copiedOutlines": 0,
+    "selfIntersecting": 0,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [],
+   "assessMs": 141
+  },
+  {
+   "id": "python-tiny",
+   "file": "python-tiny.jpg",
+   "source": "explore python.png",
+   "kind": "flat",
+   "size": [
+    96,
+    96
+   ],
+   "svgSha256": "2a20ecf43acf27cac7e474230d99d8e09ae990415f5197c40ee5940afc6d15d2",
+   "paths": 37,
+   "review": "not-suitable",
+   "verdict": "check",
+   "visual": "ready",
+   "geometry": "check",
+   "edgeRecall": 0.9697,
+   "edgePrecision": 0.8705,
+   "meanError": 6.04,
+   "wrongShare": 0.0018,
+   "features": {
+    "count": 2,
+    "fine": 2,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0.0316,
+    "meanDeltaE": 1.7635
+   },
+   "geometryCounts": {
+    "contours": 41,
+    "copiedOutlines": 18,
+    "selfIntersecting": 3,
+    "tiny": 0,
+    "raster": [],
+    "paperShape": true
+   },
+   "issues": [
+    "copied-outlines:check",
+    "self-intersections:check",
+    "paper-shape:check"
+   ],
+   "assessMs": 13
+  },
+  {
+   "id": "docker-small",
+   "file": "docker-small.jpg",
+   "source": "explore docker.png",
+   "kind": "flat",
+   "size": [
+    160,
+    160
+   ],
+   "svgSha256": "2a87b6980e4823a2d9f6db2b69474ca659175630bd96f0fd6687d911269274f8",
+   "paths": 63,
+   "review": "not-suitable",
+   "verdict": "check",
+   "visual": "check",
+   "geometry": "check",
+   "edgeRecall": 0.9731,
+   "edgePrecision": 1,
+   "meanError": 8.64,
+   "wrongShare": 0.0022,
+   "features": {
+    "count": 1,
+    "fine": 1,
+    "lost": 0,
+    "lostArea": 0,
+    "changed": 1
+   },
+   "shading": {
+    "share": 0.7521,
+    "meanDeltaE": 6.6102
+   },
+   "geometryCounts": {
+    "contours": 68,
+    "copiedOutlines": 0,
+    "selfIntersecting": 6,
+    "tiny": 4,
+    "raster": [],
+    "paperShape": true
+   },
+   "issues": [
+    "flattened-shading:check",
+    "self-intersections:check",
+    "tiny-contours:check",
+    "paper-shape:check"
+   ],
+   "assessMs": 32
+  },
+  {
+   "id": "flag-br-web",
+   "file": "flag-br-web.jpg",
+   "source": "flag-br master",
+   "kind": "flat",
+   "size": [
+    240,
+    180
+   ],
+   "svgSha256": "4b0501781a2a0756e1831586b84ae6e37b84aabb904974dbd2701bc05737916b",
+   "paths": 22,
+   "review": "not-suitable",
+   "verdict": "not-suitable",
+   "visual": "not-suitable",
+   "geometry": "check",
+   "edgeRecall": 0.9226,
+   "edgePrecision": 1,
+   "meanError": 5.27,
+   "wrongShare": 0.0061,
+   "features": {
+    "count": 8,
+    "fine": 8,
+    "lost": 8,
+    "lostArea": 1,
+    "changed": 0
+   },
+   "shading": {
+    "share": 0.0012,
+    "meanDeltaE": 1.2307
+   },
+   "geometryCounts": {
+    "contours": 38,
+    "copiedOutlines": 1,
+    "selfIntersecting": 15,
+    "tiny": 8,
+    "raster": [],
+    "paperShape": false
+   },
+   "issues": [
+    "lost-detail:not-suitable",
+    "copied-outlines:check",
+    "self-intersections:check",
+    "tiny-contours:check"
+   ],
+   "assessMs": 53
+  }
+ ]
+}

@@ -10,6 +10,8 @@
 import { DEFAULT_CLIENT, detailBoost, traceParamsFor } from '../../client'
 import { detectArt } from '../../detect'
 import { runFlat, type FlatOptions } from '../../pipeline'
+import { flatten as flattenSubpath, shapesFromSvg } from '../../../export/path'
+import { colorAt } from '../../../palette/gradients'
 
 export type Point = [number, number]
 export type RGB = [number, number, number]
@@ -180,11 +182,74 @@ export function distToOutline(p: Point, rings: Point[][]): number {
 /** Rings of the paths drawn in a colour (by exact fill). */
 export const ringsOf = (paths: SvgPath[], fill: string) => paths.filter((p) => p.fill === fill.toUpperCase()).flatMap((p) => p.rings)
 
+/** Even-odd inside test, as the tracer's paths are filled (fill-rule="evenodd"). */
+function insideEvenOdd(rings: Point[][], x: number, y: number): boolean {
+  let inside = false
+  for (const r of rings)
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, yi] = r[i]
+      const [xj, yj] = r[j]
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+    }
+  return inside
+}
+
 /** The colour visible at a point: the last path whose fill covers it (paths are painted in order). */
 export function colourAt(paths: SvgPath[], x: number, y: number): string | null {
   let c: string | null = null
-  for (const p of paths) if (winding(p.rings, x, y) !== 0) c = p.fill
+  for (const p of paths) if (insideEvenOdd(p.rings, x, y)) c = p.fill
   return c
+}
+
+/**
+ * Draws an SVG written by the tracer (flat and gradient fills, even-odd) at w×h with 4×4
+ * supersampling: a stand-in for the browser's renderer in Node tests. Undrawn areas stay
+ * transparent. Path coordinates are scaled from the SVG's viewBox (or width) to w.
+ */
+export function renderSvg(svg: string, w: number, h: number): ImageData {
+  installImageData()
+  const vb = svg.match(/<svg\b[^>]*\sviewBox="\s*[-\d.e]+[ ,]+[-\d.e]+[ ,]+([\d.e]+)/i)
+  const wAttr = svg.match(/<svg\b[^>]*\swidth="([\d.]+)/i)
+  const k = w / (vb ? Number(vb[1]) : wAttr ? Number(wAttr[1]) : w)
+  const S = 4
+  const W = w * S, H = h * S
+  const buf = new Float32Array(W * H * 4)
+  for (const shape of shapesFromSvg(svg)) {
+    const rings = shape.subpaths.map((sp) => flattenSubpath(sp, 0.05).map(([x, y]) => [x * k * S, y * k * S] as Point))
+    for (let sy = 0; sy < H; sy++) {
+      const y = sy + 0.5
+      const xs: number[] = []
+      for (const r of rings)
+        for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+          const [xi, yi] = r[i]
+          const [xj, yj] = r[j]
+          if (yi > y !== yj > y) xs.push(((xj - xi) * (y - yi)) / (yj - yi) + xi)
+        }
+      xs.sort((a, b) => a - b)
+      for (let i = 0; i + 1 < xs.length; i += 2)
+        for (let sx = Math.max(0, Math.ceil(xs[i] - 0.5)); sx < Math.min(W, Math.ceil(xs[i + 1] - 0.5)); sx++) {
+          const c = shape.gradient ? colorAt(shape.gradient, (sx + 0.5) / S / k, y / S / k) : [(shape.color >> 16) & 255, (shape.color >> 8) & 255, shape.color & 255]
+          buf.set([c[0], c[1], c[2], 1], (sy * W + sx) * 4)
+        }
+    }
+  }
+  const d = new Uint8ClampedArray(w * h * 4)
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0, a = 0
+      for (let j = 0; j < S; j++)
+        for (let i = 0; i < S; i++) {
+          const q = ((y * S + j) * W + x * S + i) * 4
+          if (!buf[q + 3]) continue
+          r += buf[q]; g += buf[q + 1]; b += buf[q + 2]; a++
+        }
+      const p = (y * w + x) * 4
+      if (a) {
+        d[p] = r / a; d[p + 1] = g / a; d[p + 2] = b / a
+      }
+      d[p + 3] = Math.round((255 * a) / (S * S))
+    }
+  return new FakeImageData(d, w, h) as unknown as ImageData
 }
 
 /** Share (0–1) of sample points inside `rings` that the SVG paints `fill`, and of points outside it that it doesn't. */

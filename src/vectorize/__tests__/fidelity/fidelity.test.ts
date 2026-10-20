@@ -220,10 +220,8 @@ describe('background (RC2)', () => {
 })
 
 describe('readiness (RC3)', () => {
-  // The flat result carries no measure of what the vector lost against the upload, so the app can
-  // only call a result ready or warn about photos, tiny text and flattened shading. The proposed
-  // fidelity gate adds that measure; these become real cases with it.
-  it.todo('reports the share of source edges the vector misses, per region, with the result')
+  // assessFidelity (quality/fidelity.ts) now measures what the vector lost against the upload, but
+  // the app's status line doesn't use it yet; these become real cases when it does (PR 1b).
   it.todo('does not call a result ready for print when a star, eye or other small shape changed class')
   it.todo('does not call a result ready for print when lettering strokes were lost')
   it.todo('does not call a result ready for print when an opaque paper background became a plate')
