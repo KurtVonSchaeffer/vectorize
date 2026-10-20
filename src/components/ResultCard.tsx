@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { Purpose } from '../vectorize/client'
 import type { Download } from '../export/files'
 import { onePlate, type Plate } from '../export/plates'
-import type { WhiteInk } from '../vectorize/paper'
+import type { EnclosedArea, WhiteInk } from '../vectorize/paper'
 import type { AutoCheck } from '../quality/readiness'
 import { btnQuiet, chip, cx, link, range, seg, segBtn, spinnerSmall, swatch } from './ui'
 
@@ -50,9 +50,19 @@ interface Props {
    * white ink. `enclosed`: the artwork encloses white that may be intentional or paper. Absent,
    * nothing is shown.
    */
-  whiteInk?: { mode: WhiteInk; onMode: (m: WhiteInk) => void; enclosed: boolean }
+  whiteInk?: WhiteInkProps
   /** Print files (behind a flag): the print plates, shown before downloading. Absent, nothing is shown. */
   platePreview?: PlatePreviewProps
+}
+
+export interface WhiteInkProps {
+  mode: WhiteInk
+  onMode: (m: WhiteInk) => void
+  enclosed: boolean
+  /** White artwork only: the lettering is still being read (letter counters not known yet). */
+  readingText: boolean
+  /** White artwork only: the enclosed white areas and what became of them; null while the plates are made. */
+  areas: EnclosedArea[] | null
 }
 
 export interface PlatePreviewProps {
@@ -64,6 +74,10 @@ export interface PlatePreviewProps {
   plates: Plate[]
   /** Gradient shapes: printed in full colour, not on a plate. */
   gradients: number
+  /** White artwork only: enclosed white areas, marked on the preview, each with a choice. */
+  areas: EnclosedArea[]
+  onChoose: (area: EnclosedArea, white: boolean) => void
+  onChooseAll: (areas: EnclosedArea[], white: boolean) => void
   width: number
   height: number
 }
@@ -265,14 +279,12 @@ export function ResultCard(p: Props) {
             ))}
           </div>
           <small className="text-[13px] text-ink-2">{WHITE_INK.find((o) => o.mode === p.whiteInk!.mode)!.hint}</small>
-          {p.whiteInk.enclosed && p.whiteInk.mode !== 'all' && (
+          {p.whiteInk.enclosed && p.whiteInk.mode === 'none' && (
             <div className="rounded-[10px] bg-bg px-3 py-2.5 text-[13px] text-ink-2" role="note">
-              <strong className="text-ink">Check the white areas inside your artwork.</strong>{' '}
-              {p.whiteInk.mode === 'none'
-                ? 'They are left out, so the garment shows through them. If any of them are meant to be white (lettering, highlights), choose “Print white artwork only”.'
-                : 'They all print in white ink, including any that are just background showing through (the inside of a letter). The image can’t tell them apart, so preview the plates before you print.'}
+              <strong className="text-ink">Check the white areas inside your artwork.</strong> They are left out, so the garment shows through them. If any of them are meant to be white (lettering, highlights), choose “Print white artwork only”.
             </div>
           )}
+          {p.whiteInk.mode === 'artwork' && <WhiteAreasNote {...p.whiteInk} />}
         </div>
       )}
 
@@ -360,6 +372,36 @@ function QualityStatus(q: NonNullable<Props['quality']>) {
   )
 }
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** White artwork only: what happened to the white areas inside the artwork, and what needs checking. */
+function WhiteAreasNote(w: WhiteInkProps) {
+  if (w.readingText || !w.areas)
+    return (
+      <div className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
+        <span className={spinnerSmall} aria-hidden="true" />
+        {w.readingText ? 'Reading the lettering to find the insides of letters…' : 'Checking the white areas inside your artwork…'}
+      </div>
+    )
+  // Slivers inside letters are paper too, but aren't counted as letters' insides.
+  const counters = w.areas.filter((a) => a.kind === 'counter' && !a.thin).length
+  // Thin slivers are one thing to check (see PlatePreview).
+  const open = w.areas.filter((a) => !a.decided && !a.thin).length + (w.areas.some((a) => !a.decided && a.thin) ? 1 : 0)
+  if (!counters && !w.areas.some((a) => a.kind !== 'counter')) return null
+  return (
+    <div className="grid gap-1.5 rounded-[10px] bg-bg px-3 py-2.5 text-[13px] text-ink-2" role="note">
+      {counters > 0 && <span>{plural(counters, 'letter counter (the inside of a letter) is', 'letter counters (the insides of letters) are')} left out, so the garment shows through.</span>}
+      {open > 0 ? (
+        <span>
+          <strong className="text-ink">{open === 1 ? 'One thing needs' : `${open} things need`} checking.</strong> White areas inside the artwork print in white ink, but the image can’t tell white artwork from background showing through. Preview the print plates and choose for each one.
+        </span>
+      ) : (
+        w.areas.some((a) => a.kind !== 'counter') && <span>You chose for every white area inside the artwork.</span>
+      )}
+    </div>
+  )
+}
+
 /** The print plates as they will print, on a white or coloured garment, all together or one at a time. */
 function PlatePreview(v: PlatePreviewProps) {
   const [garment, setGarment] = useState(GARMENTS[0].color)
@@ -372,6 +414,12 @@ function PlatePreview(v: PlatePreviewProps) {
     setUrl(u)
     return () => URL.revokeObjectURL(u)
   }, [shown])
+  // Every enclosed white area that isn't a letter counter, numbered as on the preview.
+  const marked = v.areas.filter((a) => a.kind !== 'counter' && !a.thin).map((area, i) => ({ area, n: i + 1 }))
+  // Thin slivers are checked together: usually where blended edge colours meet.
+  const thin = v.areas.filter((a) => a.kind !== 'counter' && a.thin)
+  const thinKind = thin.every((a) => a.kind === 'garment') ? 'garment' : thin.every((a) => a.kind === 'white') ? 'white' : null
+  const ring = (a: EnclosedArea) => Math.max(3, Math.hypot(a.box[2] - a.box[0], a.box[3] - a.box[1]) / 2 + 1.5)
   if (!v.open)
     return (
       <button className={btnQuiet} onClick={() => v.onOpen(true)}>
@@ -395,7 +443,20 @@ function PlatePreview(v: PlatePreviewProps) {
       </div>
       <div className="grid place-items-center overflow-hidden rounded-[10px] border border-line p-3" style={{ background: garment }}>
         {url ? (
-          <img src={url} alt={only === null ? 'All print plates' : `The ${v.plates.find((pl) => pl.color === only)?.name} plate`} style={{ aspectRatio: `${v.width} / ${v.height}` }} className="max-h-64 w-full object-contain" />
+          <svg viewBox={`0 0 ${v.width} ${v.height}`} className="max-h-64 w-full" role="img" aria-label={only === null ? 'All print plates' : `The ${v.plates.find((pl) => pl.color === only)?.name} plate`}>
+            <image href={url} width={v.width} height={v.height} />
+            {thin.map((area, i) => (
+              <circle key={`t${i}`} cx={area.at[0]} cy={area.at[1]} r={Math.max(2, v.width / 120)} fill="#e0218a" fillOpacity={0.55} aria-hidden="true" />
+            ))}
+            {marked.map(({ area, n }) => (
+              <g key={n} aria-hidden="true">
+                <circle cx={area.at[0]} cy={area.at[1]} r={ring(area)} fill="none" stroke="#e0218a" strokeWidth={Math.max(1, v.width / 160)} strokeDasharray={area.decided ? undefined : `${Math.max(1.5, v.width / 80)}`} />
+                <text x={area.at[0] + (n % 2 ? 1 : -1) * ring(area)} y={area.at[1] - ring(area)} textAnchor={n % 2 ? 'start' : 'end'} fontSize={Math.max(6, v.width / 18)} fontWeight="700" fill="#e0218a" stroke="#fff" strokeWidth={Math.max(0.6, v.width / 300)} paintOrder="stroke">
+                  {n}
+                </text>
+              </g>
+            ))}
+          </svg>
         ) : v.failed ? (
           <span className="text-[13px] text-bad">The plates couldn’t be made.</span>
         ) : (
@@ -415,6 +476,43 @@ function PlatePreview(v: PlatePreviewProps) {
               </button>
             ))}
           </div>
+          {(marked.length > 0 || thin.length > 0) && (
+            <div className="grid gap-1.5" role="group" aria-label="White areas inside the artwork">
+              <small className="text-[13px] text-ink-2">White areas inside the artwork (marked): white artwork, or background showing through?</small>
+              {marked.map(({ area, n }) => (
+                <div key={n} className="flex items-center justify-between gap-2 text-[13px]">
+                  <span>
+                    Area {n}
+                    {!area.decided && <span className="text-ink-2"> · needs checking</span>}
+                  </span>
+                  <div className={cx(seg, 'w-56 flex-none')} role="group" aria-label={`Area ${n}`}>
+                    <button className={segBtn} aria-pressed={area.kind === 'white'} onClick={() => v.onChoose(area, true)}>
+                      White ink
+                    </button>
+                    <button className={segBtn} aria-pressed={area.kind === 'garment'} onClick={() => v.onChoose(area, false)}>
+                      Garment
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {thin.length > 0 && (
+                <div className="flex items-center justify-between gap-2 text-[13px]">
+                  <span>
+                    {plural(thin.length, 'thin white sliver', 'thin white slivers')} (under 1 mm, dots)
+                    {thin.some((a) => !a.decided) && <span className="text-ink-2"> · needs checking</span>}
+                  </span>
+                  <div className={cx(seg, 'w-56 flex-none')} role="group" aria-label="Thin white slivers">
+                    <button className={segBtn} aria-pressed={thinKind === 'white'} onClick={() => v.onChooseAll(thin, true)}>
+                      White ink
+                    </button>
+                    <button className={segBtn} aria-pressed={thinKind === 'garment'} onClick={() => v.onChooseAll(thin, false)}>
+                      Garment
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {v.gradients > 0 && (
             <small className="text-[13px] text-ink-2">
               {v.gradients === 1 ? 'One gradient prints' : `${v.gradients} gradients print`} in full colour, not on a separate plate. They show in “All plates”.

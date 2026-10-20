@@ -31,7 +31,7 @@ import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
 import { buildTraceJob, inkNames, runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
-import { paperOutFor } from './vectorize/paper'
+import { paperOutFor, type EnclosedArea, type WhiteChoice } from './vectorize/paper'
 import { CancelledError, TimeoutError, Tracer } from './vectorize/tracer'
 
 const DEBOUNCE_MS = 180
@@ -52,6 +52,8 @@ export default function App() {
   // None unless asked, per upload: white ink is a production decision.
   const [whiteInk, setWhiteInk] = useState<WhiteInk>('none')
   const [platesOpen, setPlatesOpen] = useState(false)
+  const [paperWords, setPaperWords] = useState<{ id: string; boxes: [number, number, number, number][] } | null>(null)
+  const [whiteChoices, setWhiteChoices] = useState<WhiteChoice[]>([])
   const [removed, setRemoved] = useState<number[]>([])
   const [result, setResult] = useState<TraceResult | null>(null)
   // The settings (jobKey) the shown result was traced with; during a re-trace it's the old one.
@@ -131,6 +133,7 @@ export default function App() {
         setTransparent(det.hasAlpha || det.kind === 'lineart')
         setWhiteInk('none')
         setPlatesOpen(false)
+        setWhiteChoices([])
         setRemoved([])
         setLettering({})
         setResult(null)
@@ -224,7 +227,7 @@ export default function App() {
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
     // `vary` makes an alternative of the current job (used by the background improver), or sets
     // what only print and cut files get (`paperOut`), so the preview isn't traced again for it.
-    return (knockout: boolean, vary: { detail?: number; input?: InputImage; lettering?: PlacedWord[]; paperOut?: 'border' | 'all' } = {}) =>
+    return (knockout: boolean, vary: { detail?: number; input?: InputImage; lettering?: PlacedWord[]; paperOut?: 'border' | 'all'; paperWords?: [number, number, number, number][]; whiteChoices?: WhiteChoice[] } = {}) =>
       buildTraceJob(vary.input ?? input, source.width, {
         trace: traceParamsFor(kind, { ...c, detail: vary.detail ?? detail }, detection ? detailBoost(detection, source.width, source.height) : undefined),
         prep: prepFor(kind, c),
@@ -238,7 +241,7 @@ export default function App() {
         brand,
         lettering: vary.lettering ?? letteringWords,
         oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
-        ...(vary.paperOut ? { paperOut: vary.paperOut } : {}),
+        ...(vary.paperOut ? { paperOut: vary.paperOut, paperWords: vary.paperWords, whiteChoices: vary.whiteChoices } : {}),
       })
   }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords, oneOn, oneInk, gapMm, outputWidthMm])
   // The preview is the master, unless the client asked to see the production file's gaps.
@@ -339,22 +342,37 @@ export default function App() {
   }, [result?.svg, source, changedOnPurpose])
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
-  const plateSvg = useMemo(() => {
-    if (!result || !source || !plates || !buildJob) return undefined
-    const make = async () => {
-      // Its own worker, so making a file never interrupts the preview.
-      const t = tracers.current!
-      const paperOut = PRINT_FILES ? paperOutFor(whiteInk) : undefined
-      return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true, paperOut ? { paperOut } : {}), source, inks.enabled)).svg
-    }
-    if (!PRINT_FILES) return make
-    // Print files (flag): made once, so the plates previewed are the plates downloaded.
-    let made: Promise<string> | null = null
-    return () => (made ??= make().catch((e) => {
+  // Print files (flag), white artwork only: the words of text found (letter counters are paper, see
+  // paper.ts), null while the lettering is still being read; and the person's choices for the rest.
+  const textWords = useMemo(
+    () => (!source ? null : paperWords?.id === source.id ? paperWords.boxes : letteringSettled === source.id || kind !== 'flat' || inks.enabled ? [] : null),
+    [source, paperWords, letteringSettled, kind, inks.enabled],
+  )
+  const plateResult = useMemo(() => {
+    if (!PRINT_FILES || !result || !source || !plates || !buildJob) return undefined
+    const paperOut = paperOutFor(whiteInk)
+    let made: Promise<TraceResult> | null = null
+    // Made once, so the plates previewed are the plates downloaded.
+    return () => (made ??= runTraceJob(
+      { vtracer: tracers.current!.vtracer, flat: tracers.current!.plates },
+      buildJob(true, paperOut ? { paperOut, paperWords: textWords ?? [], whiteChoices } : {}),
+      source,
+      inks.enabled,
+    ).catch((e) => {
       made = null
       throw e
     }))
-  }, [result, source, plates, buildJob, inks.enabled, whiteInk])
+  }, [result, source, plates, buildJob, inks.enabled, whiteInk, textWords, whiteChoices])
+
+  const plateSvg = useMemo(() => {
+    if (!result || !source || !plates || !buildJob) return undefined
+    if (plateResult) return async () => (await plateResult()).svg
+    return async () => {
+      // Its own worker, so making a file never interrupts the preview.
+      const t = tracers.current!
+      return (await runTraceJob({ vtracer: t.vtracer, flat: t.plates }, buildJob(true, {}), source, inks.enabled)).svg
+    }
+  }, [result, source, plates, buildJob, inks.enabled, plateResult])
 
   const spotNames = useMemo(
     () =>
@@ -391,21 +409,32 @@ export default function App() {
   }, [result, source, client.purpose, names, spotNames, chips, plateSvg, oneOn, outputWidthMm])
 
   // Print files (flag): the plates as they will print, made on request.
-  const [preview, setPreview] = useState<{ of: () => Promise<string>; svg: string | null; failed: boolean } | null>(null)
+  const [preview, setPreview] = useState<{ of: () => Promise<TraceResult>; plates: TraceResult | null; failed: boolean } | null>(null)
+  // Spot inks have their own white-is-paper setting.
+  const whiteInkShown = PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && !!result?.paper
+  // White artwork only: made straight away, to say which white areas need checking.
+  const needPlates = platesOpen || (whiteInkShown && whiteInk === 'artwork')
   useEffect(() => {
-    if (!PRINT_FILES || !platesOpen || !plateSvg) return
+    if (!needPlates || !plateResult) return
     let live = true
-    setPreview({ of: plateSvg, svg: null, failed: false })
-    plateSvg().then(
-      (svg) => live && setPreview({ of: plateSvg, svg, failed: false }),
-      () => live && setPreview({ of: plateSvg, svg: null, failed: true }),
+    setPreview({ of: plateResult, plates: null, failed: false })
+    plateResult().then(
+      (plates) => live && setPreview({ of: plateResult, plates, failed: false }),
+      () => live && setPreview({ of: plateResult, plates: null, failed: true }),
     )
     return () => {
       live = false
     }
-  }, [platesOpen, plateSvg])
-  const shownPlates = preview && preview.of === plateSvg ? preview : null
-  const plateList = useMemo(() => (shownPlates?.svg ? platesOf(shownPlates.svg, (c) => spotNames?.get(c) ?? names.get(c)) : { plates: [], gradients: 0 }), [shownPlates?.svg, spotNames, names])
+  }, [needPlates, plateResult])
+  const shownPlates = preview && preview.of === plateResult ? preview : null
+  // A choice per enclosed white area, kept in source pixels so it survives a re-trace at another scale.
+  const chooseWhite = (areas: EnclosedArea[], white: boolean) => {
+    if (!source || !shownPlates?.plates) return
+    const k = source.width / shownPlates.plates.width
+    const covers = (c: WhiteChoice, a: EnclosedArea) => c.at[0] / k >= a.box[0] && c.at[0] / k <= a.box[2] && c.at[1] / k >= a.box[1] && c.at[1] / k <= a.box[3]
+    setWhiteChoices((cs) => [...cs.filter((c) => !areas.some((a) => covers(c, a))), ...areas.map((a) => ({ at: [a.at[0] * k, a.at[1] * k] as [number, number], white }))])
+  }
+  const plateList = useMemo(() => (shownPlates?.plates ? platesOf(shownPlates.plates.svg, (c) => spotNames?.get(c) ?? names.get(c)) : { plates: [], gradients: 0 }), [shownPlates?.plates, spotNames, names])
 
   const download = async (d: Download) => {
     try {
@@ -743,11 +772,32 @@ export default function App() {
             transparentHint={transparentHint}
             transparentLocked={transparentLocked}
             onTransparent={setTransparent}
-            // Spot inks have their own white-is-paper setting.
-            whiteInk={PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && result?.paper ? { mode: whiteInk, onMode: setWhiteInk, enclosed: result.enclosedPaper } : undefined}
+            whiteInk={
+              whiteInkShown && result
+                ? {
+                    mode: whiteInk,
+                    onMode: setWhiteInk,
+                    enclosed: result.enclosedPaper,
+                    readingText: whiteInk === 'artwork' && textWords === null,
+                    areas: whiteInk === 'artwork' ? (shownPlates?.plates?.enclosed ?? null) : null,
+                  }
+                : undefined
+            }
             platePreview={
-              PRINT_FILES && plateSvg && result
-                ? { open: platesOpen, onOpen: setPlatesOpen, svg: shownPlates?.svg ?? null, failed: !!shownPlates?.failed, plates: plateList.plates, gradients: plateList.gradients, width: result.width, height: result.height }
+              PRINT_FILES && plateSvg && result && source
+                ? {
+                    open: platesOpen,
+                    onOpen: setPlatesOpen,
+                    svg: shownPlates?.plates?.svg ?? null,
+                    failed: !!shownPlates?.failed,
+                    plates: plateList.plates,
+                    gradients: plateList.gradients,
+                    width: shownPlates?.plates?.width ?? result.width,
+                    height: shownPlates?.plates?.height ?? result.height,
+                    areas: whiteInkShown && whiteInk === 'artwork' ? (shownPlates?.plates?.enclosed ?? []) : [],
+                    onChoose: (area, white) => chooseWhite([area], white),
+                    onChooseAll: chooseWhite,
+                  }
                 : undefined
             }
             downloads={downloads}
@@ -792,6 +842,7 @@ export default function App() {
                     }}
                     onAutoUnmatched={(lines) => setUnmatchedLettering({ id: source.id, lines })}
                     onTextSize={(px) => setTextSize({ id: source.id, px })}
+                    onWords={(boxes) => setPaperWords({ id: source.id, boxes })}
                     onSuggestFont={async (report, index, match) => {
                       // Suggested by name only (see fonts/suggest.ts), applied only on request.
                       const { placeLine } = await import('./fonts/lettering')

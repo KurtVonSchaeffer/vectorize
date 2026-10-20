@@ -9,7 +9,7 @@ import { colorAt, findGradients } from '../palette/gradients'
 import { blendRatio, nameSvg, quantize, type FixedLabels, type Ink, type InkSettings, type QuantizeOptions } from '../palette/quantize'
 import { layersToSvg, traceLabels, type LabelMap, type ShapeCounts, type TracedLayer, type TraceOptions } from '../trace'
 import { removeFlatBackground } from './background'
-import { enclosesPaper, paperMask, withPaper } from './paper'
+import { enclosesPaper, paperMask, splitEnclosed, withPaper, type EnclosedArea, type WhiteChoice } from './paper'
 import type { FlatTracer } from './flat-tracer'
 import { finalizeSvg, prepareImage, type InputImage } from './image'
 import type { PlacedWord } from '../fonts/lettering'
@@ -53,6 +53,9 @@ export interface JobSettings {
    * jobs in full colour only; the master vector and one-colour files are unaffected.
    */
   paperOut?: 'border' | 'all'
+  /** With 'border': words of text found in the image, and the person's choices (source pixels; see paper.ts). */
+  paperWords?: [number, number, number, number][]
+  whiteChoices?: WhiteChoice[]
 }
 
 /** Rebuilt lettering, in the traced image's pixels. */
@@ -84,6 +87,9 @@ export interface FlatOptions {
    * inside the artwork stays), 'all' every area of the paper colour.
    */
   paper?: 'border' | 'all'
+  /** With 'border': words of text and choices for enclosed areas, in traced image pixels (see splitEnclosed). */
+  paperWords?: [number, number, number, number][]
+  whiteChoices?: WhiteChoice[]
 }
 
 export interface OneColourSummary {
@@ -130,6 +136,8 @@ export interface FlatResult {
   paper: boolean
   /** On paper, the artwork encloses areas of the paper colour: intentional white or paper, unknown. */
   enclosedPaper: boolean
+  /** With paper 'border': each enclosed area of the paper colour and what became of it. */
+  enclosed: EnclosedArea[]
 }
 
 /**
@@ -182,7 +190,17 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
       gradients: lineArt || spotOn ? undefined : s.gradients || one ? 'apply' : 'report',
       text: s.lettering?.length && !lineArt ? textOptions(s.lettering, scale, base.image.width, base.image.height) : undefined,
       oneColour: one ? oneColourOptions(one, s.knockout, base.image.width) : undefined,
-      ...(s.paperOut && s.knockout && !lineArt && !spotOn && !one ? { paper: s.paperOut } : {}),
+      ...(s.paperOut && s.knockout && !lineArt && !spotOn && !one
+        ? {
+            paper: s.paperOut,
+            ...(s.paperOut === 'border'
+              ? {
+                  paperWords: (s.paperWords ?? []).map((b) => b.map((v) => v * scale) as [number, number, number, number]),
+                  whiteChoices: (s.whiteChoices ?? []).map((c) => ({ at: [c.at[0] * scale, c.at[1] * scale] as [number, number], white: c.white })),
+                }
+              : {}),
+          }
+        : {}),
       quantize: {
         maxColors: lineArt ? 2 : spotOn ? spot!.settings.maxInks : trace.colors,
         mergeDelta: spotOn || lineArt ? 0 : trace.colorMerge,
@@ -315,11 +333,12 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   // and cut files when asked, with or without the white inside the artwork.
   const paperPixels = !o.lineArt && !o.oneColour && !o.transparent && bgLabel >= 0 ? paperMask(map, bgLabel, image) : null
   const enclosedPaper = !!paperPixels && enclosesPaper(map, bgLabel, paperPixels)
+  const split = o.paper === 'border' && paperPixels ? splitEnclosed(map, bgLabel, paperPixels, o.paperWords ?? [], o.whiteChoices ?? []) : null
   const paper = (m: LabelMap): LabelMap => {
     // Line art keeps paper out of the shapes; put it back as a white sheet when asked.
     if (o.lineArt && !o.transparent) return { ...m, colors: m.colors.map((c) => (c < 0 ? 0xffffff : c)) }
     if (o.transparent && bgLabel >= 0) return { ...m, colors: m.colors.map((c, i) => (i === bgLabel ? -1 : c)) }
-    if (o.paper && paperPixels) return withPaper(m, bgLabel, o.paper === 'all' ? m.labels.map((l) => (l === bgLabel ? 1 : 0)) : paperPixels)
+    if (o.paper && paperPixels) return withPaper(m, bgLabel, o.paper === 'all' ? m.labels.map((l) => (l === bgLabel ? 1 : 0)) : (split?.mask ?? paperPixels))
     return m
   }
   map = paper(map)
@@ -361,6 +380,7 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     oneColour,
     paper: !!paperPixels,
     enclosedPaper,
+    enclosed: split?.areas ?? [],
   }
 }
 
@@ -555,6 +575,8 @@ export interface TraceResult {
   paper: boolean
   /** On paper, the artwork encloses areas of the paper colour (see FlatResult). */
   enclosedPaper: boolean
+  /** Print plates with paper 'border': the enclosed areas and what became of them (see FlatResult). */
+  enclosed: EnclosedArea[]
   /** Size of the coordinate space the SVG paths use. */
   width: number
   height: number
@@ -572,11 +594,11 @@ export async function runTraceJob(
     const res = tracers.flat ? await tracers.flat.run(job.image, job.options) : runFlat(job.image, job.options)
     const finalized = finalizeSvg(res.svg, job.image, original)
     const svg = nameSvg(finalized, inkNames({ palette: res.palette, inks: annotate ? res.inks : [], named: res.named }))
-    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, paper: res.paper, enclosedPaper: res.enclosedPaper, ...size }
+    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, paper: res.paper, enclosedPaper: res.enclosedPaper, enclosed: res.enclosed, ...size }
   }
   const out = await tracers.vtracer.trace(job.image, toEngineConfig(job.params, job.scale))
   const svg = finalizeSvg(out.svg, job.image, original)
-  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, oneColour: null, paper: false, enclosedPaper: false, ...size }
+  return { svg, ms: out.ms, paths: (svg.match(/<path\b/g) ?? []).length, inks: null, palette: null, background: job.background, blendsRemoved: 0, shapes: null, named: [], gradients: { found: 0, kept: 0 }, lettered: 0, oneColour: null, paper: false, enclosedPaper: false, enclosed: [], ...size }
 }
 
 /**

@@ -139,6 +139,128 @@ describe('on white and coloured garments', () => {
   }, SLOW)
 })
 
+// Docker-style artwork on paper: a blue whale with a white eye, and dark lettering whose letters
+// ("o", "d") have counters, as a JPEG brings it.
+const CHARCOAL: RGB = [52, 98, 119]
+const WORD: [number, number, number, number] = [100, 62, 182, 108]
+const docker = () =>
+  paint(200, 120, PAPER, [
+    { rings: [circle(60, 45, 30)], color: BLUE },
+    { rings: [circle(70, 38, 5)], color: WHITE },
+    { rings: [circle(120, 90, 14), circle(120, 90, 7, true)], color: CHARCOAL },
+    { rings: [circle(156, 90, 14), circle(156, 90, 7, true)], color: CHARCOAL },
+    { rings: [rect(165, 64, 171, 104)], color: CHARCOAL },
+  ], 3)
+const EYE: [number, number] = [70, 38]
+const O: [number, number] = [120, 90]
+const D: [number, number] = [156, 90]
+const artworkOnly = (img: ImageData, extra: Partial<FlatOptions> = {}) => plates(img, 'border', (o) => ({ ...o, ...extra }))
+const areaAt = (r: ReturnType<typeof plates>, [x, y]: [number, number]) =>
+  r.enclosed.find(({ box: [x0, y0, x1, y1] }) => x >= x0 && x < x1 && y >= y0 && y < y1)
+
+describe('white artwork only: enclosed white areas', () => {
+  it('Docker-style lettering: counters inside words on the paper are left out; the eye stays white and is flagged', () => {
+    const r = artworkOnly(docker(), { paperWords: [WORD] })
+    expect(areaAt(r, O)).toMatchObject({ kind: 'counter', decided: true })
+    expect(areaAt(r, D)).toMatchObject({ kind: 'counter', decided: true })
+    expect(areaAt(r, EYE)).toMatchObject({ kind: 'white', decided: false })
+    for (const garment of Object.values(GARMENTS)) {
+      const at = onGarment(r.svg, 200, 120, garment)
+      expect(at(...O)).toBe('garment') // no white dot inside the "o"
+      expect(at(...D)).toBe('garment')
+      expect(at(...EYE)).toBe('white ink')
+      expect(at(3, 3)).toBe('garment')
+      expect(at(120, 79)).toBe('ink') // the letter itself
+    }
+  }, SLOW)
+
+  it('letters joined by a blended halo, and ink reaching past the OCR box, still have counters', () => {
+    // A light halo around each letter (as an upscaled JPEG has) touching between the letters, and a
+    // word box a little tighter than the letters, as Tesseract gives.
+    const HALO: RGB = [205, 240, 251]
+    const img = paint(200, 120, PAPER, [
+      { rings: [circle(60, 45, 30)], color: BLUE },
+      { rings: [circle(70, 38, 5)], color: WHITE },
+      { rings: [circle(120, 90, 18), circle(120, 90, 5, true)], color: HALO },
+      { rings: [circle(150, 90, 18), circle(150, 90, 5, true)], color: HALO },
+      { rings: [circle(120, 90, 14), circle(120, 90, 7, true)], color: CHARCOAL },
+      { rings: [circle(150, 90, 14), circle(150, 90, 7, true)], color: CHARCOAL },
+    ], 3)
+    const r = artworkOnly(img, { paperWords: [[103, 77, 167, 103]] })
+    expect(areaAt(r, [120, 90])?.kind).toBe('counter')
+    expect(areaAt(r, [150, 90])?.kind).toBe('counter')
+    expect(areaAt(r, EYE)).toMatchObject({ kind: 'white', decided: false })
+  }, SLOW)
+
+  it('thin slivers are marked thin (checked as a group), real areas are not', () => {
+    // A 2 px white line across a blue block: thinner than 1 mm at the 254 mm print size (≈ 2.4 px here).
+    const img = paint(600, 120, PAPER, [
+      { rings: [rect(40, 20, 560, 100)], color: BLUE },
+      { rings: [rect(60, 59, 540, 61)], color: WHITE },
+      { rings: [circle(150, 85, 8)], color: WHITE },
+    ], 3)
+    const r = artworkOnly(img)
+    expect(areaAt(r, [100, 60])).toMatchObject({ thin: true, kind: 'white', decided: false })
+    expect(areaAt(r, [150, 85])).toMatchObject({ thin: false, kind: 'white' })
+  }, SLOW)
+
+  it('without the words, nothing is decided from geometry: every area prints white and is flagged', () => {
+    const r = artworkOnly(docker())
+    expect(r.enclosed.length).toBe(3)
+    expect(r.enclosed.every((a) => a.kind === 'white' && !a.decided)).toBe(true)
+    expect(onGarment(r.svg, 200, 120, GARMENTS.coloured)(...O)).toBe('white ink')
+  }, SLOW)
+
+  it('white lettering on a badge is artwork, not counters, even inside a word', () => {
+    // The word sits on the blue disc, not on the paper.
+    const r = artworkOnly(badge(), { paperWords: [[38, 50, 72, 72]] })
+    expect(r.enclosed.length).toBeGreaterThan(0)
+    expect(r.enclosed.every((a) => a.kind === 'white')).toBe(true)
+    expect(onGarment(r.svg, 120, 120, GARMENTS.coloured)(43, 61)).toBe('white ink')
+  }, SLOW)
+
+  it('a word box that swallows a large white area does not make it a counter', () => {
+    // A misread "word" around the whale: the eye is far smaller than the box, but the box is mostly
+    // artwork, not paper, so the word isn't on the paper.
+    const r = artworkOnly(docker(), { paperWords: [[30, 15, 90, 75]] })
+    expect(areaAt(r, EYE)?.kind).toBe('white')
+  }, SLOW)
+
+  it('a ring on paper: its hole is flagged, white by default, and the garment when chosen', () => {
+    const ring = paint(120, 120, PAPER, [{ rings: [circle(60, 60, 40), circle(60, 60, 25, true)], color: BLUE }], 3)
+    const flagged = artworkOnly(ring)
+    expect(flagged.enclosed).toHaveLength(1)
+    expect(flagged.enclosed[0]).toMatchObject({ kind: 'white', decided: false })
+    const chosen = artworkOnly(ring, { whiteChoices: [{ at: [60, 60], white: false }] })
+    expect(chosen.enclosed[0]).toMatchObject({ kind: 'garment', decided: true })
+    for (const garment of Object.values(GARMENTS)) {
+      const at = onGarment(chosen.svg, 120, 120, garment)
+      expect(at(60, 60)).toBe('garment')
+      expect(at(60, 22)).toBe('ink')
+      expect(at(3, 3)).toBe('garment')
+    }
+    // A choice for white artwork keeps it white, and decided.
+    expect(artworkOnly(docker(), { paperWords: [WORD], whiteChoices: [{ at: EYE, white: true }] }).enclosed.find((a) => a.kind !== 'counter')).toMatchObject({ kind: 'white', decided: true })
+  }, SLOW)
+
+  it('transparent holes: no enclosed areas to decide, the hole shows the garment', () => {
+    const img = paint(120, 120, null, [{ rings: [circle(60, 60, 40), circle(60, 60, 18, true)], color: BLUE }])
+    const r = artworkOnly(img, { paperWords: [[0, 0, 120, 120]], whiteChoices: [{ at: [60, 60], white: true }] })
+    expect(r.enclosed).toEqual([])
+    expect(r.svg).toBe(plates(img).svg)
+    expect(onGarment(r.svg, 120, 120, GARMENTS.coloured)(60, 60)).toBe('garment')
+  }, SLOW)
+
+  it('the master vector and one colour ignore words and choices', () => {
+    const extra = { paperWords: [WORD], whiteChoices: [{ at: EYE, white: false }] }
+    // The master is traced without the paper option.
+    const o = productionOptions(docker())
+    expect(runFlat(docker(), { ...o, ...extra }).svg).toBe(runFlat(docker(), o).svg)
+    const one = (o: FlatOptions): FlatOptions => ({ ...o, ...extra, oneColour: { ink: null, gapPx: 2, production: true, outputWidthMm: 200 } })
+    expect(plates(docker(), 'border', one).svg).toBe(plates(docker(), undefined, one).svg)
+  }, SLOW)
+})
+
 describe('plate preview', () => {
   it('lists the plates the PDF makes, and shows one plate on its own', () => {
     const svg = plates(badge(), 'border').svg

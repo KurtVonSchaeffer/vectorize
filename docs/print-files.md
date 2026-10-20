@@ -33,11 +33,34 @@ shown in the app, and the website download) keeps every colour, background inclu
 | **Print white artwork only** | The paper background is left out; white inside the artwork (white lettering on a badge, the white of an eye) prints in white ink. | Coloured garments |
 | **Print white background too** | The background prints as a White plate too, as today. | A white box on a coloured garment |
 
-**Ambiguity:** white enclosed by the artwork can be an intentional white element or just paper
-seen through a letter's counter (the inside of an "o"). Nothing in the image tells them apart, so
-*Print white artwork only* keeps both as white ink, and *No white ink* keeps neither. When the
-artwork encloses such areas (at least 0.1% of the image: `enclosesPaper` in `paper.ts`), the card
-shows a warning under the choice saying what happens to them and suggesting a preview.
+### White inside the artwork
+
+With *Print white artwork only*, a white area that the artwork encloses can be white artwork (an
+eye, a belly, white lettering on a badge) or paper seen through the artwork (the inside of an "o").
+Measured on the audit uploads, geometry doesn't tell them apart: the inside of Docker's "e" and
+Python's eyes have the same size and the same thickness of artwork around them, and the whale's
+belly measures like the "d" and "o" counters. So nothing is decided from shape alone
+(`splitEnclosed` in `paper.ts`):
+
+- **Letter counters are left out.** The app already reads the lettering (Tesseract). An enclosed
+  area is a counter when the ink around it (solid colour, reached through any blended halo) is one
+  letter of a word that sits on the paper: the letter lies inside the word's box (with a margin of
+  8% of its height) and is at most 60% of the word's width, and the paper surrounds the word. Only
+  real words count (three letters or digits in a row). A logo misread as a word, joined script
+  lettering, or white lettering on a badge doesn't qualify.
+- **Everything else prints white and is flagged.** The card says how many things need checking;
+  the preview circles each area, and each gets a choice: *White ink* or *Garment*. Choices are
+  kept per upload and apply to the files. Areas thinner than 1 mm at the print size (usually
+  slivers where blended edge colours meet, possibly a fine white line) are dotted and checked as
+  one group.
+- While the lettering is still being read, the card says so; plates made in that moment treat
+  every area as undecided.
+
+| Upload | Before | After |
+| --- | --- | --- |
+| docker-small.jpg (160 px) | White dots in "d", "o", "e" | Counters left out; eye and belly print white, flagged (2 to check) |
+| docker-small.jpg enlarged 8× (1280 px) | — | 4 counters left out ("c" closes up at this size); belly flagged; 55 slivers in the whale flagged as one group |
+| python-tiny.jpg | Eyes white, no warning per area | No lettering; both eyes print white, flagged (2 to check) |
 
 ## Plate preview
 
@@ -71,7 +94,7 @@ paper (Python, Docker) and nowhere else. Their full-page White plate is gone wit
 
 | Upload | No white ink | Print white artwork only | Print white background too (today) |
 | --- | --- | --- | --- |
-| docker-small.jpg | Blue, Charcoal | Blue, Charcoal, White (whale belly, eye, and the counters of "docker") | White (full page), Blue, Charcoal |
+| docker-small.jpg | Blue, Charcoal | Blue, Charcoal, White (whale belly and eye; the counters of "docker" left out) | White (full page), Blue, Charcoal |
 | python-tiny.jpg | Yellow, Blue | Yellow, Blue, White (the eyes) | White (full page), Yellow, Blue |
 
 ## Tests
@@ -79,6 +102,9 @@ paper (Python, Docker) and nowhere else. Their full-page White plate is gone wit
 `src/vectorize/__tests__/print-files.test.ts`: each white-ink choice and its paper option; the
 plates rendered over a white and a coloured garment for each choice (background, white lettering,
 coloured artwork); a transparent upload's negative space (a ring's hole) and its white artwork in
-every choice; the warning's signal; the plate list and single-plate view; not-paper cases
+every choice; letter counters left out in Docker-style lettering (also with blended halos and tight
+OCR boxes) while the eye stays white and flagged; nothing decided without the words; badge lettering
+and a misread word box not taken for counters; a ring's hole flagged, and the garment when chosen;
+transparent holes; thin slivers grouped; the master and one colour ignoring words and choices; the warning's signal; the plate list and single-plate view; not-paper cases
 byte-identical; one colour unchanged; 254 mm for the PDF, both SVGs and the DXF, and one colour's
 own width.
