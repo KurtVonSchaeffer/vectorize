@@ -9,6 +9,7 @@ import { colorAt, findGradients } from '../palette/gradients'
 import { blendRatio, nameSvg, quantize, type FixedLabels, type Ink, type InkSettings, type QuantizeOptions } from '../palette/quantize'
 import { layersToSvg, traceLabels, type LabelMap, type ShapeCounts, type TracedLayer, type TraceOptions } from '../trace'
 import { removeFlatBackground } from './background'
+import { judgeLines } from './linecolours'
 import { enclosesPaper, paperMask, splitEnclosed, withPaper, type EnclosedArea, type WhiteChoice } from './paper'
 import type { FlatTracer } from './flat-tracer'
 import { finalizeSvg, prepareImage, type InputImage } from './image'
@@ -46,6 +47,11 @@ export interface JobSettings {
    * and length. Print plates and cut files, one colour and spot inks are unchanged.
    */
   fineDetail?: boolean
+  /**
+   * Colour accuracy (behind a flag): in the master artwork, thin lines and small lettering keep
+   * their real colours. Print plates and cut files, one colour and spot inks are unchanged.
+   */
+  colourAccuracy?: boolean
   /**
    * One ink for the whole artwork. The gap separates regions that were different colours, and
    * is cut only into production files (knockout jobs), never into the master vector.
@@ -163,6 +169,16 @@ export type TraceJob =
 /** Outlines smaller than this (px²) are dropped by the flat tracer. */
 const TRACE_MIN_AREA = 2
 
+/**
+ * The reconstruction options for the master (stacked) full-colour artwork only. Print plates and
+ * cut files must tile without gaps (fine detail opened hairline gaps there, docs/fine-detail.md),
+ * and one colour, spot inks and line art have their own colours.
+ */
+export function masterOnly(s: Partial<Pick<JobSettings, 'fineDetail' | 'colourAccuracy' | 'knockout'>>, job: { oneColour: boolean; spotInks: boolean; lineArt: boolean }): { fine: boolean; colours: boolean } {
+  const master = !s.knockout && !job.oneColour && !job.spotInks
+  return { fine: !!s.fineDetail && master, colours: !!s.colourAccuracy && master && !job.lineArt }
+}
+
 export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSettings): TraceJob {
   const { trace, prep, spot } = s
   const spotOn = !!spot?.settings.enabled
@@ -186,9 +202,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
   const scale = base.image.width / sourceWidth
   const speckArea = Math.max(1, (trace.filterSpeckle * scale) ** 2)
   const one = !lineArt && !spotOn ? s.oneColour : undefined
-  // Fine detail is for the master (stacked) artwork only. In print plates and cut files, which must
-  // tile without gaps, the audit set showed new hairline gaps and crossings (docs/fine-detail.md).
-  const fine = !!s.fineDetail && !one && !spotOn && !s.knockout
+  const { fine, colours } = masterOnly(s, { oneColour: !!one, spotInks: spotOn, lineArt })
   return {
     kind: 'flat',
     image: base.image,
@@ -225,6 +239,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         smoothing: 0,
         keepBlends: s.keepBlends,
         ...(fine ? { keepSolidDetail: true } : {}),
+        ...(colours ? { thinColours: true } : {}),
       },
       trace: {
         smoothing: trace.smoothing,
@@ -377,6 +392,12 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     // The summary counts the gaps left in the file, after any undone near a cutting problem.
     oneColour.gaps = r.gapsLeft
     if (!r.gapsLeft) oneColour.gapMm = null
+  } else if (q.lines && !o.lineArt) {
+    // Colour accuracy: the thin lines the colour reduction proposes, only where they trace better
+    // (linecolours.ts). Not inside lettering rebuilt from a font, which replaces the traced letters.
+    const boxes = o.text?.words.map((wd) => wd.box) ?? []
+    const lines = { ...q.lines, lines: q.lines.lines.filter((l) => !boxes.some((b) => l.box[0] < b[2] && l.box[2] > b[0] && l.box[1] < b[3] && l.box[3] > b[1])) }
+    ;({ map, traced } = judgeLines(map, lines, (m) => traceLabels(m, o.trace), src))
   } else traced = traceLabels(map, o.trace)
   inspect?.(map)
   let { svg } = traced

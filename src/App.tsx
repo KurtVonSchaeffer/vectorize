@@ -20,7 +20,7 @@ import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
 import { FidelityChecker } from './quality/check'
-import { CLEAN_GEOMETRY, FINE_DETAIL, PRINT_FILES, QUALITY_REPORTING } from './quality/flags'
+import { CLEAN_GEOMETRY, COLOUR_ACCURACY, FINE_DETAIL, PRINT_FILES, QUALITY_REPORTING } from './quality/flags'
 import { isReviewed, readiness, type CheckOutcome, type Review } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
@@ -243,6 +243,8 @@ export default function App() {
         // Fine detail changes the master only; without print files the print and cut SVGs are the
         // master, so it needs them (print and cut files then stay exactly as before).
         ...(FINE_DETAIL && PRINT_FILES ? { fineDetail: true } : {}),
+        // The same holds for colour accuracy (docs/feature-flags.md).
+        ...(COLOUR_ACCURACY && PRINT_FILES ? { colourAccuracy: true } : {}),
         lettering: vary.lettering ?? letteringWords,
         oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
         ...(vary.paperOut ? { paperOut: vary.paperOut, paperWords: vary.paperWords, whiteChoices: vary.whiteChoices } : {}),

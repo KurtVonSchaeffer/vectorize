@@ -43,3 +43,9 @@ export function fineDetailOn(search?: string, env: FlagEnv = { value: import.met
   return featureOn('fine-detail', env, search)
 }
 export const FINE_DETAIL = fineDetailOn()
+
+/** Colour accuracy: thin lines and small lettering keep their real colours (docs/colour-accuracy.md). */
+export function colourAccuracyOn(search?: string, env: FlagEnv = { value: import.meta.env?.VITE_COLOUR_ACCURACY, dev }): boolean {
+  return featureOn('colour-accuracy', env, search)
+}
+export const COLOUR_ACCURACY = colourAccuracyOn()
