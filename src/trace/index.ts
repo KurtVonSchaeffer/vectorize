@@ -1,5 +1,6 @@
 import { area, contours, type Point } from './contours'
-import { fitClosed, type Cubic } from './fit'
+import { fitClosed, mergeCurves, type Cubic } from './fit'
+import { judge } from './finedetail'
 import { circlePath, decomposeCirclePolygon, insideCircle, insidePolygon, polygonPath, type CirclePolygon } from './decompose'
 import { detectShape, type ShapeKind } from './shapes'
 import { gradientSvg, type GradientFill } from '../palette/gradients'
@@ -18,6 +19,11 @@ export interface LabelMap {
   colors: number[]
   /** Labels drawn with a gradient instead of their flat color (which is then the average). */
   fills?: (GradientFill | undefined)[]
+  /**
+   * Fine detail: the labelling the fine-detail tracer reads, where it differs from the one above
+   * (the solid end pixels of thin lines kept by noise cleanup). Same colours.
+   */
+  fine?: { labels: Uint8Array; second: Uint8Array; cov: Float32Array }
 }
 
 export interface TraceOptions {
@@ -54,6 +60,22 @@ export interface TraceOptions {
    * letter), which those layers draw in full (RC8).
    */
   connectedStacking?: boolean
+  /**
+   * Fine detail: thin strokes are measured across the stroke (along the field's gradient) rather
+   * than in a square around each pixel, so a 1 px line keeps its width where it runs diagonally
+   * between pixels, instead of breaking there (see keepThin).
+   */
+  crossSection?: boolean
+  /**
+   * Fine detail: a small round outline is drawn as an exact circle, and becomes a polygon only when
+   * its corners are real (it follows the polygon more closely than a circle).
+   */
+  roundShapes?: boolean
+  /**
+   * Fine detail: a thin outline's straight stretches are drawn as exact lines (FitOptions.straightRuns).
+   * With the ordinary curve tolerance a 1 px bar's sides otherwise bulge, drawing it half as wide again.
+   */
+  straightRuns?: boolean
 }
 
 /** Exact shapes made, plus how many merged outlines were split into overlapping shapes. */
@@ -212,18 +234,20 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     }
   }
 
-  for (let layer = 0; layer < order.length; layer++) {
-    const inLayer = (r: number) => (knockout ? r === layer : r >= layer)
-    // The layer's bounds, so smoothing skips the area it doesn't cover.
+  // The fine-detail tracer's labelling (the same as the map's unless noise cleanup kept line ends).
+  const fineMap = map.fine ?? { labels, second, cov }
+  const fineField = opts.crossSection ? new Float32Array(n) : field
+  /** Fills `out` with the layer's membership from a labelling; returns its bounds. */
+  const membership = (m: { labels: Uint8Array; second: Uint8Array; cov: Float32Array }, inLayer: (r: number) => boolean, out: Float32Array) => {
     let bx0 = w, by0 = h, bx1 = -1, by1 = -1
     for (let p = 0; p < n; p++) {
-      const r1 = rank[labels[p]]
-      const r2 = second[p] < NO_SHAPE ? rank[second[p]] : -1
-      let m = 0
-      if (inLayer(r1)) m += cov[p]
-      if (inLayer(r2)) m += 1 - cov[p]
-      field[p] = m
-      if (m !== 0) {
+      const r1 = rank[m.labels[p]]
+      const r2 = m.second[p] < NO_SHAPE ? rank[m.second[p]] : -1
+      let v = 0
+      if (inLayer(r1)) v += m.cov[p]
+      if (inLayer(r2)) v += 1 - m.cov[p]
+      out[p] = v
+      if (v !== 0) {
         const x = p % w
         const y = (p / w) | 0
         if (x < bx0) bx0 = x
@@ -232,10 +256,39 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         if (y > by1) by1 = y
       }
     }
-    const smooth = keepThin(blur(field, w, h, opts.smoothing, [bx0, by0, bx1, by1]), w, h, level, opts.smoothing)
-    const all = contours(smooth, w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
+    return [bx0, by0, bx1, by1] as [number, number, number, number]
+  }
+
+  for (let layer = 0; layer < order.length; layer++) {
+    const inLayer = (r: number) => (knockout ? r === layer : r >= layer)
+    // The layer's bounds, so smoothing skips the area it doesn't cover.
+    const box = membership({ labels, second, cov }, inLayer, field)
+    // Fine detail applies to colours that stand out from what they border (lines, lettering,
+    // small marks), not to bands between similar colours (shading, compression edges).
+    const detailLayer = !!opts.crossSection && contrasting(map, order[layer])
+    const blurred = blur(field, w, h, opts.smoothing, box)
     const isOwn = (p: number) => labels[p] < 254 && inLayer(rank[labels[p]])
-    let loops = all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
+    const outlines = (b: Float32Array, raw?: Float32Array) => {
+      const all = contours(keepThin(b, w, h, level, opts.smoothing, raw), w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
+      return all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
+    }
+    let loops = outlines(blurred)
+    // Fine detail: the layer traced again with the fine-detail rule; a group of its outlines
+    // replaces the ordinary ones only where it is measurably better (judge, finedetail.ts).
+    const fineCurves = new Map<Point[], Cubic[]>()
+    let replaced = new Map<Point[], Point[][]>()
+    const ordCurves = new Map<Point[], Cubic[]>()
+    if (detailLayer && opts.crossSection) {
+      const fineBox = membership(fineMap, inLayer, fineField)
+      const fineLoops = outlines(map.fine ? blur(fineField, w, h, opts.smoothing, fineBox) : blurred, fineField)
+      const ordinary = loops.map((loop) => ({ loop, curves: fitLoop(loop, null, opts) }))
+      const fine = fineLoops.map((loop) => ({ loop, curves: mergeCurves(fitLoop(loop, fitOptions(loop, opts), opts), MERGE_TOLERANCE) }))
+      const judged = judge(ordinary, fine, { w, h, coverage: fineField }, crossesItself)
+      for (const t of fine) if (judged.fine.has(t.loop)) fineCurves.set(t.loop, t.curves)
+      for (const t of ordinary) ordCurves.set(t.loop, t.curves)
+      replaced = judged.replaced
+      loops = [...judged.kept, ...fine.filter((t) => judged.fine.has(t.loop)).map((t) => t.loop)]
+    }
     if (!knockout && opts.connectedStacking)
       loops = withoutHiddenCopies(loops, w, h, (p) => rank[labels[p]] === layer || (second[p] < NO_SHAPE && rank[second[p]] === layer && cov[p] < 0.5))
     if (!loops.length) continue
@@ -243,10 +296,17 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     // Drop fragments of this color that a split shape below already draws in full.
     const kept = loops.filter((l) => !suppressed.some((s) => s.label === label && mostly(sampleOf(l), s.covers)))
     const below: TracedLayer[] = []
+    const shapeOptions = { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing, roundCheck: opts.roundShapes }
+    // A fine outline is drawn as an exact shape only when an ordinary outline it replaced is that
+    // shape too: a thin ring's inner edge must not snap to a polygon.
+    const plainShape = (loop: Point[], kind: string) => (replaced.get(loop) ?? []).some((l) => detectShape(l, shapeOptions)?.kind === kind)
     const parts = kept.map((loop) => {
       // The full-image background is a plain rectangle; write it exactly but don't count it.
       if (opts.exactShapes && coversImage(loop, w, h)) return `M0 0L${w} 0L${w} ${h}L0 ${h}Z`
-      const exact = opts.exactShapes ? detectShape(loop, { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing }) : null
+      let exact = opts.exactShapes ? detectShape(loop, shapeOptions) : null
+      // An outline the fine-detail rule traced is drawn as an exact shape only when its ordinary
+      // trace is that shape too: a thin ring's inner edge must not snap to a polygon.
+      if (exact && fineCurves.has(loop) && !plainShape(loop, exact.kind)) exact = null
       // An irregular "polygon" may really be a star and a circle whose short arcs passed as
       // straight edges; prefer the split when it explains the outline.
       if (exact && exact.kind !== 'polygon') {
@@ -269,7 +329,7 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         shapes[exact.kind]++
         return exact.d
       }
-      return toPath(fitClosed(loop, { error: opts.error, cornerAngle: opts.cornerAngle }), fmt)
+      return toPath(fineCurves.get(loop) ?? ordCurves.get(loop) ?? fitLoop(loop, null, opts), fmt)
     })
     const d = parts.join('')
     layers.push(...below.filter((b) => b.d && b.color >= 0))
@@ -316,6 +376,97 @@ function regionHas(rings: Point[][], w: number, h: number, test: (p: number) => 
   return false
 }
 
+/**
+ * Curve fitting for one outline on a detail layer: a thin outline (thickness, twice its area over
+ * its perimeter, up to THIN_OUTLINE) has its straight stretches drawn as lines (straightRuns).
+ */
+function fitOptions(loop: Point[], opts: TraceOptions): { error: number; cornerAngle: number; straightRuns?: boolean } {
+  const base = { error: opts.error, cornerAngle: opts.cornerAngle }
+  if (!opts.straightRuns) return base
+  let per = 0
+  for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) per += Math.hypot(loop[i][0] - loop[j][0], loop[i][1] - loop[j][1])
+  const thickness = per ? (2 * Math.abs(area(loop))) / per : Infinity
+  // A thin outline's ends turn through 180° within its width: no corners there to sharpen (rebuilt
+  // corners 1 px apart make hooks), just one smooth cap between its straight sides.
+  return thickness > THIN_OUTLINE ? base : { ...base, cornerAngle: 181, straightRuns: true }
+}
+/** Outlines up to this thick (px) are thin (see fitOptions). */
+const THIN_OUTLINE = 3
+/** The tightest curve tolerance a refit uses (px). */
+const MIN_FIT_ERROR = 0.04
+/** How far (px) joining two curves of a fine outline into one may move it (mergeCurves). */
+const MERGE_TOLERANCE = 0.1
+
+/**
+ * Fits one outline, with the fine-detail options when given (detail layers). A detail outline whose
+ * fit crosses itself (a thin part's two sides drawn across each other) is fitted again, closer to
+ * its contour; the closer fit is kept when it doesn't cross.
+ */
+function fitLoop(loop: Point[], fine: ReturnType<typeof fitOptions> | null, opts: TraceOptions): Cubic[] {
+  const curves = fitClosed(loop, fine ?? { error: opts.error, cornerAngle: opts.cornerAngle })
+  if (!fine || !crossesItself(curves)) return curves
+  const closer = fitClosed(loop, { ...fine, error: Math.max(MIN_FIT_ERROR, fine.error / 3) })
+  return crossesItself(closer) ? curves : closer
+}
+
+/** Whether a closed path of cubics crosses itself (flattened, CROSS_PIECES pieces per curve). */
+function crossesItself(curves: Cubic[]): boolean {
+  const pts: Point[] = []
+  for (const [a, b, c, d] of curves)
+    for (let i = 0; i < CROSS_PIECES; i++) {
+      const t = i / CROSS_PIECES
+      const u = 1 - t
+      pts.push([u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0], u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1]])
+    }
+  const n = pts.length
+  const cross = (p: Point, q: Point, r: Point, s: Point) => {
+    const d = (q[0] - p[0]) * (s[1] - r[1]) - (q[1] - p[1]) * (s[0] - r[0])
+    if (d === 0) return false
+    const t = ((r[0] - p[0]) * (s[1] - r[1]) - (r[1] - p[1]) * (s[0] - r[0])) / d
+    const u = ((r[0] - p[0]) * (q[1] - p[1]) - (r[1] - p[1]) * (q[0] - p[0])) / d
+    return t > 1e-9 && t < 1 - 1e-9 && u > 1e-9 && u < 1 - 1e-9
+  }
+  for (let i = 0; i < n; i++)
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue
+      if (cross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) return true
+    }
+  return false
+}
+
+/**
+ * Whether a label's colour clearly differs from the colours it borders: at least CONTRAST_SHARE of
+ * its 4-neighbour boundary pixels against other colours are against one at least DETAIL_CONTRAST
+ * away (sRGB). Lettering on a band qualifies; a band of shading, or a ring of blended edge colour
+ * around a shape, doesn't. A colour bordering only empty canvas does.
+ */
+function contrasting(map: LabelMap, label: number): boolean {
+  const { w, h, labels, colors } = map
+  const rgb = (v: number) => [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+  const own = rgb(colors[label])
+  let edges = 0
+  let strong = 0
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      if (labels[p] !== label) continue
+      for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1]) {
+        if (q < 0 || labels[q] === label) continue
+        // Only colours count: a blend ring between a shape and empty canvas borders the shape
+        // (barely different) and nothing else that has a colour.
+        if (labels[q] >= NO_SHAPE || colors[labels[q]] < 0) continue
+        edges++
+        const o = rgb(colors[labels[q]])
+        if (Math.hypot(own[0] - o[0], own[1] - o[1], own[2] - o[2]) >= DETAIL_CONTRAST) strong++
+      }
+    }
+  // A colour that borders only empty canvas (a line on a transparent background) stands out.
+  return edges === 0 || strong >= CONTRAST_SHARE * edges
+}
+const DETAIL_CONTRAST = 64
+const CONTRAST_SHARE = 0.5
+const CROSS_PIECES = 16
+
 function segDist(p: Point, a: Point, b: Point): number {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
@@ -357,7 +508,8 @@ function groupShapes(loops: Point[][], paths: string[]): string[] {
     }
     return best
   })
-  const depth = (i: number): number => (parents[i] < 0 ? 0 : 1 + depth(parents[i]))
+  // Coinciding outlines can contain each other; such a cycle stops after n steps.
+  const depth = (i: number, steps = 0): number => (parents[i] < 0 || steps > n ? 0 : 1 + depth(parents[i], steps + 1))
   const shapes: string[] = []
   for (let i = 0; i < n; i++) {
     if (depth(i) % 2 === 1 || !paths[i]) continue
@@ -546,10 +698,23 @@ function insideLoop([px, py]: Point, poly: Point[]): boolean {
  * Ridges weaker than THIN_MIN are left alone, so faint smudges don't become lines, and so are
  * ridges without clean ground around them (within THIN_GROUND of 0, or of 1 for gaps).
  */
-function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: number): Float32Array {
+function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: number, raw?: Float32Array): Float32Array {
+  // Fine detail: strokes measured across themselves (see TraceOptions.crossSection); `raw` is the
+  // field before blurring, to tell a real stroke (with a solid core) from edge-blend residue.
+  const crossSection = !!raw
   const r = Math.max(2, Math.round(2 * sigma + 0.5))
   const out = new Float32Array(s)
   const scale = level / 0.5
+  // Bilinear sample of the field.
+  const at = (fx: number, fy: number) => {
+    const x0 = Math.max(0, Math.min(w - 1, Math.floor(fx)))
+    const y0 = Math.max(0, Math.min(h - 1, Math.floor(fy)))
+    const x1 = Math.min(w - 1, x0 + 1)
+    const y1 = Math.min(h - 1, y0 + 1)
+    const tx = Math.max(0, Math.min(1, fx - x0))
+    const ty = Math.max(0, Math.min(1, fy - y0))
+    return (s[y0 * w + x0] * (1 - tx) + s[y0 * w + x1] * tx) * (1 - ty) + (s[y1 * w + x0] * (1 - tx) + s[y1 * w + x1] * tx) * ty
+  }
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const p = y * w + x
@@ -557,6 +722,25 @@ function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: n
       if (s[p] <= 0.02 || s[p] >= 0.98) continue
       let P = 0
       let low = 1
+      const gx = crossSection ? s[y * w + Math.min(w - 1, x + 1)] - s[y * w + Math.max(0, x - 1)] : 0
+      const gy = crossSection ? s[Math.min(h - 1, y + 1) * w + x] - s[Math.max(0, y - 1) * w + x] : 0
+      let g = Math.hypot(gx, gy)
+      let nx = g > 1e-4 ? gx / g : 0
+      let ny = g > 1e-4 ? gy / g : 0
+      if (crossSection && g <= 1e-4) {
+        // On a stroke's ridge the gradient vanishes: go across the axis that curves most.
+        const d2x = Math.abs(s[y * w + Math.min(w - 1, x + 1)] + s[y * w + Math.max(0, x - 1)] - 2 * s[p])
+        const d2y = Math.abs(s[Math.min(h - 1, y + 1) * w + x] + s[Math.max(0, y - 1) * w + x] - 2 * s[p])
+        if (d2x + d2y > 1e-4) [nx, ny, g] = d2x >= d2y ? [1, 0, 1] : [0, 1, 1]
+      }
+      if (crossSection && g > 1e-4) {
+        // Fine detail overrides the rule below only where it recognises a real thin stroke or gap.
+        const fine = acrossStroke(s, raw!, at, w, h, x, y, nx, ny, r, sigma, level, scale)
+        if (fine !== null) {
+          out[p] = fine
+          continue
+        }
+      }
       for (let j = Math.max(0, y - r); j <= Math.min(h - 1, y + r); j++)
         for (let i = Math.max(0, x - r); i <= Math.min(w - 1, x + r); i++) {
           const v = s[j * w + i]
@@ -572,8 +756,69 @@ function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: n
   return out
 }
 
+/**
+ * Fine detail: the field value at (x, y) that keeps a real thin stroke (or gap) through it its true
+ * width and length, measured across it along (nx, ny); null where it isn't one (the edge of a solid
+ * shape, edge-blend residue without a solid core, a profile that runs on), for the ordinary rule.
+ */
+function acrossStroke(s: Float32Array, raw: Float32Array, at: (x: number, y: number) => number, w: number, h: number, x: number, y: number, nx: number, ny: number, r: number, sigma: number, level: number, scale: number): number | null {
+  const p = y * w + x
+  let P = 0
+  let low = 1
+  for (let t = -r; t <= r; t += 0.5) {
+    const v = at(x + nx * t, y + ny * t)
+    if (v > P) P = v
+    if (v < low) low = v
+  }
+  const V = 1 - low
+  // Solid colour (or clear ground, for a gap) anywhere along the gradient within reach: the edge
+  // of a solid shape, whatever ripples a resampled edge has before it.
+  const reach = 4 * Math.sqrt(sigma * sigma + 1 / 12) + 3
+  let far = 0
+  let farLow = 1
+  for (let t = -reach; t <= reach; t += 0.5) {
+    const v = at(x + nx * t, y + ny * t)
+    if (v > far) far = v
+    if (v < farLow) farLow = v
+  }
+  if (P >= THIN_MIN && P < THIN_MAX && low <= THIN_GROUND) {
+    if (far >= THIN_MAX) return null
+    // A real stroke has a solid core somewhere across it; a sliver of pixels that are only partly
+    // this colour (blend residue where two other colours meet) doesn't.
+    let core = 0
+    for (let t = -r; t <= r; t += 0.5) {
+      const qx = Math.round(x + nx * t)
+      const qy = Math.round(y + ny * t)
+      if (qx >= 0 && qy >= 0 && qx < w && qy < h) core = Math.max(core, raw[qy * w + qx])
+    }
+    if (core < SOLID_CORE) return null
+    // Along the gradient: the stroke's width, or, at a line's end (where the gradient runs along
+    // the stroke and its profile doesn't fall away), the end itself, which a blurred line reaches
+    // at half the field it has along its middle.
+    const across = hump(at, x, y, nx, ny, sigma, false)
+    if (across.peak >= THIN_MAX) return null
+    let L = across.level
+    if (across.open) {
+      // Only a line's end: the profile across the line here (perpendicular to the gradient) is
+      // itself a whole thin stroke standing on clean ground.
+      const line = hump(at, x, y, -ny, nx, sigma, false)
+      if (line.open || line.peak < THIN_MIN || line.peak >= THIN_MAX || line.ground > THIN_GROUND) return null
+      L = Math.min(L, line.peak / 2)
+    }
+    return s[p] + level - scale * L
+  }
+  if (V >= THIN_MIN && V < THIN_MAX && P >= 1 - THIN_GROUND) {
+    if (farLow <= 1 - THIN_MAX) return null
+    const gap = hump(at, x, y, nx, ny, sigma, true)
+    return gap.peak < THIN_MAX && !gap.open ? s[p] + scale * gap.level - level : null
+  }
+  return null
+}
+
 const THIN_MIN = 0.25
 const THIN_MAX = 0.97
+/** A stroke's core coverage before blurring, at least, for it to count as a real stroke. */
+const SOLID_CORE = 0.75
 const THIN_GROUND = 0.05
 
 /** ½·erf(2·erfinv(P)), tabulated: the contour level that keeps a blurred stroke's true width. */
@@ -592,6 +837,51 @@ const WIDTH_LEVEL = (() => {
   return Float32Array.from({ length: 1001 }, (_, i) => (i === 1000 ? 0.5 : 0.5 * erf(2 * erfinv(i / 1000))))
 })()
 const widthLevel = (P: number) => WIDTH_LEVEL[Math.round(Math.min(1, Math.max(0, P)) * 1000)]
+
+/**
+ * The contour level that keeps the stroke (or, `gap`, the gap) through (x, y) its true width. Its
+ * width is the total of the field over its profile across direction (nx, ny), which blurring keeps
+ * equal to the width, whether the stroke lies on one pixel or is split across two; the level is the
+ * one at which the profile is exactly that wide. The profile runs out both ways from its peak until
+ * the field (1 − field for a gap) has run out or starts rising into a neighbour.
+ */
+function hump(at: (x: number, y: number) => number, x: number, y: number, nx: number, ny: number, sigma: number, gap: boolean): { level: number; open: boolean; peak: number; ground: number } {
+  const f = (t: number) => (gap ? 1 - at(x + nx * t, y + ny * t) : at(x + nx * t, y + ny * t))
+  const step = 0.125
+  const reach = 4 * Math.sqrt(sigma * sigma + 1 / 12) + 3
+  let c = 0
+  const dir = f(step) >= f(-step) ? 1 : -1
+  while (Math.abs(c) < reach && f(c + dir * step) >= f(c)) c += dir * step
+  const profile = [f(c)]
+  // Open: the profile is still high where the walk gives up (it runs along a stroke, not across).
+  let open = Math.abs(c) >= reach
+  for (const d of [1, -1]) {
+    let prev = f(c)
+    let t = c + d * step
+    for (; Math.abs(t - c) <= reach; t += d * step) {
+      const v = f(t)
+      if (v <= 0.005 || v > prev + 1e-4) break
+      if (d > 0) profile.push(v)
+      else profile.unshift(v)
+      prev = v
+    }
+    if (Math.abs(t - c) > reach && prev > 0.5 * profile.reduce((m, v) => Math.max(m, v), 0)) open = true
+  }
+  const width = profile.reduce((t, v) => t + v, 0) * step
+  // Width of the profile above a level (it rises then falls).
+  const above = (L: number) => profile.reduce((t, v) => t + (v >= L ? step : 0), 0)
+  let lo = 0
+  let hi = Math.max(...profile)
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2
+    if (above(mid) > width) lo = mid
+    else hi = mid
+  }
+  // Just under the peak at most: a flat-topped profile exactly as wide as the stroke would
+  // otherwise put the contour on its top, where it barely forms.
+  const peak = Math.max(...profile)
+  return { level: Math.min(0.5, 0.98 * peak, (lo + hi) / 2), open, peak, ground: Math.max(profile[0], profile[profile.length - 1]) }
+}
 
 /**
  * Separable Gaussian blur; edges clamp. sigma ≤ 0 returns the input. `box` ([x0, y0, x1, y1],

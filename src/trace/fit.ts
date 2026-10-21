@@ -5,6 +5,12 @@ export interface FitOptions {
   error: number
   /** Turning angle (degrees) above which a point is kept as a sharp corner. */
   cornerAngle: number
+  /**
+   * Straight stretches of the outline (points within STRAIGHT_TOLERANCE of one line for at least
+   * STRAIGHT_MIN_LENGTH) are drawn as exact straight segments, and the curves next to them meet them
+   * tangentially: straight edges stay straight, with fewer anchors, and a thin bar's sides don't bulge.
+   */
+  straightRuns?: boolean
 }
 
 /** A cubic Bézier: start, two controls, end. */
@@ -21,6 +27,17 @@ export function fitClosed(loop: Point[], opts: FitOptions): Cubic[] {
 
   const n = pts.length
   const curves: Cubic[] = []
+  if (!corners.length && opts.straightRuns) {
+    // A loop with straight stretches but no corners (a thin bar with rounded ends): start it at a
+    // stretch's start, so the stretches aren't cut, and fit it as one run back to that point.
+    const lines = straightStretches([...pts, ...pts.slice(0, n >> 1)])
+    const start = lines.find(([a]) => a < n)?.[0]
+    if (start !== undefined) {
+      const run = [...pts.slice(start), ...pts.slice(0, start + 1)]
+      const t = norm(sub(run[1], run[0]))
+      return fitWithLines(run, t, neg(t), opts.error)
+    }
+  }
   if (!corners.length) {
     // Fully smooth loop: fit it in two halves with matching tangents at the joins.
     const half = n >> 1
@@ -45,9 +62,143 @@ export function fitClosed(loop: Point[], opts: FitOptions): Cubic[] {
     if (run.length < 2) continue
     const t1 = sa ? sa.outDir : leftTangent(run)
     const t2 = sb ? neg(sb.inDir) : rightTangent(run)
-    curves.push(...fitCubic(run, t1, t2, opts.error))
+    curves.push(...(opts.straightRuns ? fitWithLines(run, t1, t2, opts.error) : fitCubic(run, t1, t2, opts.error)))
   }
   return curves
+}
+
+/** Points within this distance (px) of one line form a straight stretch… */
+const STRAIGHT_TOLERANCE = 0.12
+/** …when it is at least this long (px). */
+const STRAIGHT_MIN_LENGTH = 3
+
+/**
+ * Fits an open run: its straight stretches as exact lines, the parts between as cubics whose ends
+ * follow the neighbouring lines' directions. A short part between (the end of a thin line, at most
+ * CAP_LENGTH across) is one cubic: a clean rounded end, never a cluster of small wiggling curves.
+ */
+function fitWithLines(run: Point[], t1: Point, t2: Point, error: number): Cubic[] {
+  const lines = straightStretches(run)
+  if (!lines.length) return fitCubic(run, t1, t2, error)
+  const between = (part: Point[], a: Point, b: Point) => fitCubic(part, a, b, dist(part[0], part[part.length - 1]) <= CAP_LENGTH ? Infinity : error)
+  const out: Cubic[] = []
+  let at = 0
+  let tin = t1
+  for (const [a, b] of lines) {
+    const dir = norm(sub(run[b], run[a]))
+    if (a > at) out.push(...between(run.slice(at, a + 1), tin, neg(dir)))
+    const d = dist(run[a], run[b]) / 3
+    out.push([run[a], add(run[a], mul(dir, d)), sub(run[b], mul(dir, d)), run[b]])
+    at = b
+    tin = dir
+  }
+  if (at < run.length - 1) out.push(...between(run.slice(at), tin, t2))
+  return out
+}
+/** A part between straight stretches up to this far across (px) is a line end: one cubic. */
+const CAP_LENGTH = 3
+
+/** Maximal straight stretches [start, end] of a run, in order, not overlapping. */
+function straightStretches(run: Point[]): [number, number][] {
+  const out: [number, number][] = []
+  let i = 0
+  while (i < run.length - 2) {
+    let j = i + 2
+    let good = -1
+    while (j < run.length && straightBetween(run, i, j)) good = j++
+    if (good > 0 && dist(run[i], run[good]) >= STRAIGHT_MIN_LENGTH) {
+      out.push([i, good])
+      i = good
+    } else i++
+  }
+  return out
+}
+function straightBetween(run: Point[], i: number, j: number): boolean {
+  const a = run[i]
+  const b = run[j]
+  const len = dist(a, b)
+  if (len < 1e-6) return false
+  for (let k = i + 1; k < j; k++) {
+    const p = run[k]
+    const off = Math.abs((b[0] - a[0]) * (a[1] - p[1]) - (a[0] - p[0]) * (b[1] - a[1])) / len
+    if (off > STRAIGHT_TOLERANCE) return false
+    // Points must also progress along the line (no doubling back).
+    const along = ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / len
+    if (along < -STRAIGHT_TOLERANCE || along > len + STRAIGHT_TOLERANCE) return false
+  }
+  return true
+}
+
+/**
+ * Joins neighbouring curves of a closed outline wherever they meet smoothly (their directions at
+ * the join within SMOOTH_JOIN) and one cubic follows both within `tolerance` px: the same shape
+ * with fewer anchors. Corners are never joined.
+ */
+export function mergeCurves(curves: Cubic[], tolerance: number): Cubic[] {
+  const out = curves.slice()
+  let i = 0
+  let since = 0
+  while (out.length > 2 && since < out.length) {
+    const j = (i + 1) % out.length
+    const a = out[i]
+    const b = out[j]
+    const tIn = endDir(a)
+    const tOut = startDir(b)
+    let joined: Cubic | null = null
+    if (tIn && tOut && dot(tIn, tOut) >= Math.cos((SMOOTH_JOIN * Math.PI) / 180)) {
+      const pts = [...samples(a), ...samples(b).slice(1)]
+      const t1 = startDir(a)
+      const t2 = endDir(b)
+      if (t1 && t2) {
+        // One cubic through both, judged by distance from it (not by parameter, which differs
+        // between two pieces of different lengths).
+        const one = fitCubic(pts, t1, neg(t2), Infinity)[0]
+        if (pts.every((p) => nearCurve(p, one, tolerance)) && samples(one).every((p) => nearPoints(p, pts, tolerance))) joined = one
+      }
+    }
+    if (joined) {
+      if (j === 0) {
+        out.splice(i, 1)
+        out[0] = joined
+        i = 0
+      } else out.splice(i, 2, joined)
+      since = 0
+    } else {
+      i = (i + 1) % out.length
+      since++
+    }
+  }
+  return out
+}
+/** Directions (degrees) at a join closer than this count as smooth. */
+const SMOOTH_JOIN = 8
+
+function startDir(c: Cubic): Point | null {
+  for (const p of [c[1], c[2], c[3]]) if (dist(p, c[0]) > 1e-6) return norm(sub(p, c[0]))
+  return null
+}
+function endDir(c: Cubic): Point | null {
+  for (const p of [c[2], c[1], c[0]]) if (dist(c[3], p) > 1e-6) return norm(sub(c[3], p))
+  return null
+}
+function samples(c: Cubic): Point[] {
+  const out: Point[] = []
+  for (let i = 0; i <= 10; i++) out.push(bezierAt(c, i / 10))
+  return out
+}
+/** Whether p lies within `tolerance` of the polyline through pts. */
+function nearPoints(p: Point, pts: Point[], tolerance: number): boolean {
+  for (let i = 1; i < pts.length; i++) if (distToSegment(p, pts[i - 1], pts[i]) <= tolerance) return true
+  return false
+}
+function nearCurve(p: Point, c: Cubic, tolerance: number): boolean {
+  let prev = c[0]
+  for (let i = 1; i <= 40; i++) {
+    const q = bezierAt(c, i / 40)
+    if (distToSegment(p, prev, q) <= tolerance) return true
+    prev = q
+  }
+  return false
 }
 
 /**

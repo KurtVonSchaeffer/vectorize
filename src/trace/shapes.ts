@@ -15,6 +15,8 @@ export interface ShapeOptions {
   precision: number
   /** The tracer's edge smoothing; more smoothing rounds corners more, so allow for it. */
   smoothing?: number
+  /** Fine detail: small circles drawn exact, and no round outline passed as a polygon (TraceOptions.roundShapes). */
+  roundCheck?: boolean
 }
 
 /**
@@ -29,7 +31,36 @@ export function detectShape(loop: Point[], opts: ShapeOptions): ExactShape | nul
   if (loop.length < 8) return null
   const m = moments(loop)
   if (!m || m.area < 12) return null
-  return fitEllipse(loop, m, opts.precision) ?? fitPolygon(loop, m, opts)
+  return fitEllipse(loop, m, opts.precision) ?? fitPolygon(loop, m, opts) ?? (opts.roundCheck ? smallCircle(loop, m, opts.precision) : null)
+}
+
+/**
+ * A small round outline (below MIN_RADIUS, which fitEllipse leaves alone) that is a circle within
+ * a fraction of a pixel all round: drawn as an exact circle.
+ */
+function smallCircle(loop: Point[], m: Moments, precision: number): ExactShape | null {
+  const r = roundness(loop, m)
+  if (r.radius < SMALL_RADIUS || r.radius >= MIN_RADIUS) return null
+  // Round, not oval: both axes within 4%.
+  const tr = m.sxx + m.syy
+  const disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - (m.sxx * m.syy - m.sxy * m.sxy)))
+  if (tr / 2 - disc <= 0 || Math.sqrt((tr / 2 + disc) / (tr / 2 - disc)) > 1.04) return null
+  if (r.max > Math.max(0.3, 0.06 * r.radius) || r.rms > 0.15) return null
+  return { kind: 'circle', d: ellipsePath(m.cx, m.cy, r.radius, r.radius, 0, precision) }
+}
+const SMALL_RADIUS = 2.5
+
+/** Mean distance of the outline from its centre, and how far it strays from that circle. */
+function roundness(loop: Point[], m: Moments): { radius: number; max: number; rms: number } {
+  const d = loop.map(([x, y]) => Math.hypot(x - m.cx, y - m.cy))
+  const radius = d.reduce((s, v) => s + v, 0) / d.length
+  let max = 0
+  let sq = 0
+  for (const v of d) {
+    max = Math.max(max, Math.abs(v - radius))
+    sq += (v - radius) ** 2
+  }
+  return { radius, max, rms: Math.sqrt(sq / d.length) }
 }
 
 export interface Moments {
@@ -142,12 +173,33 @@ function fitPolygon(loop: Point[], m: Moments, opts: ShapeOptions): ExactShape |
   if (!corners || corners.length < 3 || corners.length > 64) return null
   // The straight-edged polygon must cover the same area as the traced outline.
   if (Math.abs(Math.abs(area(corners)) - m.area) > Math.max(4, m.area * 0.03)) return null
+  // Real corners: a small round outline (a dot, a ring's hole) can pass as a polygon, so the outline
+  // must follow the polygon more closely than a circle. (A small star traced as a pentagon does,
+  // and keeps it: star shapes are separate work.)
+  if (opts.roundCheck && roundness(loop, m).rms <= polygonRms(loop, corners)) return null
 
   const regular = regularize(corners, m)
   const pts = regular?.points ?? corners
   const f = (v: number) => +v.toFixed(opts.precision)
   const d = `M${pts.map((p) => `${f(p[0])} ${f(p[1])}`).join('L')}Z`
   return { kind: regular?.star ? 'star' : 'polygon', d }
+}
+
+/** Root-mean-square distance (px) of the outline's points from the polygon's edges. */
+function polygonRms(loop: Point[], corners: Point[]): number {
+  let sq = 0
+  for (const p of loop) {
+    let best = Infinity
+    for (let k = 0; k < corners.length; k++) {
+      const a = corners[k], b = corners[(k + 1) % corners.length]
+      const dx = b[0] - a[0], dy = b[1] - a[1]
+      const len2 = dx * dx + dy * dy
+      const t = len2 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2)) : 0
+      best = Math.min(best, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy))
+    }
+    sq += best * best
+  }
+  return Math.sqrt(sq / loop.length)
 }
 
 /**

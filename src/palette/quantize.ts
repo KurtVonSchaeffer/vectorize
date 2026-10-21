@@ -58,6 +58,12 @@ export interface QuantizeOptions {
   smoothing: number
   /** Keep edge-blend clusters as real colors (normally they're folded away). */
   keepBlends?: boolean
+  /**
+   * Fine detail (behind a flag): also gives the map a second labelling (LabelMap.fine) in which
+   * noise cleanup leaves the solid end pixels of thin lines alone, for the fine-detail tracer. The
+   * map's own labels are unchanged.
+   */
+  keepSolidDetail?: boolean
 }
 
 /**
@@ -225,6 +231,11 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   vetoDistantBlends(w, h, labels, plainLabels)
   vetoDistantPartners(d, w, h, labels, second, cov, anchors)
   let clean = majorityFilter(majorityFilter(labels, w, h), w, h)
+  // Fine detail: the same cleanup, except that a line's solid end pixel in a colour unlike the one
+  // around it stays (it is the line's end, not noise). Only the fine-detail tracer sees these pixels.
+  const solid = (p: number, own: number, around: number, ownCount: number, src: Uint8Array) => ownCount === 2 && lineEnd(src, w, h, p) && isSolid(d, p, labelRgb[own], labelRgb[around])
+  const kept = opts.keepSolidDetail ? majorityFilter(majorityFilter(labels, w, h, solid), w, h, solid) : null
+  const raw = kept ? { second: second.slice(), cov: cov.slice() } : null
   if (opts.minArea > 1) removeSpecks(clean, w, h, opts.minArea, (members, label, around) => isDetail(members, label, around, d, labelRgb))
   // Pixels relabeled by cleanup no longer carry meaningful blend information.
   for (let p = 0; p < clean.length; p++) {
@@ -235,6 +246,18 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   }
 
   const map: LabelMap = { w, h, labels: clean, second, cov, colors: labelRgb }
+  if (kept && raw) {
+    const fine = { labels: clean.slice(), second: second.slice(), cov: cov.slice() }
+    let any = false
+    for (let p = 0; p < clean.length; p++)
+      if (kept[p] === labels[p] && clean[p] !== labels[p]) {
+        fine.labels[p] = labels[p]
+        fine.second[p] = raw.second[p]
+        fine.cov[p] = raw.cov[p]
+        any = true
+      }
+    if (any) map.fine = fine
+  }
 
   const f = Math.max(1, Math.round(opts.upscale))
   if (f > 1 || opts.smoothing > 0) clean = upscaleLabels(clean, w, h, f, opts.smoothing, second, cov)
@@ -751,7 +774,7 @@ const PAPER_LABEL = 254
  * Pixels on a 1px line always have two same-label neighbors, so lines survive.
  * Originally transparent pixels are left alone.
  */
-function majorityFilter(src: Uint8Array, w: number, h: number): Uint8Array {
+function majorityFilter(src: Uint8Array, w: number, h: number, keep?: (p: number, own: number, around: number, ownCount: number, src: Uint8Array) => boolean): Uint8Array {
   const out = new Uint8Array(src)
   const counts = new Uint16Array(256)
   const seen: number[] = []
@@ -788,7 +811,7 @@ function majorityFilter(src: Uint8Array, w: number, h: number): Uint8Array {
         }
         counts[l] = 0
       }
-      if (ownCount <= 2 && bestCount >= 5) out[p] = best
+      if (ownCount <= 2 && bestCount >= 5 && !keep?.(p, own, best, ownCount, src)) out[p] = best
     }
   }
   return out
@@ -883,6 +906,41 @@ function isDetail(members: number[], label: number, around: number[], d: Uint8Cl
     if (t > best) best = t
   }
   return best >= DETAIL_SOLID
+}
+
+/**
+ * Whether pixel p is solidly its own label's colour against the colour around it (the test
+ * isDetail applies to a whole region): the two colours differ clearly, and the pixel sits at
+ * least DETAIL_SOLID of the way from the surrounding colour to its own.
+ */
+/**
+ * Whether pixel p ends a line: its one same-label neighbour continues in the same direction for at
+ * least two more pixels (not a speck or a two-pixel clump).
+ */
+function lineEnd(src: Uint8Array, w: number, h: number, p: number): boolean {
+  const own = src[p]
+  const x = p % w
+  const y = (p / w) | 0
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      if ((!dx && !dy) || src[p + dy * w + dx] !== own) continue
+      const x2 = x + 3 * dx
+      const y2 = y + 3 * dy
+      if (x2 < 0 || y2 < 0 || x2 >= w || y2 >= h) return false
+      return src[p + 2 * (dy * w + dx)] === own && src[p + 3 * (dy * w + dx)] === own
+    }
+  return false
+}
+
+function isSolid(d: Uint8ClampedArray, p: number, own: number | undefined, out: number | undefined): boolean {
+  if (own === undefined || out === undefined) return false
+  const L = [(own >> 16) & 255, (own >> 8) & 255, own & 255]
+  const E = [(out >> 16) & 255, (out >> 8) & 255, out & 255]
+  const v = [L[0] - E[0], L[1] - E[1], L[2] - E[2]]
+  const len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+  if (len2 < DETAIL_CONTRAST * DETAIL_CONTRAST) return false
+  const t = ((d[p * 4] - E[0]) * v[0] + (d[p * 4 + 1] - E[1]) * v[1] + (d[p * 4 + 2] - E[2]) * v[2]) / len2
+  return t >= DETAIL_SOLID
 }
 
 /** Clusters smaller than this share of the inked area are candidates for being blend fringe. */
