@@ -65,7 +65,11 @@ function pathStats(svg: string) {
   for (const s of shapes)
     for (const sp of s.subpaths) {
       anchors += sp.segs.length
-      const pts = flatten(sp, 0.05)
+      // Repeated points (a closed outline's last point is its first) have no direction.
+      const pts = flatten(sp, 0.05).filter((p, i, all) => {
+        const q = all[(i + 1) % all.length]
+        return all.length < 2 || Math.hypot(q[0] - p[0], q[1] - p[1]) > 1e-9
+      })
       if (pts.length < 3) continue
       let total = 0
       let net = 0

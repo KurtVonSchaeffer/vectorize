@@ -1,18 +1,22 @@
 /**
  * Fine detail (behind the fine-detail flag), in the master artwork: thin lines keep their width and
- * length, and nothing else changes: solid shapes and gradients trace as before, with no new
- * crossings or fragments. Off, nothing changes (golden.test.ts); print plates, cut files, one colour
- * and spot inks never get the options (pipeline.ts), checked in the app.
+ * length with clean, lean outlines; small dots and ring holes stay round while real corners stay
+ * sharp; and wherever the fine-detail trace is no better, the ordinary one stays exactly as it was
+ * (no new crossings, fragments, anchors, wiggles or transparency). Off, nothing changes
+ * (golden.test.ts); print plates, cut files, one colour and spot inks never get the options
+ * (pipeline.ts), checked in the app.
  */
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { FlatOptions } from '../pipeline'
+import { extraTurning, flatten as flattenCurves, judge, type Traced } from '../../trace/finedetail'
+import type { Cubic } from '../../trace/fit'
 import { area, circle, colourAt, distToOutline, installImageData, iou, paint, rect, regularPolygon, regularStar, renderSvg, ringsOf, selfIntersects, svgPaths, vectorize, type Point, type RGB, type SvgPath } from './fidelity/harness'
 
 beforeAll(installImageData)
 
 const SLOW = 120_000
 /** The options the fine-detail flag sets for a full-colour master (pipeline.ts buildTraceJob). */
-const fine = (o: FlatOptions): FlatOptions => ({ ...o, quantize: { ...o.quantize, keepSolidDetail: true }, trace: { ...o.trace, crossSection: true, straightRuns: true } })
+const fine = (o: FlatOptions): FlatOptions => ({ ...o, quantize: { ...o.quantize, keepSolidDetail: true }, trace: { ...o.trace, crossSection: true, straightRuns: true, roundShapes: true } })
 const both = (img: ImageData) => ({ off: vectorize(img), on: vectorize(img, fine) })
 
 const BLUE: RGB = [40, 70, 160]
@@ -50,6 +54,21 @@ function fillNear(paths: SvgPath[], c: RGB): string {
     if (d < bd) [best, bd] = [p.fill, d]
   }
   return bd < 60 ? best : ''
+}
+
+/** Extra turning (degrees) of one SVG path element's outline. */
+function turning(pathLine: string): number {
+  const d = pathLine.match(/d="([^"]+)"/)![1]
+  const nums = d.match(/-?[\d.]+/g)!.map(Number)
+  const start: Point = [nums[0], nums[1]]
+  const curves: Cubic[] = []
+  let at = start
+  for (let i = 2; i + 5 < nums.length + 1; i += 6) {
+    const c: Cubic = [at, [nums[i], nums[i + 1]], [nums[i + 2], nums[i + 3]], [nums[i + 4], nums[i + 5]]]
+    curves.push(c)
+    at = c[3]
+  }
+  return extraTurning(flattenCurves(curves))
 }
 
 /** Drawn width of a vertical bar at height y (px). */
@@ -97,6 +116,21 @@ describe('thin lines (RC1)', () => {
     expect(score(on.svg, bars, ring).ring).toBeGreaterThanOrEqual(score(off.svg, bars, ring).ring)
   }, SLOW)
 
+  it('line ends are one clean curve: no hooks, and four anchors a bar', () => {
+    // The ordinary trace draws these bars as pointed lenses (2 anchors) 14 px long; ends rebuilt as
+    // sharp corners 1 px apart made hooks (8 anchors, 270° of extra turning).
+    const { img, bars } = strokes(1, 0.2)
+    const P = svgPaths(vectorize(img, fine).svg)
+    const g = fillNear(P, GREEN)
+    const d = vectorize(img, fine).svg.split('\n').filter((l) => l.includes(`fill="${g}"`))
+    for (const b of bars) {
+      const line = d.find((l) => { const m = l.match(/d="M([\d.]+) ([\d.]+)/); return !!m && Math.abs(+m[1] - b[0][0]) < 2 && +m[2] < 25 })!
+      expect(line).toBeDefined()
+      expect((line.match(/C/g) ?? []).length).toBeLessThanOrEqual(4)
+      expect(turning(line)).toBeLessThan(5)
+    }
+  }, SLOW)
+
   it('a thin ring is not snapped to a polygon', () => {
     // A 1.2 px ring's inner edge, traced by the fine-detail rule, once passed as a polygon (straight
     // sides). (Some small rings snap with the flag off too: shape recognition is separate work.)
@@ -124,27 +158,56 @@ describe('thin lines (RC1)', () => {
     expect(Math.abs(width(P, g, 8, 14, 30) - 2)).toBeLessThanOrEqual(0.15)
   }, SLOW)
 
-  it('1.2 px lettering strokes on a light band are kept, and drawn without crossings', () => {
+  it('1.2 px lettering strokes on a light band are no worse: no new crossings, fragments or anchors', () => {
+    // The fine trace draws these strokes closer to the upload and without the ordinary trace's
+    // wiggles, but under 4 px² (their colour is read lighter than it is; colour accuracy is
+    // separate work), so the fallback keeps the ordinary outlines: never a new fragment.
     const shapes = [{ rings: [rect(0, 30, 110, 40)], color: [240, 240, 235] as RGB }]
     const strokesAt = Array.from({ length: 12 }, (_, k) => rect(6 + k * 8, 31.5, 6 + k * 8 + 1.2, 38.5))
     shapes.push({ rings: strokesAt, color: [30, 140, 70] })
     const img = paint(110, 70, BLUE, shapes)
-    const kept = (svg: string) => {
-      const P = svgPaths(svg)
-      const g = fillNear(P, [30, 140, 70])
-      return g ? Math.min(...strokesAt.map((s) => iou(P, g, [s], [s[0][0] - 1, 30, s[1][0] + 1, 40]))) : 0
+    const count = (svg: string) => {
+      const rings = svgPaths(svg).flatMap((p) => p.rings)
+      return { crossing: rings.filter(selfIntersects).length, tiny: rings.filter((g) => !selfIntersects(g) && Math.abs(area(g)) < 4).length, anchors: (svg.match(/[CL]/g) ?? []).length }
     }
-    const crossings = (svg: string) => svgPaths(svg).flatMap((p) => p.rings).filter(selfIntersects).length
     const { off, on } = both(img)
-    // Below the audit's 0.5: these strokes' colour is read lighter than it is, so their edge
-    // pixels count for less (colour accuracy is separate work).
-    expect(kept(off.svg)).toBeLessThan(0.2)
-    expect(kept(on.svg)).toBeGreaterThanOrEqual(0.3)
-    expect(crossings(on.svg)).toBeLessThanOrEqual(crossings(off.svg))
+    expect(count(on.svg).crossing).toBeLessThanOrEqual(count(off.svg).crossing)
+    expect(count(on.svg).tiny).toBeLessThanOrEqual(count(off.svg).tiny)
+    expect(count(on.svg).anchors).toBeLessThanOrEqual(count(off.svg).anchors)
+  }, SLOW)
+})
+
+describe('round shapes and real corners', () => {
+  // Off, a small ring's hole passes as a quadrilateral; a dot isn't drawn with corners it hasn't got.
+  it('small rings keep round holes', () => {
+    // Off, these holes pass as a quadrilateral, pentagons and a hexagon.
+    for (const [r, wd] of [[5, 2], [5, 2.5], [6, 2], [7, 1.5], [7, 3]]) {
+      const img = paint(40, 40, PAPER, [{ rings: [circle(20.3, 20.2, r), circle(20.3, 20.2, r - wd, true)], color: GREEN }])
+      const hole = (svg: string) => svg.split('\n').find((l) => /Z\s*M/.test(l))?.split('ZM')[1]
+      const { off, on } = both(img)
+      expect(hole(off.svg)).toMatch(/\dL\d/) // the defect, with the flag off
+      expect(hole(on.svg)).toBeDefined()
+      expect(hole(on.svg)).not.toMatch(/\dL\d/)
+    }
+  }, SLOW)
+
+  it('small squares, triangles and stars keep their corners exactly as before', () => {
+    // (A 5 px star traces as a pentagon; stars are separate work, but fine detail doesn't round it.)
+    for (const shape of [rect(17.5, 17.5, 22.5, 22.5), rect(17, 17, 23, 23), regularPolygon(20, 20, 6, 3), regularStar(20, 20, 4), regularStar(20, 20, 5)]) {
+      const img = paint(40, 40, BLUE, [{ rings: [shape], color: WHITE }])
+      const { off, on } = both(img)
+      expect(on.svg).toBe(off.svg)
+    }
   }, SLOW)
 })
 
 describe('nothing else changes', () => {
+  it('artwork without fine detail is byte-identical', () => {
+    const img = paint(120, 90, null, [{ rings: [rect(10, 10, 70, 80)], color: BLUE }, { rings: [circle(90, 45, 20)], color: GREEN }])
+    const { off, on } = both(img)
+    expect(on.svg).toBe(off.svg)
+  }, SLOW)
+
   it('solid shapes keep their corners and points as before', () => {
     for (const shape of [regularPolygon(48, 48, 10, 6), regularPolygon(48, 48, 12, 7), regularStar(48, 48, 20)]) {
       const img = paint(96, 96, null, [{ rings: [rect(8, 8, 88, 88)], color: BLUE }, { rings: [shape], color: WHITE }])
@@ -192,6 +255,44 @@ describe('nothing else changes', () => {
     expect(count(on.svg).crossing).toBeLessThanOrEqual(count(off.svg).crossing)
     expect(count(on.svg).tiny).toBeLessThanOrEqual(count(off.svg).tiny)
   }, SLOW)
+})
+
+describe('the fallback (judge)', () => {
+  // A 1 × 10 px bar, solid in the upload; outlines are judged against its coverage.
+  const target = () => {
+    const coverage = new Float32Array(20 * 20)
+    for (let y = 5; y < 15; y++) coverage[y * 20 + 10] = 1
+    return { w: 20, h: 20, coverage }
+  }
+  const line = (a: Point, b: Point): Cubic => [a, [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3], [a[0] + (2 * (b[0] - a[0])) / 3, a[1] + (2 * (b[1] - a[1])) / 3], b]
+  const poly = (pts: Point[]): Traced => ({ loop: pts, curves: pts.map((p, i) => line(p, pts[(i + 1) % pts.length])) })
+  const exact = poly([[10, 5], [11, 5], [11, 15], [10, 15]])
+  const lens = poly([[10.5, 7], [11, 10], [10.5, 13], [10, 10]])
+  const never = () => false
+
+  it('takes a fine outline that is closer to the upload and as clean', () => {
+    const j = judge([lens], [exact], target(), never)
+    expect(j.fine.has(exact.loop)).toBe(true)
+    expect(j.kept).toEqual([])
+  })
+  it('keeps the ordinary outline when the fine one is no closer', () => {
+    expect(judge([exact], [lens], target(), never).fine.size).toBe(0)
+  })
+  it('keeps the ordinary outline when the fine one wiggles, crosses itself or uses more anchors', () => {
+    const wiggly = poly([[10, 5], [11, 5], [10.6, 8], [11, 10], [10.6, 12], [11, 15], [10, 15], [10.4, 10]])
+    expect(extraTurning(flattenCurves(wiggly.curves))).toBeGreaterThan(10)
+    expect(judge([lens], [wiggly], target(), never).fine.size).toBe(0)
+    expect(judge([lens], [exact], target(), () => true).fine.size).toBe(0)
+    const busy: Traced = { loop: exact.loop, curves: exact.curves.flatMap((c) => [line(c[0], [(c[0][0] + c[3][0]) / 2, (c[0][1] + c[3][1]) / 2]), line([(c[0][0] + c[3][0]) / 2, (c[0][1] + c[3][1]) / 2], c[3])]) }
+    expect(judge([lens], [busy], target(), never).fine.size).toBe(0)
+  })
+  it('keeps the ordinary outline when the fine one would leave a solid pixel see-through', () => {
+    const t = target()
+    for (let y = 5; y < 15; y++) t.coverage[y * 20 + 11] = 1 // 2 px wide in the upload
+    const wide = poly([[10, 5], [12, 5], [12, 15], [10, 15]])
+    const narrow = poly([[10, 4], [11.2, 4], [11.2, 16], [10, 16]])
+    expect(judge([wide], [narrow], t, never).fine.size).toBe(0)
+  })
 })
 
 describe('flag', () => {

@@ -240,7 +240,9 @@ export default function App() {
         gradients,
         brand,
         ...(CLEAN_GEOMETRY ? { cleanGeometry: true } : {}),
-        ...(FINE_DETAIL ? { fineDetail: true } : {}),
+        // Fine detail changes the master only; without print files the print and cut SVGs are the
+        // master, so it needs them (print and cut files then stay exactly as before).
+        ...(FINE_DETAIL && PRINT_FILES ? { fineDetail: true } : {}),
         lettering: vary.lettering ?? letteringWords,
         oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
         ...(vary.paperOut ? { paperOut: vary.paperOut, paperWords: vary.paperWords, whiteChoices: vary.whiteChoices } : {}),

@@ -240,7 +240,7 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         spread: s.knockout && !one ? 0.15 : 0,
         exactShapes: s.exactShapes ?? true,
         ...(s.cleanGeometry && !one ? { connectedStacking: true } : {}),
-        ...(fine ? { crossSection: true, straightRuns: true } : {}),
+        ...(fine ? { crossSection: true, straightRuns: true, roundShapes: true } : {}),
       },
     },
   }

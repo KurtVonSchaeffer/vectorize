@@ -6,6 +6,26 @@ Every change starts behind its own flag, is measured against the original upload
 an earlier vector), and is a draft PR until approved; nothing is merged or deployed without
 approval.
 
+## Acceptance criteria for every reconstruction change
+
+Edge quality is a requirement of every change, not a later phase. A change is ready for review only
+when its benchmark (`bench/compare.html`, master and `knockout=1`, every audit upload plus the
+relevant synthetic fixtures) shows, against production, on every image it changes:
+
+- fidelity to the upload no worse (mean error, edge recall, lost and changed details), and better
+  where the change is aimed;
+- edges no rougher (turning beyond a clean outline, per 100 px) and no less accurate zoomed in (2×
+  and 4×);
+- no unnecessary anchors (any increase explained by shape the upload has, such as a line's ends);
+- no new crossings, fragments, small holes or see-through pixels;
+- circles round, straight edges straight, real corners sharp;
+- print, cut, PDF, DXF and One-colour output unchanged unless the change is aimed at them;
+- a side-by-side sheet (upload, production, proposed) with zoomed crops of every changed region,
+  checked by eye: a number can't show a speck of the wrong colour.
+
+Where a new method can be worse, it has a measured per-region fallback to the production result
+(as fine detail does, `src/trace/finedetail.ts`).
+
 ## Done (merged, behind flags, off in production)
 
 | PR | Flag | What |
@@ -19,7 +39,7 @@ approval.
 
 | PR | Flag | What |
 | --- | --- | --- |
-| 4 | `fine-detail` | Thin lines keep their width and length in the master (RC1): see docs/fine-detail.md |
+| #28 | `fine-detail` | Thin lines keep their width and length in the master, only where measurably better; small rings and dots stay round (RC1): see docs/fine-detail.md |
 
 ## Next, in order
 
@@ -37,8 +57,10 @@ and on text-specific fixtures, with before-and-after renders.
    Plates must tile: any change there needs a tiling check (no new see-through pixels).
 3. **Shape recognition** (RC5, RC6). Small stars lose their points or snap to a pentagon; small
    heptagons snap to circles; 3 px notches round off (RC9).
-4. **Edge quality** (new requirement, below).
-5. **Font recognition and matching** (new requirement, below).
+4. **Edge quality** beyond what each change already guarantees (below): straight-line and corner
+   detection everywhere, node minimisation, curve fitting judged at several zoom levels.
+5. **Font recognition and matching** (below): its own phase. Lettering is never "fixed" by
+   smoothing traced outlines in its place.
 6. **Gradients** (RC7): overlapping gradients flattened to one colour.
 
 ## Edge quality: smooth, professional edges
@@ -61,10 +83,12 @@ Measures (added to `bench/compare.ts` in PR 4, extended in this PR):
   stair steps add it).
 - Geometry: self-intersections, fragments under 4 px², and new see-through pixels.
 
-Known starting points from PR 4: the curve fitter has no straight segments (a straight side is a
-long cubic that may bulge by the full tolerance, which widened thin strokes by about 0.3 px), and a
-detector for straight stretches must tell a straight edge from a gentle arc (a first attempt applied
-everywhere turned smooth curves into chains of short lines: android went from 26 to 159 anchors).
+Known starting points from PR #28: the curve fitter has no straight segments outside thin outlines
+(a straight side is a long cubic that may bulge by the full tolerance), and a detector for straight
+stretches must tell a straight edge from a gentle arc (a first attempt applied everywhere turned
+smooth curves into chains of short lines: android went from 26 to 159 anchors). Corners rebuilt
+closer together than about a pixel make hooks; two curves that one cubic follows can be joined
+(`mergeCurves`).
 
 ## Font recognition and matching
 

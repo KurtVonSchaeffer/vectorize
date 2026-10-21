@@ -1,5 +1,6 @@
 import { area, contours, type Point } from './contours'
-import { fitClosed, type Cubic } from './fit'
+import { fitClosed, mergeCurves, type Cubic } from './fit'
+import { judge } from './finedetail'
 import { circlePath, decomposeCirclePolygon, insideCircle, insidePolygon, polygonPath, type CirclePolygon } from './decompose'
 import { detectShape, type ShapeKind } from './shapes'
 import { gradientSvg, type GradientFill } from '../palette/gradients'
@@ -18,6 +19,11 @@ export interface LabelMap {
   colors: number[]
   /** Labels drawn with a gradient instead of their flat color (which is then the average). */
   fills?: (GradientFill | undefined)[]
+  /**
+   * Fine detail: the labelling the fine-detail tracer reads, where it differs from the one above
+   * (the solid end pixels of thin lines kept by noise cleanup). Same colours.
+   */
+  fine?: { labels: Uint8Array; second: Uint8Array; cov: Float32Array }
 }
 
 export interface TraceOptions {
@@ -60,6 +66,11 @@ export interface TraceOptions {
    * between pixels, instead of breaking there (see keepThin).
    */
   crossSection?: boolean
+  /**
+   * Fine detail: a small round outline is drawn as an exact circle, and becomes a polygon only when
+   * its corners are real (it follows the polygon more closely than a circle).
+   */
+  roundShapes?: boolean
   /**
    * Fine detail: a thin outline's straight stretches are drawn as exact lines (FitOptions.straightRuns).
    * With the ordinary curve tolerance a 1 px bar's sides otherwise bulge, drawing it half as wide again.
@@ -223,18 +234,20 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     }
   }
 
-  for (let layer = 0; layer < order.length; layer++) {
-    const inLayer = (r: number) => (knockout ? r === layer : r >= layer)
-    // The layer's bounds, so smoothing skips the area it doesn't cover.
+  // The fine-detail tracer's labelling (the same as the map's unless noise cleanup kept line ends).
+  const fineMap = map.fine ?? { labels, second, cov }
+  const fineField = opts.crossSection ? new Float32Array(n) : field
+  /** Fills `out` with the layer's membership from a labelling; returns its bounds. */
+  const membership = (m: { labels: Uint8Array; second: Uint8Array; cov: Float32Array }, inLayer: (r: number) => boolean, out: Float32Array) => {
     let bx0 = w, by0 = h, bx1 = -1, by1 = -1
     for (let p = 0; p < n; p++) {
-      const r1 = rank[labels[p]]
-      const r2 = second[p] < NO_SHAPE ? rank[second[p]] : -1
-      let m = 0
-      if (inLayer(r1)) m += cov[p]
-      if (inLayer(r2)) m += 1 - cov[p]
-      field[p] = m
-      if (m !== 0) {
+      const r1 = rank[m.labels[p]]
+      const r2 = m.second[p] < NO_SHAPE ? rank[m.second[p]] : -1
+      let v = 0
+      if (inLayer(r1)) v += m.cov[p]
+      if (inLayer(r2)) v += 1 - m.cov[p]
+      out[p] = v
+      if (v !== 0) {
         const x = p % w
         const y = (p / w) | 0
         if (x < bx0) bx0 = x
@@ -243,34 +256,38 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         if (y > by1) by1 = y
       }
     }
+    return [bx0, by0, bx1, by1] as [number, number, number, number]
+  }
+
+  for (let layer = 0; layer < order.length; layer++) {
+    const inLayer = (r: number) => (knockout ? r === layer : r >= layer)
+    // The layer's bounds, so smoothing skips the area it doesn't cover.
+    const box = membership({ labels, second, cov }, inLayer, field)
     // Fine detail applies to colours that stand out from what they border (lines, lettering,
     // small marks), not to bands between similar colours (shading, compression edges).
-    const detailLayer = !!(opts.crossSection || opts.straightRuns) && contrasting(map, order[layer])
-    const blurred = blur(field, w, h, opts.smoothing, [bx0, by0, bx1, by1])
+    const detailLayer = !!opts.crossSection && contrasting(map, order[layer])
+    const blurred = blur(field, w, h, opts.smoothing, box)
     const isOwn = (p: number) => labels[p] < 254 && inLayer(rank[labels[p]])
-    const outlines = (thin: boolean) => {
-      const all = contours(keepThin(blurred, w, h, level, opts.smoothing, thin ? field : undefined), w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
+    const outlines = (b: Float32Array, raw?: Float32Array) => {
+      const all = contours(keepThin(b, w, h, level, opts.smoothing, raw), w, h, level).filter((l) => Math.abs(area(l)) >= opts.minArea)
       return all.filter((l) => Math.abs(area(l)) >= (opts.detailArea ?? opts.minArea) || realDetail(l, all, w, h, isOwn))
     }
-    let loops = outlines(!!opts.crossSection && detailLayer)
-    // Outlines traced and fitted the ordinary way (no fine detail).
-    const ordinary = new Set<Point[]>()
-    if (opts.crossSection && detailLayer) {
-      // Fine detail never adds a crossing: an outline it traced that crosses itself even fitted
-      // closely is replaced by the ordinary outlines in its place, fitted the ordinary way.
-      const crossing = loops.filter((l) => crossesItself(fitLoop(l, fitOptions(l, opts), opts)))
-      if (crossing.length) {
-        const plain = outlines(false)
-        const boxes = crossing.map((l) => bounds(l))
-        const within = (l: Point[]) => {
-          const b = bounds(l)
-          return boxes.some((c) => b[0] >= c[0] - 1 && b[1] >= c[1] - 1 && b[2] <= c[2] + 1 && b[3] <= c[3] + 1)
-        }
-        // Every fine outline in those places goes too, so none coincides with an ordinary one.
-        const swap = plain.filter(within)
-        for (const l of swap) ordinary.add(l)
-        loops = [...loops.filter((l) => !crossing.includes(l) && !within(l)), ...swap]
-      }
+    let loops = outlines(blurred)
+    // Fine detail: the layer traced again with the fine-detail rule; a group of its outlines
+    // replaces the ordinary ones only where it is measurably better (judge, finedetail.ts).
+    const fineCurves = new Map<Point[], Cubic[]>()
+    let replaced = new Map<Point[], Point[][]>()
+    const ordCurves = new Map<Point[], Cubic[]>()
+    if (detailLayer && opts.crossSection) {
+      const fineBox = membership(fineMap, inLayer, fineField)
+      const fineLoops = outlines(map.fine ? blur(fineField, w, h, opts.smoothing, fineBox) : blurred, fineField)
+      const ordinary = loops.map((loop) => ({ loop, curves: fitLoop(loop, null, opts) }))
+      const fine = fineLoops.map((loop) => ({ loop, curves: mergeCurves(fitLoop(loop, fitOptions(loop, opts), opts), MERGE_TOLERANCE) }))
+      const judged = judge(ordinary, fine, { w, h, coverage: fineField }, crossesItself)
+      for (const t of fine) if (judged.fine.has(t.loop)) fineCurves.set(t.loop, t.curves)
+      for (const t of ordinary) ordCurves.set(t.loop, t.curves)
+      replaced = judged.replaced
+      loops = [...judged.kept, ...fine.filter((t) => judged.fine.has(t.loop)).map((t) => t.loop)]
     }
     if (!knockout && opts.connectedStacking)
       loops = withoutHiddenCopies(loops, w, h, (p) => rank[labels[p]] === layer || (second[p] < NO_SHAPE && rank[second[p]] === layer && cov[p] < 0.5))
@@ -279,24 +296,17 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
     // Drop fragments of this color that a split shape below already draws in full.
     const kept = loops.filter((l) => !suppressed.some((s) => s.label === label && mostly(sampleOf(l), s.covers)))
     const below: TracedLayer[] = []
-    const shapeOptions = { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing }
-    const fineTraced = !!opts.crossSection && detailLayer
-    let plain: Point[][] | null = null
-    const plainShape = (loop: Point[], kind: string) => {
-      plain ??= outlines(false)
-      const b = bounds(loop)
-      return plain.some((l) => {
-        const c = bounds(l)
-        return Math.abs(b[0] - c[0]) <= 1 && Math.abs(b[1] - c[1]) <= 1 && Math.abs(b[2] - c[2]) <= 1 && Math.abs(b[3] - c[3]) <= 1 && detectShape(l, shapeOptions)?.kind === kind
-      })
-    }
+    const shapeOptions = { cornerAngle: opts.cornerAngle, precision: opts.precision, smoothing: opts.smoothing, roundCheck: opts.roundShapes }
+    // A fine outline is drawn as an exact shape only when an ordinary outline it replaced is that
+    // shape too: a thin ring's inner edge must not snap to a polygon.
+    const plainShape = (loop: Point[], kind: string) => (replaced.get(loop) ?? []).some((l) => detectShape(l, shapeOptions)?.kind === kind)
     const parts = kept.map((loop) => {
       // The full-image background is a plain rectangle; write it exactly but don't count it.
       if (opts.exactShapes && coversImage(loop, w, h)) return `M0 0L${w} 0L${w} ${h}L0 ${h}Z`
       let exact = opts.exactShapes ? detectShape(loop, shapeOptions) : null
       // An outline the fine-detail rule traced is drawn as an exact shape only when its ordinary
       // trace is that shape too: a thin ring's inner edge must not snap to a polygon.
-      if (exact && fineTraced && !ordinary.has(loop) && !plainShape(loop, exact.kind)) exact = null
+      if (exact && fineCurves.has(loop) && !plainShape(loop, exact.kind)) exact = null
       // An irregular "polygon" may really be a star and a circle whose short arcs passed as
       // straight edges; prefer the split when it explains the outline.
       if (exact && exact.kind !== 'polygon') {
@@ -319,7 +329,7 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         shapes[exact.kind]++
         return exact.d
       }
-      return toPath(fitLoop(loop, detailLayer && !ordinary.has(loop) ? fitOptions(loop, opts) : null, opts), fmt)
+      return toPath(fineCurves.get(loop) ?? ordCurves.get(loop) ?? fitLoop(loop, null, opts), fmt)
     })
     const d = parts.join('')
     layers.push(...below.filter((b) => b.d && b.color >= 0))
@@ -376,12 +386,16 @@ function fitOptions(loop: Point[], opts: TraceOptions): { error: number; cornerA
   let per = 0
   for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) per += Math.hypot(loop[i][0] - loop[j][0], loop[i][1] - loop[j][1])
   const thickness = per ? (2 * Math.abs(area(loop))) / per : Infinity
-  return thickness > THIN_OUTLINE ? base : { ...base, straightRuns: true }
+  // A thin outline's ends turn through 180° within its width: no corners there to sharpen (rebuilt
+  // corners 1 px apart make hooks), just one smooth cap between its straight sides.
+  return thickness > THIN_OUTLINE ? base : { ...base, cornerAngle: 181, straightRuns: true }
 }
 /** Outlines up to this thick (px) are thin (see fitOptions). */
 const THIN_OUTLINE = 3
 /** The tightest curve tolerance a refit uses (px). */
 const MIN_FIT_ERROR = 0.04
+/** How far (px) joining two curves of a fine outline into one may move it (mergeCurves). */
+const MERGE_TOLERANCE = 0.1
 
 /**
  * Fits one outline, with the fine-detail options when given (detail layers). A detail outline whose
