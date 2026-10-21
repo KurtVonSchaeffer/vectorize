@@ -19,6 +19,7 @@ The local dev server (`npm run dev`) also honours `?x=on`.
 | `print-files` | `VITE_PRINT_FILES` | off | Print and cut files traced as their own plates; paper is not a white-ink plate; one physical size | docs/print-files.md |
 | `clean-geometry` | `VITE_CLEAN_GEOMETRY` | off | Master SVG: no shape drawn twice | docs/clean-geometry.md |
 | `fine-detail` | `VITE_FINE_DETAIL` | off | Master SVG: thin lines at their real width and length, only where measurably better | docs/fine-detail.md |
+| `colour-accuracy` | `VITE_COLOUR_ACCURACY` | off (draft) | Master SVG: thin lines and lettering keep their own colour, only where they trace better | docs/colour-accuracy.md |
 
 Verified after merging #28: production builds of main @ 7eac2d1 and @ 6d3849d, opened with all four
 parameters in the address, show no flagged interface and make byte-identical downloads (print PDF
@@ -47,6 +48,11 @@ Before either is released, decide one of:
    `print-files` does) so the master can differ from them; this costs a second trace per download.
 3. Accept fine detail in the master-based print and cut SVGs, after a print and cut check of its
    own (gaps, crossings, cut paths) on the audit set.
+
+### `colour-accuracy` needs `print-files` too
+
+For the same reason: it changes the master only, and without print files the print and cut SVGs
+are the master (`src/App.tsx`). Revisit together with `fine-detail`.
 
 ### `clean-geometry` and `fine-detail`
 

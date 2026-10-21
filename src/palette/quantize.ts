@@ -31,6 +31,33 @@ export interface Quantized {
   map: LabelMap
   /** Edge-blend colors (anti-aliasing or JPEG fringes) that were folded into real colors. */
   blendsRemoved: number
+  /**
+   * Colour accuracy: thin lines and lettering that took their background's colour, with the colour
+   * each would take. Not applied to `map`: the pipeline traces with and without them and applies
+   * only those that trace better (src/vectorize/linecolours.ts).
+   */
+  lines?: LineCandidates
+}
+
+/** A thin line found by lineColours: its pixels, the label each would take, and its background. */
+export interface LineCandidate {
+  pixels: number[]
+  /** Share of the line's colour in each pixel (the rest is the background). */
+  share: number[]
+  /** An existing label, or a new colour: an index into LineCandidates.colours. */
+  label: number
+  fresh: boolean
+  background: number
+  box: [number, number, number, number]
+}
+export interface LineCandidates {
+  lines: LineCandidate[]
+  /**
+   * New colours (0xRRGGBB) the lines may add, after the map's own; or, where `corrects` names a
+   * thin colour of the map (pale lettering read from its edge blends), that colour's correction.
+   */
+  colours: number[]
+  corrects: number[]
 }
 
 // Pixels are bucketed at 5 bits per channel; every bucket gets one ink via a lookup table, so
@@ -64,6 +91,11 @@ export interface QuantizeOptions {
    * map's own labels are unchanged.
    */
   keepSolidDetail?: boolean
+  /**
+   * Colour accuracy (behind a flag): also proposes colours for thin lines and lettering that took
+   * their background's colour (Quantized.lines, see lineColours). The map itself is unchanged.
+   */
+  thinColours?: boolean
 }
 
 /**
@@ -230,6 +262,8 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   }
   vetoDistantBlends(w, h, labels, plainLabels)
   vetoDistantPartners(d, w, h, labels, second, cov, anchors)
+  // Colour accuracy: thin lines and lettering that took their background's colour (proposed only).
+  const lines = opts.thinColours ? lineColours(d, w, h, labels, second, cov, labelRgb, fixedBase) : undefined
   let clean = majorityFilter(majorityFilter(labels, w, h), w, h)
   // Fine detail: the same cleanup, except that a line's solid end pixel in a colour unlike the one
   // around it stays (it is the line's end, not noise). Only the fine-detail tracer sees these pixels.
@@ -266,7 +300,7 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   const inks = [...inkCoverage.values()]
     .map(({ ink, weight, deSum }) => ({ ...ink, coverage: weight / total, deltaE: deSum / weight }))
     .sort((a, b) => b.coverage - a.coverage)
-  return { image, inks, map, blendsRemoved: clustered.centers.length - pruned.centers.length }
+  return { image, inks, map, blendsRemoved: clustered.centers.length - pruned.centers.length, ...(lines ? { lines } : {}) }
 }
 
 /** Spot-color quantization at the image's own resolution (no upscaling). */
@@ -973,6 +1007,262 @@ function interiorShare(src: ImageData, bins: number[], assign: Int32Array, k: nu
     }
   return Array.from(total, (t, c) => (t ? inner[c] / t : 0))
 }
+
+/**
+ * Colour accuracy: thin lines and lettering whose pixels were labelled as their background (as
+ * blends of it, or of two other colours) get a colour of their own. A pixel is on a line when,
+ * across it in some direction (across, down or diagonal), at most LINE_RUN pixels clearly unlike the
+ * background separate two pixels of the same background colour. Connected groups of such pixels at
+ * least LINE_EXTENT long, with at least LINE_PIXELS pixels, are lines; each is coloured from its
+ * pixels that stand out most (its anti-aliased edges read paler), reusing a colour already in the
+ * artwork when one is that close. A line is proposed only where that brings its pixels clearly
+ * closer to the upload (LINE_GAIN); the pipeline then keeps only those that trace better.
+ */
+function lineColours(d: Uint8ClampedArray, w: number, h: number, labels: Uint8Array, second: Uint8Array, cov: Float32Array, labelRgb: number[], fixedBase: number): LineCandidates {
+  const unpack = (v: number) => [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+  // Flat colours only: gradient regions (labels from fixedBase) are neither lines nor their ground.
+  const colourOf = (l: number) => (l === PAPER_LABEL ? [255, 255, 255] : l < fixedBase && labelRgb[l] >= 0 ? unpack(labelRgb[l]) : null)
+  const px = (p: number) => [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
+  const dist = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+  const NONE = -1
+  // 1. Pixels on lines, with their background label.
+  const bgOf = new Int16Array(w * h).fill(NONE)
+  const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]]
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      if (d[p * 4 + 3] < 255 || labels[p] >= EMPTY || (labels[p] < PAPER_LABEL && labels[p] >= fixedBase)) continue
+      const own = px(p)
+      for (const [dx, dy] of dirs) {
+        const end = (sx: number, sy: number) => {
+          for (let k = 1; k <= LINE_RUN; k++) {
+            const xx = x + sx * k, yy = y + sy * k
+            if (xx < 0 || yy < 0 || xx >= w || yy >= h) return null
+            const q = yy * w + xx
+            if (d[q * 4 + 3] < 255) return null
+            const c = colourOf(labels[q])
+            if (c && dist(px(q), c) < GROUND_TOLERANCE) return { label: labels[q], k }
+          }
+          return null
+        }
+        const a = end(dx, dy)
+        const b = end(-dx, -dy)
+        if (!a || !b || a.label !== b.label || a.k + b.k - 1 > LINE_RUN) continue
+        if (dist(own, colourOf(a.label)!) < LINE_CONTRAST) continue
+        bgOf[p] = a.label
+        break
+      }
+    }
+  // 2. Connected groups of line pixels on the same background.
+  const seen = new Uint8Array(w * h)
+  const groups: { pixels: number[]; bg: number }[] = []
+  for (let s0 = 0; s0 < w * h; s0++) {
+    if (bgOf[s0] === NONE || seen[s0]) continue
+    const pixels: number[] = []
+    const stack = [s0]
+    seen[s0] = 1
+    let x0 = w, y0 = h, x1 = 0, y1 = 0
+    while (stack.length) {
+      const p = stack.pop()!
+      pixels.push(p)
+      const x = p % w, y = (p / w) | 0
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue
+          const q = yy * w + xx
+          if (!seen[q] && bgOf[q] === bgOf[s0]) (seen[q] = 1), stack.push(q)
+        }
+    }
+    if (pixels.length >= LINE_PIXELS && Math.max(x1 - x0, y1 - y0) + 1 >= LINE_EXTENT) groups.push({ pixels, bg: bgOf[s0] })
+  }
+  // Broad colours (most of their pixels inside the colour): a line may take one of these. A thin
+  // colour (pale lettering read from its edge blends) is what a line's own colour corrects.
+  const inside = new Float64Array(PAPER_LABEL)
+  const total = new Float64Array(PAPER_LABEL)
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x
+      const l = labels[p]
+      if (l >= PAPER_LABEL) continue
+      total[l]++
+      if (labels[p - 1] === l && labels[p + 1] === l && labels[p - w] === l && labels[p + w] === l) inside[l]++
+    }
+  const broad = (l: number) => total[l] > 0 && inside[l] / total[l] > BLEND_MAX_INTERIOR
+  // 3. Each line's colour: a broad colour that close, or one of a few new colours shared by
+  // similar lines (lettering in one colour is one colour), each with enough lines to be real.
+  const lines = groups.map((g) => {
+    const bg = colourOf(g.bg)!
+    const ranked = g.pixels.map((p) => ({ p, c: dist(px(p), bg) })).sort((a, b) => b.c - a.c)
+    const top = ranked.slice(0, Math.max(2, Math.ceil(ranked.length * LINE_SOLID)))
+    const colour = [0, 1, 2].map((k) => top.reduce((t, r) => t + d[r.p * 4 + k], 0) / top.length)
+    let label = -1
+    let best = LINE_MATCH
+    for (let l = 0; l < fixedBase; l++) {
+      if (l === g.bg || labelRgb[l] < 0 || !broad(l)) continue
+      const dd = dist(colour, unpack(labelRgb[l]))
+      if (dd < best) [best, label] = [dd, l]
+    }
+    return { ...g, bgColour: bg, colour, label, fresh: -1 }
+  })
+  const fresh: { sum: number[]; n: number }[] = []
+  const meanOf = (f: { sum: number[]; n: number }) => f.sum.map((v) => v / f.n)
+  for (const line of lines) {
+    if (line.label >= 0) continue
+    let at = fresh.findIndex((f) => dist(meanOf(f), line.colour) < LINE_SHARED)
+    if (at < 0) at = fresh.push({ sum: [0, 0, 0], n: 0 }) - 1
+    const n = line.pixels.length
+    fresh[at].sum = fresh[at].sum.map((v, k) => v + line.colour[k] * n)
+    fresh[at].n += n
+    line.fresh = at
+  }
+  // Join new colours that ended up close (lines added one by one can split a colour in two).
+  const mean = meanOf
+  const into = fresh.map((_, i) => i)
+  for (let joined = true; joined; ) {
+    joined = false
+    let pair: [number, number] | null = null
+    let near = LINE_SHARED
+    for (let i = 0; i < fresh.length; i++)
+      for (let j = i + 1; j < fresh.length; j++) {
+        if (into[i] !== i || into[j] !== j) continue
+        const dd = dist(mean(fresh[i]), mean(fresh[j]))
+        if (dd < near) [near, pair] = [dd, [i, j]]
+      }
+    if (pair) {
+      const [i, j] = pair
+      fresh[i] = { sum: fresh[i].sum.map((v, k) => v + fresh[j].sum[k]), n: fresh[i].n + fresh[j].n }
+      into[j] = i
+      for (let k = 0; k < into.length; k++) if (into[k] === j) into[k] = i
+      joined = true
+    }
+  }
+  for (const line of lines) if (line.fresh >= 0) line.fresh = into[line.fresh]
+  const colours: number[] = []
+  const corrects: number[] = []
+  const freshIndex = fresh.map(() => -1)
+  // A new colour whose lines were mostly one thin colour of the map, close to it, corrects that
+  // colour rather than adding a second shade beside it.
+  const correcting = fresh.map((f, i) => {
+    const votes = new Map<number, number>()
+    for (const line of lines) if (line.fresh === i) for (const p of line.pixels) if (labels[p] < fixedBase && !broad(labels[p]) && labels[p] !== line.bg) votes.set(labels[p], (votes.get(labels[p]) ?? 0) + 1)
+    let best = -1, n = 0
+    for (const [l, k] of votes) if (k > n) [best, n] = [l, k]
+    return best >= 0 && n * 2 >= f.n && dist(meanOf(f), unpack(labelRgb[best])) < LINE_SHARED * 1.5 ? best : -1
+  })
+  const out: LineCandidate[] = []
+  for (const line of lines) {
+    let target: number[]
+    if (line.label >= 0) target = unpack(labelRgb[line.label])
+    else {
+      const f = fresh[line.fresh]
+      if (f.n < LINE_NEW_PIXELS) continue
+      target = f.sum.map((v) => Math.round(v / f.n))
+    }
+    // 4. Only where it brings the line's pixels clearly closer to the upload.
+    const bg = line.bgColour
+    const v = [target[0] - bg[0], target[1] - bg[1], target[2] - bg[2]]
+    const len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+    if (!len2) continue
+    let before = 0
+    let after = 0
+    const share = line.pixels.map((p) => {
+      const c = px(p)
+      const primary = colourOf(labels[p])
+      const partner = second[p] < EMPTY ? colourOf(second[p]) : null
+      const was = primary ? (partner ? primary.map((u, k) => u * cov[p] + partner[k] * (1 - cov[p])) : primary) : bg
+      before += dist(c, was)
+      const t = Math.min(1, Math.max(0, ((c[0] - bg[0]) * v[0] + (c[1] - bg[1]) * v[1] + (c[2] - bg[2]) * v[2]) / len2))
+      after += dist(c, bg.map((u, k) => u + t * v[k]))
+      return t
+    })
+    if (after > LINE_GAIN * before) continue
+    let label = line.label
+    if (label < 0) {
+      if (freshIndex[line.fresh] < 0) {
+        freshIndex[line.fresh] = colours.push((target[0] << 16) | (target[1] << 8) | target[2]) - 1
+        corrects.push(correcting[line.fresh])
+      }
+      label = freshIndex[line.fresh]
+    }
+    let x0 = w, y0 = h, x1 = 0, y1 = 0
+    for (const p of line.pixels) {
+      const x = p % w, y = (p / w) | 0
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+    }
+    out.push({ pixels: line.pixels, share, label, fresh: line.label < 0, background: line.bg, box: [x0, y0, x1 + 1, y1 + 1] })
+  }
+  return { lines: out, colours, corrects }
+}
+
+/**
+ * The map with some of its candidate lines applied: each line pixel takes the line's label (or
+ * stays its background's) with the share of the other recorded as its edge blend.
+ */
+export function withLines(map: LabelMap, candidates: LineCandidates, chosen: LineCandidate[], upload: ImageData): LabelMap {
+  const labels = map.labels.slice()
+  const second = map.second.slice()
+  const cov = map.cov.slice()
+  const colors = map.colors.slice()
+  const at = new Map<number, number>()
+  const corrected = new Set<number>()
+  for (const line of chosen) {
+    let label = line.label
+    if (line.fresh) {
+      if (!at.has(label)) {
+        const fixes = candidates.corrects[label]
+        if (fixes >= 0) (colors[fixes] = candidates.colours[label]), corrected.add(fixes)
+        else if (colors.length >= PAPER_LABEL - 1) continue
+        at.set(label, fixes >= 0 ? fixes : colors.push(candidates.colours[label]) - 1)
+      }
+      label = at.get(label)!
+    }
+    line.pixels.forEach((p, i) => {
+      const t = line.share[i]
+      if (t >= 0.5) (labels[p] = label), (second[p] = line.background), (cov[p] = t)
+      else (labels[p] = line.background), (second[p] = label), (cov[p] = 1 - t)
+    })
+  }
+  // A corrected colour's edge blends are measured again against its corrected colour (they were
+  // measured against the paler one, which drew its shapes too wide).
+  const d = upload.data
+  const rgb = (l: number) => [(colors[l] >> 16) & 255, (colors[l] >> 8) & 255, colors[l] & 255]
+  for (let p = 0; p < labels.length; p++) {
+    const own = labels[p], other = second[p]
+    const fixed = corrected.has(own) ? own : other < EMPTY && corrected.has(other) ? other : -1
+    if (fixed < 0 || other >= EMPTY || colors[own] < 0 || colors[other] < 0) continue
+    const partner = fixed === own ? other : own
+    const a = rgb(partner), b = rgb(fixed)
+    const v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+    if (!len2) continue
+    const t = Math.min(1, Math.max(0, ((d[p * 4] - a[0]) * v[0] + (d[p * 4 + 1] - a[1]) * v[1] + (d[p * 4 + 2] - a[2]) * v[2]) / len2))
+    if (t >= 0.5) (labels[p] = fixed), (second[p] = partner), (cov[p] = t)
+    else (labels[p] = partner), (second[p] = fixed), (cov[p] = 1 - t)
+  }
+  return { ...map, labels, second, cov, colors, ...(map.fills ? { fills: [...map.fills, ...colors.slice(map.fills.length).map(() => undefined)] } : {}) }
+}
+/** A line is at most this many pixels across… */
+const LINE_RUN = 3
+/** …between two pixels within this distance (sRGB) of their background colour… */
+const GROUND_TOLERANCE = 24
+/** …and its pixels at least this far from it. */
+const LINE_CONTRAST = 48
+/** A line is at least this long (px)… */
+const LINE_EXTENT = 4
+/** …with at least this many pixels. */
+const LINE_PIXELS = 6
+/** Share of a line's pixels, by contrast with the background, that its colour is read from. */
+const LINE_SOLID = 0.25
+/** A line within this distance (sRGB) of a colour already in the artwork takes that colour. */
+const LINE_MATCH = 48
+/** Lines whose colours are this close (sRGB) share one new colour… */
+const LINE_SHARED = 40
+/** …which needs at least this many line pixels in all. */
+const LINE_NEW_PIXELS = 24
+/** A line is relabelled only when its pixels' error falls to this share of what it was. */
+const LINE_GAIN = 0.8
 
 /**
  * Anti-aliased edges and JPEG fringes produce in-between colors (blue fading into white paper,

@@ -46,12 +46,13 @@ Where a new method can be worse, it has a measured per-region fallback to the pr
 Each is one draft PR, measured with `bench/compare.html` (master and `knockout=1`) on the audit set
 and on text-specific fixtures, with before-and-after renders.
 
-1. **Colour accuracy for thin and small artwork** (quantiser). A thin colour's average is pulled
-   towards what it blends with, so its edge pixels read as more of it (1.2 px lettering on a band
-   comes out pale and thin); thin lines between two other colours are three-colour mixes the
-   quantiser can't place (El Salvador's thin yellow triangle edges are lost). A first attempt that
-   recomputed colours from their solid pixels fixed the synthetic cases but roughened geometry on
-   real flags; it needs a geometry-aware design.
+1. **Colour accuracy for thin and small artwork** (quantiser). First round in review
+   (docs/colour-accuracy.md): pale lettering gets its real colour where that traces better, with
+   no new defects; on the audit set it changes Firefox only. The losses there are sub-pixel
+   (Brazil's motto on the 240 px JPEG, El Salvador's 1 px hatching, Mexico's feather texture) and
+   need the next item, a higher internal tracing resolution for small uploads, or the font phase.
+   **Partly covered strokes**: a stroke whose pixels are all under half covered is lost by the
+   tracer whatever its colour (1.2 px strokes on a band drawn as fragments or squiggles).
 2. **Fine detail in print plates and cut files.** In knockout output the thin-line changes opened
    hairline gaps between plates and added crossings on the audit set, so PR 4 leaves plates alone.
    Plates must tile: any change there needs a tiling check (no new see-through pixels).
