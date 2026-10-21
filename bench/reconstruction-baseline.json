@@ -1,0 +1,2512 @@
+{
+ "about": "Reconstruction baseline for main @ 6d3849d (PR #28 head 2356247): bench/compare.html?dir=/audit-in/&files=...&b=fineDetail, master and &knockout=1 (plates), default settings, clean-geometry off. Uploads: docs/audits/2026-10-reconstruction/manifest.json plus the synthetic fixtures in bench/fixtures (syn-*.png: 1 and 2 px lines and a ring, hairlines at production size, 1.2 px strokes on a band). Production numbers are what main makes with every flag off; fineDetail with the fine-detail options. Roughness: degrees of turning beyond a clean outline per 100 px; zoom: mean error drawn 2x and 4x larger. ms (timing) is left out: it varies by machine.",
+ "rows": [
+  {
+   "file": "android.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 1,
+     "anchors": 26,
+     "roughness": 75.8,
+     "bytes": 1225,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.146,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.939,
+      "x4": 1.07
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 26,
+     "roughness": 75.8,
+     "bytes": 1225,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.146,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.939,
+      "x4": 1.07
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 1,
+     "anchors": 29,
+     "roughness": 82.9,
+     "bytes": 1355,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.999,
+     "edgePrecision": 1,
+     "meanError": 0.351,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.916,
+      "x4": 1.08
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 29,
+     "roughness": 82.9,
+     "bytes": 1355,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.999,
+     "edgePrecision": 1,
+     "meanError": 0.351,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.916,
+      "x4": 1.08
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "angular.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 10,
+     "anchors": 97,
+     "roughness": 44.8,
+     "bytes": 5419,
+     "colours": 0,
+     "copied": 6,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.999,
+     "edgePrecision": 1,
+     "meanError": 0.78,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.978,
+      "x4": 2.092
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 10,
+     "anchors": 97,
+     "roughness": 44.8,
+     "bytes": 5419,
+     "colours": 0,
+     "copied": 6,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.999,
+     "edgePrecision": 1,
+     "meanError": 0.78,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.978,
+      "x4": 2.092
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 4,
+     "anchors": 66,
+     "roughness": 83.3,
+     "bytes": 4119,
+     "colours": 0,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.757,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.922,
+      "x4": 2.099
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 4,
+     "anchors": 66,
+     "roughness": 83.3,
+     "bytes": 4119,
+     "colours": 0,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.757,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.922,
+      "x4": 2.099
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "docker-small.jpg",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 63,
+     "anchors": 359,
+     "roughness": 369.3,
+     "bytes": 17674,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 6,
+     "tiny": 4,
+     "verdict": "check",
+     "edgeRecall": 0.9731,
+     "edgePrecision": 1,
+     "meanError": 8.637,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 1,
+     "zoom": {
+      "x2": 16.187,
+      "x4": 16.915
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 63,
+     "anchors": 352,
+     "roughness": 350.9,
+     "bytes": 17365,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 5,
+     "tiny": 3,
+     "verdict": "check",
+     "edgeRecall": 0.9731,
+     "edgePrecision": 1,
+     "meanError": 8.586,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 1,
+     "zoom": {
+      "x2": 16.122,
+      "x4": 16.87
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 91,
+     "anchors": 608,
+     "roughness": 611.9,
+     "bytes": 28561,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 8,
+     "tiny": 5,
+     "verdict": "check",
+     "edgeRecall": 0.9741,
+     "edgePrecision": 1,
+     "meanError": 9.258,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 1,
+     "zoom": {
+      "x2": 17.268,
+      "x4": 17.91
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 91,
+     "anchors": 608,
+     "roughness": 611.9,
+     "bytes": 28561,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 8,
+     "tiny": 5,
+     "verdict": "check",
+     "edgeRecall": 0.9741,
+     "edgePrecision": 1,
+     "meanError": 9.258,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 1,
+     "zoom": {
+      "x2": 17.268,
+      "x4": 17.91
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "docker.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 45,
+     "anchors": 405,
+     "roughness": 163.9,
+     "bytes": 18277,
+     "colours": 4,
+     "copied": 7,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9973,
+     "edgePrecision": 0.7855,
+     "meanError": 3.775,
+     "fine": 3,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 7.138,
+      "x4": 7.498
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 45,
+     "anchors": 435,
+     "roughness": 163.6,
+     "bytes": 19383,
+     "colours": 4,
+     "copied": 7,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9973,
+     "edgePrecision": 0.7823,
+     "meanError": 3.757,
+     "fine": 3,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 7.123,
+      "x4": 7.485
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 47,
+     "anchors": 389,
+     "roughness": 115,
+     "bytes": 17478,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.9974,
+     "edgePrecision": 0.8138,
+     "meanError": 3.614,
+     "fine": 3,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 6.954,
+      "x4": 7.44
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 47,
+     "anchors": 389,
+     "roughness": 115,
+     "bytes": 17478,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.9974,
+     "edgePrecision": 0.8138,
+     "meanError": 3.614,
+     "fine": 3,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 6.954,
+      "x4": 7.44
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "firefox.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 41,
+     "anchors": 1198,
+     "roughness": 526.7,
+     "bytes": 51736,
+     "colours": 9,
+     "copied": 15,
+     "selfX": 12,
+     "tiny": 3,
+     "verdict": "check",
+     "edgeRecall": 0.9624,
+     "edgePrecision": 0.7193,
+     "meanError": 5.676,
+     "fine": 7,
+     "lost": 6,
+     "lostArea": 0.2124,
+     "changed": 1,
+     "zoom": {
+      "x2": 10.199,
+      "x4": 10.279
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 41,
+     "anchors": 1198,
+     "roughness": 526.7,
+     "bytes": 51736,
+     "colours": 9,
+     "copied": 15,
+     "selfX": 12,
+     "tiny": 3,
+     "verdict": "check",
+     "edgeRecall": 0.9624,
+     "edgePrecision": 0.7193,
+     "meanError": 5.676,
+     "fine": 7,
+     "lost": 6,
+     "lostArea": 0.2124,
+     "changed": 1,
+     "zoom": {
+      "x2": 10.199,
+      "x4": 10.279
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 45,
+     "anchors": 793,
+     "roughness": 539.3,
+     "bytes": 35998,
+     "colours": 9,
+     "copied": 0,
+     "selfX": 3,
+     "tiny": 2,
+     "verdict": "check",
+     "edgeRecall": 0.9764,
+     "edgePrecision": 0.8382,
+     "meanError": 5.33,
+     "fine": 7,
+     "lost": 5,
+     "lostArea": 0.1917,
+     "changed": 1,
+     "zoom": {
+      "x2": 10.193,
+      "x4": 10.447
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 45,
+     "anchors": 793,
+     "roughness": 539.3,
+     "bytes": 35998,
+     "colours": 9,
+     "copied": 0,
+     "selfX": 3,
+     "tiny": 2,
+     "verdict": "check",
+     "edgeRecall": 0.9764,
+     "edgePrecision": 0.8382,
+     "meanError": 5.33,
+     "fine": 7,
+     "lost": 5,
+     "lostArea": 0.1917,
+     "changed": 1,
+     "zoom": {
+      "x2": 10.193,
+      "x4": 10.447
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "flag-br-web.jpg",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 22,
+     "anchors": 194,
+     "roughness": 292.4,
+     "bytes": 9142,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 15,
+     "tiny": 8,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9226,
+     "edgePrecision": 1,
+     "meanError": 5.266,
+     "fine": 8,
+     "lost": 8,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 8.549,
+      "x4": 8.834
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 22,
+     "anchors": 188,
+     "roughness": 250.9,
+     "bytes": 8901,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 14,
+     "tiny": 8,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9236,
+     "edgePrecision": 1,
+     "meanError": 5.248,
+     "fine": 8,
+     "lost": 8,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 8.531,
+      "x4": 8.819
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 36,
+     "anchors": 208,
+     "roughness": 205.8,
+     "bytes": 10478,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 14,
+     "tiny": 6,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9292,
+     "edgePrecision": 1,
+     "meanError": 5.282,
+     "fine": 8,
+     "lost": 8,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 8.605,
+      "x4": 8.864
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 36,
+     "anchors": 208,
+     "roughness": 205.8,
+     "bytes": 10478,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 14,
+     "tiny": 6,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9292,
+     "edgePrecision": 1,
+     "meanError": 5.282,
+     "fine": 8,
+     "lost": 8,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 8.605,
+      "x4": 8.864
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "flag-br.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 55,
+     "anchors": 441,
+     "roughness": 249.5,
+     "bytes": 20002,
+     "colours": 4,
+     "copied": 16,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9974,
+     "edgePrecision": 0.9998,
+     "meanError": 0.444,
+     "fine": 51,
+     "lost": 2,
+     "lostArea": 0.0025,
+     "changed": 12,
+     "zoom": {
+      "x2": 1.165
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 55,
+     "anchors": 440,
+     "roughness": 249.3,
+     "bytes": 20106,
+     "colours": 4,
+     "copied": 16,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9974,
+     "edgePrecision": 0.9998,
+     "meanError": 0.443,
+     "fine": 51,
+     "lost": 2,
+     "lostArea": 0.0025,
+     "changed": 12,
+     "zoom": {
+      "x2": 1.163
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 55,
+     "anchors": 439,
+     "roughness": 135.4,
+     "bytes": 18007,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9953,
+     "edgePrecision": 1,
+     "meanError": 0.646,
+     "fine": 51,
+     "lost": 1,
+     "lostArea": 0.0017,
+     "changed": 11,
+     "zoom": {
+      "x2": 1.273
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 55,
+     "anchors": 439,
+     "roughness": 135.4,
+     "bytes": 18007,
+     "colours": 4,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9953,
+     "edgePrecision": 1,
+     "meanError": 0.646,
+     "fine": 51,
+     "lost": 1,
+     "lostArea": 0.0017,
+     "changed": 11,
+     "zoom": {
+      "x2": 1.273
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "flag-mx.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 73,
+     "anchors": 1192,
+     "roughness": 697.6,
+     "bytes": 53546,
+     "colours": 9,
+     "copied": 16,
+     "selfX": 19,
+     "tiny": 10,
+     "verdict": "check",
+     "edgeRecall": 0.8859,
+     "edgePrecision": 0.9904,
+     "meanError": 1.172,
+     "fine": 155,
+     "lost": 77,
+     "lostArea": 0.1767,
+     "changed": 62,
+     "zoom": {
+      "x2": 1.904
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 73,
+     "anchors": 1190,
+     "roughness": 678.6,
+     "bytes": 53438,
+     "colours": 9,
+     "copied": 16,
+     "selfX": 16,
+     "tiny": 8,
+     "verdict": "check",
+     "edgeRecall": 0.8864,
+     "edgePrecision": 0.9905,
+     "meanError": 1.17,
+     "fine": 155,
+     "lost": 77,
+     "lostArea": 0.1767,
+     "changed": 62,
+     "zoom": {
+      "x2": 1.901
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 60,
+     "anchors": 976,
+     "roughness": 662,
+     "bytes": 44185,
+     "colours": 9,
+     "copied": 0,
+     "selfX": 17,
+     "tiny": 7,
+     "verdict": "check",
+     "edgeRecall": 0.8857,
+     "edgePrecision": 0.993,
+     "meanError": 1.23,
+     "fine": 155,
+     "lost": 77,
+     "lostArea": 0.1612,
+     "changed": 58,
+     "zoom": {
+      "x2": 1.876
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 60,
+     "anchors": 976,
+     "roughness": 662,
+     "bytes": 44185,
+     "colours": 9,
+     "copied": 0,
+     "selfX": 17,
+     "tiny": 7,
+     "verdict": "check",
+     "edgeRecall": 0.8857,
+     "edgePrecision": 0.993,
+     "meanError": 1.23,
+     "fine": 155,
+     "lost": 77,
+     "lostArea": 0.1612,
+     "changed": 58,
+     "zoom": {
+      "x2": 1.876
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "flag-sv.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 102,
+     "anchors": 692,
+     "roughness": 393,
+     "bytes": 34172,
+     "colours": 7,
+     "copied": 43,
+     "selfX": 1,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9173,
+     "edgePrecision": 0.9945,
+     "meanError": 1.013,
+     "fine": 64,
+     "lost": 8,
+     "lostArea": 0.0078,
+     "changed": 38,
+     "zoom": {
+      "x2": 1.939
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 103,
+     "anchors": 712,
+     "roughness": 393.2,
+     "bytes": 35276,
+     "colours": 7,
+     "copied": 43,
+     "selfX": 1,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9176,
+     "edgePrecision": 0.9945,
+     "meanError": 1.007,
+     "fine": 64,
+     "lost": 8,
+     "lostArea": 0.0078,
+     "changed": 38,
+     "zoom": {
+      "x2": 1.929
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 69,
+     "anchors": 757,
+     "roughness": 416.8,
+     "bytes": 34853,
+     "colours": 7,
+     "copied": 0,
+     "selfX": 7,
+     "tiny": 1,
+     "verdict": "check",
+     "edgeRecall": 0.9226,
+     "edgePrecision": 0.9985,
+     "meanError": 1.138,
+     "fine": 64,
+     "lost": 8,
+     "lostArea": 0.0078,
+     "changed": 36,
+     "zoom": {
+      "x2": 1.837
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 69,
+     "anchors": 757,
+     "roughness": 416.8,
+     "bytes": 34853,
+     "colours": 7,
+     "copied": 0,
+     "selfX": 7,
+     "tiny": 1,
+     "verdict": "check",
+     "edgeRecall": 0.9226,
+     "edgePrecision": 0.9985,
+     "meanError": 1.138,
+     "fine": 64,
+     "lost": 8,
+     "lostArea": 0.0078,
+     "changed": 36,
+     "zoom": {
+      "x2": 1.837
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "fluent-parrot.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 16,
+     "anchors": 247,
+     "roughness": 101.5,
+     "bytes": 11107,
+     "colours": 6,
+     "copied": 7,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.271,
+     "fine": 7,
+     "lost": 1,
+     "lostArea": 0.0023,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.927
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 16,
+     "anchors": 247,
+     "roughness": 101.6,
+     "bytes": 11103,
+     "colours": 6,
+     "copied": 7,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.271,
+     "fine": 7,
+     "lost": 1,
+     "lostArea": 0.0023,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.927
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 10,
+     "anchors": 167,
+     "roughness": 79.8,
+     "bytes": 7749,
+     "colours": 6,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.333,
+     "fine": 7,
+     "lost": 1,
+     "lostArea": 0.0028,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.955
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 10,
+     "anchors": 167,
+     "roughness": 79.8,
+     "bytes": 7749,
+     "colours": 6,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.333,
+     "fine": 7,
+     "lost": 1,
+     "lostArea": 0.0028,
+     "changed": 0,
+     "zoom": {
+      "x2": 0.955
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "fluent-rocket.png",
+   "kind": "photo",
+   "note": "photo: traced by VTracer, unaffected"
+  },
+  {
+   "file": "github-mark.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 1,
+     "anchors": 140,
+     "roughness": 159.9,
+     "bytes": 5685,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.9953,
+     "edgePrecision": 1,
+     "meanError": 0.592,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.151,
+      "x4": 1.311
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 140,
+     "roughness": 159.9,
+     "bytes": 5685,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.9953,
+     "edgePrecision": 1,
+     "meanError": 0.592,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.151,
+      "x4": 1.311
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 1,
+     "anchors": 136,
+     "roughness": 156.7,
+     "bytes": 5509,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.995,
+     "edgePrecision": 1,
+     "meanError": 0.694,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.213,
+      "x4": 1.378
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 136,
+     "roughness": 156.7,
+     "bytes": 5509,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 0.995,
+     "edgePrecision": 1,
+     "meanError": 0.694,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.213,
+      "x4": 1.378
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "go.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 4,
+     "anchors": 49,
+     "roughness": 126.5,
+     "bytes": 2335,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.352,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.2,
+      "x4": 1.324
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 4,
+     "anchors": 49,
+     "roughness": 126.3,
+     "bytes": 2334,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.337,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.192,
+      "x4": 1.315
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 4,
+     "anchors": 52,
+     "roughness": 133.3,
+     "bytes": 2495,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.46,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.291,
+      "x4": 1.434
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 4,
+     "anchors": 52,
+     "roughness": 133.3,
+     "bytes": 2495,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.46,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.291,
+      "x4": 1.434
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "javascript.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 3,
+     "anchors": 27,
+     "roughness": 54.5,
+     "bytes": 1345,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.552,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.27,
+      "x4": 1.38
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 3,
+     "anchors": 27,
+     "roughness": 54.5,
+     "bytes": 1345,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.552,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.27,
+      "x4": 1.38
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 3,
+     "anchors": 52,
+     "roughness": 74.7,
+     "bytes": 2408,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.651,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.335,
+      "x4": 1.442
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 3,
+     "anchors": 52,
+     "roughness": 74.7,
+     "bytes": 2408,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.651,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.335,
+      "x4": 1.442
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "kubernetes.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 2,
+     "anchors": 144,
+     "roughness": 130.9,
+     "bytes": 6047,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.747,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.614,
+      "x4": 2.956
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 2,
+     "anchors": 144,
+     "roughness": 130.9,
+     "bytes": 6047,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.747,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.614,
+      "x4": 2.956
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 10,
+     "anchors": 243,
+     "roughness": 147.1,
+     "bytes": 10562,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 1.17,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.894,
+      "x4": 3.205
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 10,
+     "anchors": 243,
+     "roughness": 147.1,
+     "bytes": 10562,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 1.17,
+     "fine": 1,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.894,
+      "x4": 3.205
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "linux.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 37,
+     "anchors": 515,
+     "roughness": 323.9,
+     "bytes": 23738,
+     "colours": 6,
+     "copied": 16,
+     "selfX": 1,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.8653,
+     "edgePrecision": 0.8578,
+     "meanError": 3.612,
+     "fine": 10,
+     "lost": 6,
+     "lostArea": 0.6293,
+     "changed": 3,
+     "zoom": {
+      "x2": 6.098,
+      "x4": 6.434
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 38,
+     "anchors": 519,
+     "roughness": 322.8,
+     "bytes": 23955,
+     "colours": 6,
+     "copied": 16,
+     "selfX": 1,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.8653,
+     "edgePrecision": 0.8572,
+     "meanError": 3.609,
+     "fine": 10,
+     "lost": 6,
+     "lostArea": 0.6293,
+     "changed": 3,
+     "zoom": {
+      "x2": 6.094,
+      "x4": 6.431
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 35,
+     "anchors": 524,
+     "roughness": 305.4,
+     "bytes": 23716,
+     "colours": 6,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 2,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.8606,
+     "edgePrecision": 0.8389,
+     "meanError": 3.792,
+     "fine": 10,
+     "lost": 9,
+     "lostArea": 0.961,
+     "changed": 0,
+     "zoom": {
+      "x2": 6.343,
+      "x4": 6.678
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 35,
+     "anchors": 524,
+     "roughness": 305.4,
+     "bytes": 23716,
+     "colours": 6,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 2,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.8606,
+     "edgePrecision": 0.8389,
+     "meanError": 3.792,
+     "fine": 10,
+     "lost": 9,
+     "lostArea": 0.961,
+     "changed": 0,
+     "zoom": {
+      "x2": 6.343,
+      "x4": 6.678
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "python-tiny.jpg",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 37,
+     "anchors": 208,
+     "roughness": 381.6,
+     "bytes": 10609,
+     "colours": 3,
+     "copied": 15,
+     "selfX": 3,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9697,
+     "edgePrecision": 0.8705,
+     "meanError": 6.043,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 10.687,
+      "x4": 10.965
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 37,
+     "anchors": 205,
+     "roughness": 383.5,
+     "bytes": 10709,
+     "colours": 3,
+     "copied": 15,
+     "selfX": 3,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9684,
+     "edgePrecision": 0.868,
+     "meanError": 6.053,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 10.685,
+      "x4": 10.965
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 22,
+     "anchors": 200,
+     "roughness": 401.3,
+     "bytes": 9304,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 4,
+     "tiny": 3,
+     "verdict": "check",
+     "edgeRecall": 0.9477,
+     "edgePrecision": 0.9951,
+     "meanError": 5.361,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 11.014,
+      "x4": 11.296
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 22,
+     "anchors": 200,
+     "roughness": 401.3,
+     "bytes": 9304,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 4,
+     "tiny": 3,
+     "verdict": "check",
+     "edgeRecall": 0.9477,
+     "edgePrecision": 0.9951,
+     "meanError": 5.361,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 11.014,
+      "x4": 11.296
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "python.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 6,
+     "anchors": 115,
+     "roughness": 111,
+     "bytes": 5714,
+     "colours": 1,
+     "copied": 2,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 1,
+     "edgePrecision": 0.9966,
+     "meanError": 0.613,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.07,
+      "x4": 2.19
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 6,
+     "anchors": 115,
+     "roughness": 111,
+     "bytes": 5718,
+     "colours": 1,
+     "copied": 2,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 1,
+     "edgePrecision": 0.9967,
+     "meanError": 0.611,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.072,
+      "x4": 2.191
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 4,
+     "anchors": 80,
+     "roughness": 99.7,
+     "bytes": 4290,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 0.9983,
+     "meanError": 0.64,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.999,
+      "x4": 2.218
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 4,
+     "anchors": 80,
+     "roughness": 99.7,
+     "bytes": 4290,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 0.9983,
+     "meanError": 0.64,
+     "fine": 2,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.999,
+      "x4": 2.218
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "react.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 2,
+     "anchors": 162,
+     "roughness": 129.8,
+     "bytes": 6491,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 0.823,
+     "meanError": 1.172,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 5.664,
+      "x4": 6.106
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 2,
+     "anchors": 162,
+     "roughness": 129.8,
+     "bytes": 6491,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 0.823,
+     "meanError": 1.172,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 5.664,
+      "x4": 6.106
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 2,
+     "anchors": 176,
+     "roughness": 140.6,
+     "bytes": 7090,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 0.8243,
+     "meanError": 1.178,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 5.699,
+      "x4": 6.145
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 2,
+     "anchors": 176,
+     "roughness": 140.6,
+     "bytes": 7090,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 0.8243,
+     "meanError": 1.178,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 5.699,
+      "x4": 6.145
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "rocket-3d.png",
+   "kind": "photo",
+   "note": "photo: traced by VTracer, unaffected"
+  },
+  {
+   "file": "ruby.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 35,
+     "anchors": 1167,
+     "roughness": 321.6,
+     "bytes": 48902,
+     "colours": 7,
+     "copied": 6,
+     "selfX": 6,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9765,
+     "edgePrecision": 0.7975,
+     "meanError": 5.731,
+     "fine": 12,
+     "lost": 8,
+     "lostArea": 0.5556,
+     "changed": 0,
+     "zoom": {
+      "x2": 10.226,
+      "x4": 10.444
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 39,
+     "anchors": 1181,
+     "roughness": 318.6,
+     "bytes": 49748,
+     "colours": 7,
+     "copied": 8,
+     "selfX": 6,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9765,
+     "edgePrecision": 0.7981,
+     "meanError": 5.732,
+     "fine": 12,
+     "lost": 8,
+     "lostArea": 0.5556,
+     "changed": 0,
+     "zoom": {
+      "x2": 10.212,
+      "x4": 10.432
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 63,
+     "anchors": 1080,
+     "roughness": 465.6,
+     "bytes": 48177,
+     "colours": 7,
+     "copied": 0,
+     "selfX": 13,
+     "tiny": 4,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9825,
+     "edgePrecision": 0.8305,
+     "meanError": 5.645,
+     "fine": 12,
+     "lost": 7,
+     "lostArea": 0.6444,
+     "changed": 0,
+     "zoom": {
+      "x2": 10.379,
+      "x4": 10.696
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 63,
+     "anchors": 1080,
+     "roughness": 465.6,
+     "bytes": 48177,
+     "colours": 7,
+     "copied": 0,
+     "selfX": 13,
+     "tiny": 4,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9825,
+     "edgePrecision": 0.8305,
+     "meanError": 5.645,
+     "fine": 12,
+     "lost": 7,
+     "lostArea": 0.6444,
+     "changed": 0,
+     "zoom": {
+      "x2": 10.379,
+      "x4": 10.696
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "rust.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 1,
+     "anchors": 156,
+     "roughness": 332.5,
+     "bytes": 6385,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 1.735,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 3.339,
+      "x4": 3.764
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 156,
+     "roughness": 332.5,
+     "bytes": 6385,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 1.735,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 3.339,
+      "x4": 3.764
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 1,
+     "anchors": 169,
+     "roughness": 330.5,
+     "bytes": 6993,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 2.1,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 3.43,
+      "x4": 3.911
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 169,
+     "roughness": 330.5,
+     "bytes": 6993,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 2.1,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 3.43,
+      "x4": 3.911
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "syn-band-small.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 2,
+     "anchors": 6,
+     "roughness": 0,
+     "bytes": 310,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.7805,
+     "edgePrecision": 1,
+     "meanError": 1.727,
+     "fine": 12,
+     "lost": 12,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 4.023,
+      "x4": 4.04
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 2,
+     "anchors": 6,
+     "roughness": 0,
+     "bytes": 310,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.7805,
+     "edgePrecision": 1,
+     "meanError": 1.727,
+     "fine": 12,
+     "lost": 12,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 4.023,
+      "x4": 4.04
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 15,
+     "anchors": 81,
+     "roughness": 589.2,
+     "bytes": 3750,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 12,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9268,
+     "edgePrecision": 1,
+     "meanError": 2.654,
+     "fine": 12,
+     "lost": 12,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.956,
+      "x4": 3.371
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 15,
+     "anchors": 81,
+     "roughness": 589.2,
+     "bytes": 3750,
+     "colours": 3,
+     "copied": 0,
+     "selfX": 12,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9268,
+     "edgePrecision": 1,
+     "meanError": 2.654,
+     "fine": 12,
+     "lost": 12,
+     "lostArea": 1,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.956,
+      "x4": 3.371
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "syn-lines-large.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 121,
+     "anchors": 723,
+     "roughness": 1.5,
+     "bytes": 37645,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "not-suitable",
+     "edgeRecall": 0.9116,
+     "edgePrecision": 1,
+     "meanError": 1.62,
+     "fine": 124,
+     "lost": 84,
+     "lostArea": 0.6565,
+     "changed": 0,
+     "zoom": {},
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 121,
+     "anchors": 403,
+     "roughness": 0.1,
+     "bytes": 24197,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.9233,
+     "edgePrecision": 1,
+     "meanError": 0.753,
+     "fine": 124,
+     "lost": 58,
+     "lostArea": 0.0418,
+     "changed": 0,
+     "zoom": {},
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 201,
+     "anchors": 2203,
+     "roughness": 47.5,
+     "bytes": 105006,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 80,
+     "verdict": "check",
+     "edgeRecall": 0.9928,
+     "edgePrecision": 1,
+     "meanError": 0.805,
+     "fine": 124,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 40,
+     "zoom": {},
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 201,
+     "anchors": 2203,
+     "roughness": 47.5,
+     "bytes": 105006,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 80,
+     "verdict": "check",
+     "edgeRecall": 0.9928,
+     "edgePrecision": 1,
+     "meanError": 0.805,
+     "fine": 124,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 40,
+     "zoom": {},
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "syn-strokes-small.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 7,
+     "anchors": 23,
+     "roughness": 25.5,
+     "bytes": 1305,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.8307,
+     "edgePrecision": 1,
+     "meanError": 1.741,
+     "fine": 4,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 4,
+     "zoom": {
+      "x2": 3.065,
+      "x4": 3.346
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 7,
+     "anchors": 31,
+     "roughness": 0.6,
+     "bytes": 1599,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.851,
+     "fine": 4,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 2.383,
+      "x4": 2.753
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 7,
+     "anchors": 33,
+     "roughness": 53.1,
+     "bytes": 1681,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.873,
+     "edgePrecision": 1,
+     "meanError": 2.159,
+     "fine": 4,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 4,
+     "zoom": {
+      "x2": 3.204,
+      "x4": 3.432
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 7,
+     "anchors": 33,
+     "roughness": 53.1,
+     "bytes": 1681,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "check",
+     "edgeRecall": 0.873,
+     "edgePrecision": 1,
+     "meanError": 2.159,
+     "fine": 4,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 4,
+     "zoom": {
+      "x2": 3.204,
+      "x4": 3.432
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "vue.png",
+   "kind": "flat",
+   "master": {
+    "production": {
+     "paths": 2,
+     "anchors": 10,
+     "roughness": 31.6,
+     "bytes": 385,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.371,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.299,
+      "x4": 1.447
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 2,
+     "anchors": 10,
+     "roughness": 31.6,
+     "bytes": 385,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.371,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.299,
+      "x4": 1.447
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 2,
+     "anchors": 10,
+     "roughness": 29.5,
+     "bytes": 409,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.559,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.367,
+      "x4": 1.515
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 2,
+     "anchors": 10,
+     "roughness": 29.5,
+     "bytes": 409,
+     "colours": 2,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.559,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 1.367,
+      "x4": 1.515
+     },
+     "exportsOk": true
+    }
+   }
+  },
+  {
+   "file": "world-thin.png",
+   "kind": "lineart",
+   "master": {
+    "production": {
+     "paths": 1,
+     "anchors": 52,
+     "roughness": 5.9,
+     "bytes": 2391,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.832,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 236.39,
+      "x4": 236.525
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 52,
+     "roughness": 5.9,
+     "bytes": 2391,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 0.832,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 236.39,
+      "x4": 236.525
+     },
+     "exportsOk": true
+    },
+    "newTransparency": 0
+   },
+   "plates": {
+    "production": {
+     "paths": 1,
+     "anchors": 53,
+     "roughness": 5.8,
+     "bytes": 2445,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 1.327,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 235.889,
+      "x4": 235.997
+     },
+     "exportsOk": true
+    },
+    "fineDetail": {
+     "paths": 1,
+     "anchors": 53,
+     "roughness": 5.8,
+     "bytes": 2445,
+     "colours": 1,
+     "copied": 0,
+     "selfX": 0,
+     "tiny": 0,
+     "verdict": "ready",
+     "edgeRecall": 1,
+     "edgePrecision": 1,
+     "meanError": 1.327,
+     "fine": 0,
+     "lost": 0,
+     "lostArea": 0,
+     "changed": 0,
+     "zoom": {
+      "x2": 235.889,
+      "x4": 235.997
+     },
+     "exportsOk": true
+    }
+   }
+  }
+ ]
+}
