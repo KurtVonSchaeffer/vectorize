@@ -323,7 +323,7 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
   const isGradient = (l: number) => apply && l >= base
   if (apply) {
     map = absorbSlivers({ ...map, fills: map.colors.map((_, l) => (isGradient(l) ? regions[l - base].fill : undefined)) }, isGradient)
-    map = gradientEdges(map, src, isGradient)
+    map = gradientEdges(map, src, isGradient, !!o.trace.connectedStacking)
   }
 
   // Removing colors and brand matching work on flat colors only; gradients keep theirs.
@@ -698,8 +698,15 @@ function absorbSlivers(map: LabelMap, isGradient: (l: number) => boolean): Label
  * against the gradient's color at that pixel, so gradient outlines are as smooth as any other.
  * Detection blurs, so a gradient's area can stop a pixel or two short of its real edge: every
  * pixel within 2 px of a gradient/flat boundary is re-decided by which color it mostly holds.
+ *
+ * With clean geometry (`betweenGradients`), edges where two gradients meet get the same treatment,
+ * each pixel pairing with the neighbouring color that best explains it. Not in the ordinary
+ * stacked layout: there a layer also extends under smaller shapes drawn above it (the lettering's
+ * black under small feathers), and exact edges between two gradients leave hairlines where it
+ * shows through (bird: dark pixels 15 → 134). Clean geometry draws no layer under shapes it
+ * doesn't touch, so nothing shows (0).
  */
-function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) => boolean): LabelMap {
+function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) => boolean, betweenGradients = false): LabelMap {
   const { w, h, colors, fills } = map
   const src = map.labels
   const labels = src.slice()
@@ -714,9 +721,14 @@ function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) =>
       const p = y * w + x
       const a = src[p]
       if (a >= 254) continue
-      // The nearest label of the other kind (gradient vs flat) within R px.
+      const c = [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
+      const ca = colorOf(a, x, y)
+      // The partner within R px: the nearest label of the other kind (gradient vs flat); between
+      // gradients too, the label whose mix with this pixel's color explains it best (nearest on ties).
+      const pairs = (b: number) => b !== a && (betweenGradients ? isGradient(a) || isGradient(b) : isGradient(a) !== isGradient(b))
       let other = -1
       let bestD = Infinity
+      let bestFit = Infinity
       for (let dy = -R; dy <= R; dy++) {
         const yy = y + dy
         if (yy < 0 || yy >= h) continue
@@ -724,14 +736,18 @@ function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) =>
           const xx = x + dx
           if (xx < 0 || xx >= w) continue
           const b = src[yy * w + xx]
-          if (b >= 254 || isGradient(a) === isGradient(b)) continue
+          if (b >= 254 || !pairs(b)) continue
           const dd = dx * dx + dy * dy
-          if (dd < bestD) [bestD, other] = [dd, b]
+          // Two gradients pair only where they touch (a thin flat line between them, like a ring
+          // around a disc, keeps them apart); the 2 px reach is for blurred gradient/flat edges.
+          if (dd > 2 && isGradient(a) && isGradient(b)) continue
+          if (betweenGradients) {
+            const fit = mixResidual(c, ca, colorOf(b, x, y))
+            if (fit < bestFit - 1e-6 || (Math.abs(fit - bestFit) <= 1e-6 && dd < bestD)) [bestFit, bestD, other] = [fit, dd, b]
+          } else if (dd < bestD) [bestD, other] = [dd, b]
         }
       }
       if (other < 0) continue
-      const c = [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
-      const ca = colorOf(a, x, y)
       const cb = colorOf(other, x, y)
       // JPEG edges stray further from a straight mix than flat edges do; allow more.
       const t = blendRatio(c, ca, cb, 40)
@@ -756,6 +772,14 @@ function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) =>
       }
     }
   return { ...map, labels, second, cov }
+}
+
+/** How far a color is from the straight line between two others (the closest mix), per channel. */
+function mixResidual(c: number[], a: number[], b: number[]): number {
+  const v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+  const t = len2 ? Math.max(0, Math.min(1, ((c[0] - a[0]) * v[0] + (c[1] - a[1]) * v[1] + (c[2] - a[2]) * v[2]) / len2)) : 0
+  return Math.hypot(c[0] - a[0] - v[0] * t, c[1] - a[1] - v[1] * t, c[2] - a[2] - v[2] * t)
 }
 
 const labOf = (c: number) => rgbToLab([(c >> 16) & 255, (c >> 8) & 255, c & 255])
