@@ -69,6 +69,28 @@ Pictures: `15-seam-bird-8x.png`, with the original, main, fix 4 and fix 4 plus t
 
 Type check, **393 tests** and build pass. No benchmark or threshold was changed.
 
+## The two thin-ring JPEG differences (clean geometry on)
+These are the only benchmark uploads that differ from main with clean geometry on, in both #30 and #31 (identical between the two):
+
+| Upload | Main | #30 / #31 | Paths |
+|---|---|---|---|
+| Radial disc with thin ring, JPEG 75 | colour 3.97, ink error 0.01 | colour 3.97, ink error 0.02 | 9 → 9 |
+| Radial disc with thin ring, JPEG 40 | colour 4.74, ink error 0.70 | colour 4.69, ink error 0.69 | 6 → 6 |
+
+- **What changes:** sub-pixel edge positions where the compressed ring meets the two gradient parts of the disc.
+- **Unchanged:** paths and shape counts. The PNG is byte-identical to main.
+- **Exports, checked in #30 for both JPEGs:** SVG, print PDF, knockout plates and the cut DXF are valid, with the same outline counts (13 for JPEG 40, against main's 13).
+
+## Faint pink/crimson junction line: investigated, documented, not patched
+A thin violet line along the boundary between a flat pink and the crimson gradient on the bird (around 406, 230). Pictures: `18-junction-line.png`, comparing the original, main, #30 and #31 at 16×, 8× and native size.
+
+- **Mostly not new:** main with clean geometry already draws it, in the same violet (111, 40, 177 at 408.5, 230.4). #30 and #31 make it slightly longer: in a 16 × 16 px window, mismatched points at 16× go 102 → 472.
+- **Native size:** not visible in any version.
+- **Colour map:** identical in main and #31 there. It's a gradient-to-flat edge, which #30 doesn't touch.
+- **Cause:** clean geometry's core rule, that shapes meet edge to edge and are never drawn twice. Where a flat colour and a gradient meet, the violet layer underneath shows through the browser's edge blending.
+- **Whole bird:** out-of-range totals with #31 are almost equal to main's (light 10,650 against 10,648, dark 5,928 against 5,831). The line is a local shift, not a net increase.
+- **Not patched:** fixing it means changing how clean geometry joins any two shapes (overlap at shared edges), which is broader than this patch and affects every clean-geometry output. That belongs with the clean-geometry decision itself.
+
 ## Remaining
 - Background edges on the feathers JPEG 40: +5.5% by the metric, not visible at 8×.
-- The faint pink/crimson junction line on the bird, also present in fix 4.
+- The faint pink/crimson junction line on the bird. It's mostly present in main with clean geometry too, invisible at native size, and documented above.
