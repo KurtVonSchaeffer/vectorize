@@ -41,12 +41,24 @@ Errors are mean colour differences from the upload, in pixels next to each kind 
 - The orange feather's purple fringe is smaller.
 - The two bands and the dark feather are unchanged.
 
-## Known issue, blocking before release
+## Known issue: fixed in #31 (stacked on this PR)
 **A pink hairline along the blue feather's right edge** (bird, around 360, 320; row 4 of the 8× image). It's shorter than in the first version, but main doesn't have it.
 
 - **The colour map there is correct:** only the two gradients, with proper edge shares. The hairline comes from the tracer. Where two gradient shapes now meet exactly, the anti-aliased edges let a touching pink layer underneath show through.
 - **It accounts for most of the +7% darker-than-original pixels.**
-- **Fixing it means changing the tracer:** at a shared edge between two gradients, the lower shape should run slightly under the upper one. That's a change to the drawing stage, not part of this PR.
+- **Fixed in #31** (`experiment/clean-geometry-seams`, stacked on this branch): a layer stacked between two gradients now stays clear of their shared edge. It's a drawing-stage change, kept separate. See `docs/clean-geometry-gradient-seams.md` there.
+
+## Dependencies between #30 and #31
+| | Clean geometry off (default) | Clean geometry on |
+|---|---|---|
+| Main | – | the reference |
+| #30 alone | byte-identical to main | sharper edges between gradients, **pink hairline on the bird** |
+| #31 alone (without #30) | byte-identical to main | no change: it acts only where two gradients share an edge pixel, which only #30 creates |
+| #30 + #31 | byte-identical to main | sharper edges, hairline gone |
+
+- **#30 and #31 only make sense together, and only with clean geometry on.**
+- **Neither should be enabled independently.**
+- **Clean geometry stays a separate decision.**
 
 ## Radial disc with a thin ring
 The extra path seen earlier (an additional piece of the outer gradient at the ring's inner edge) came from the flat-pixel pairing and is **gone** in `690177d`.
@@ -70,6 +82,6 @@ Exports, checked for main and fix 4:
 - Type check, **392 tests** and build pass.
 
 ## Before any release
-1. Fix the pink hairline in the tracer (lower shape runs under the upper one at gradient-to-gradient edges), then re-run these measurements.
+1. Review #30 and #31 together; the hairline fix is in #31.
 2. Decide on clean geometry separately; this fix rides on it.
 3. Re-run the full benchmark and the 8× checks on the combined final state.
