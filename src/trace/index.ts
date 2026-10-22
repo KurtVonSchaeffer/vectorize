@@ -238,7 +238,7 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
   const fineMap = map.fine ?? { labels, second, cov }
   const fineField = opts.crossSection ? new Float32Array(n) : field
   /** Fills `out` with the layer's membership from a labelling; returns its bounds. */
-  const membership = (m: { labels: Uint8Array; second: Uint8Array; cov: Float32Array }, inLayer: (r: number) => boolean, out: Float32Array) => {
+  const membership = (m: { labels: Uint8Array; second: Uint8Array; cov: Float32Array }, inLayer: (r: number) => boolean, out: Float32Array, layer = -1) => {
     let bx0 = w, by0 = h, bx1 = -1, by1 = -1
     for (let p = 0; p < n; p++) {
       const r1 = rank[m.labels[p]]
@@ -246,6 +246,11 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
       let v = 0
       if (inLayer(r1)) v += m.cov[p]
       if (inLayer(r2)) v += 1 - m.cov[p]
+      // Clean geometry (`layer` given): a layer extends under the shapes above it, but not at an
+      // edge pixel shared by two gradients, one above it and one below. There the two gradients
+      // meet exactly (gradientEdges); this layer's outline, smoothed on its own, would show
+      // through between them as a hairline (bird: a pink line along the blue feather).
+      if (layer >= 0 && v > 0 && r2 >= 0 && fillOf(m.labels[p]) && fillOf(m.second[p]) && ((r1 > layer && r2 < layer) || (r2 > layer && r1 < layer))) v = 0
       out[p] = v
       if (v !== 0) {
         const x = p % w
@@ -262,7 +267,7 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
   for (let layer = 0; layer < order.length; layer++) {
     const inLayer = (r: number) => (knockout ? r === layer : r >= layer)
     // The layer's bounds, so smoothing skips the area it doesn't cover.
-    const box = membership({ labels, second, cov }, inLayer, field)
+    const box = membership({ labels, second, cov }, inLayer, field, !knockout && opts.connectedStacking ? layer : -1)
     // Fine detail applies to colours that stand out from what they border (lines, lettering,
     // small marks), not to bands between similar colours (shading, compression edges).
     const detailLayer = !!opts.crossSection && contrasting(map, order[layer])
