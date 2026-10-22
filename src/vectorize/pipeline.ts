@@ -723,8 +723,9 @@ function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) =>
       if (a >= 254) continue
       const c = [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
       const ca = colorOf(a, x, y)
-      // The partner within R px: the nearest label of the other kind (gradient vs flat); between
-      // gradients too, the label whose mix with this pixel's color explains it best (nearest on ties).
+      // The partner within R px: the nearest label of the other kind (gradient vs flat). With
+      // betweenGradients, a gradient pixel instead takes the neighbouring label (flat, or a gradient
+      // it touches) whose mix with its color explains it best (nearest on ties).
       const pairs = (b: number) => b !== a && (betweenGradients ? isGradient(a) || isGradient(b) : isGradient(a) !== isGradient(b))
       let other = -1
       let bestD = Infinity
@@ -741,6 +742,13 @@ function gradientEdges(map: LabelMap, img: ImageData, isGradient: (l: number) =>
           // Two gradients pair only where they touch (a thin flat line between them, like a ring
           // around a disc, keeps them apart); the 2 px reach is for blurred gradient/flat edges.
           if (dd > 2 && isGradient(a) && isGradient(b)) continue
+          // A flat pixel pairs with the nearest gradient, as before: its colour is the quantizer's
+          // reading of the edge, and a "better" partner further along would keep it flat (bird: a
+          // dark line between two feathers doubled in width).
+          if (!isGradient(a)) {
+            if (dd < bestD) [bestD, other] = [dd, b]
+            continue
+          }
           if (betweenGradients) {
             const fit = mixResidual(c, ca, colorOf(b, x, y))
             if (fit < bestFit - 1e-6 || (Math.abs(fit - bestFit) <= 1e-6 && dd < bestD)) [bestFit, bestD, other] = [fit, dd, b]
