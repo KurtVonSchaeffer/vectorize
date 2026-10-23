@@ -91,8 +91,10 @@ export interface TracedLayer {
   shapes?: string[]
   /** Drawn with this gradient; `color` is then its average. */
   fill?: GradientFill
-  /** Lettering rebuilt from a font: one path per letter (in `shapes`), named after the word. */
-  /** Lettering rebuilt from a font: the word, its font and letters, and how it is set (for editable text). */
+  /**
+   * Lettering rebuilt from a font: one path per letter (in `shapes`), named after the word, with
+   * how it is set (for editable text).
+   */
   text?: { word: string; font: string; letters: string[]; layout?: TextLayout }
 }
 
