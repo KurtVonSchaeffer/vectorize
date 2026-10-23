@@ -4,6 +4,7 @@ import { judge } from './finedetail'
 import { circlePath, decomposeCirclePolygon, insideCircle, insidePolygon, polygonPath, type CirclePolygon } from './decompose'
 import { detectShape, type ShapeKind } from './shapes'
 import { gradientSvg, type GradientFill } from '../palette/gradients'
+import type { TextLayout } from '../fonts/textlayout'
 
 /** A cleaned color map at source resolution, as produced by the quantizer. */
 export interface LabelMap {
@@ -91,7 +92,8 @@ export interface TracedLayer {
   /** Drawn with this gradient; `color` is then its average. */
   fill?: GradientFill
   /** Lettering rebuilt from a font: one path per letter (in `shapes`), named after the word. */
-  text?: { word: string; font: string; letters: string[] }
+  /** Lettering rebuilt from a font: the word, its font and letters, and how it is set (for editable text). */
+  text?: { word: string; font: string; letters: string[]; layout?: TextLayout }
 }
 
 const NO_SHAPE = 254
@@ -576,7 +578,7 @@ export function layersToSvg(layers: TracedLayer[], w: number, h: number): string
       if (open !== null) parts.push('</g>')
       open = null
       const fillHex = hex6(l.color)
-      parts.push(`<g id="Text_${slug}${n > 1 ? `_${n}` : ''}" data-text="${escapeAttr(l.text.word)}" data-font="${escapeAttr(l.text.font)}" data-color="${fillHex}">`)
+      parts.push(`<g id="Text_${slug}${n > 1 ? `_${n}` : ''}" data-text="${escapeAttr(l.text.word)}" data-font="${escapeAttr(l.text.font)}" data-color="${fillHex}"${layoutAttrs(l.text.layout)}>`)
       ;(l.shapes ?? []).forEach((d, i) => {
         const ch = l.text!.letters[i] ?? ''
         const id = /[A-Za-z0-9]/.test(ch) ? ch : `${i + 1}`
@@ -919,4 +921,14 @@ export function blur(src: Float32Array, w: number, h: number, sigma: number, box
     }
   }
   return out
+}
+
+/**
+ * How a rebuilt word is set, as data on its group: export/editable-text writes the word as SVG
+ * text from it. Outlines stay the drawing; these attributes change nothing on screen.
+ */
+function layoutAttrs(l: TextLayout | undefined): string {
+  if (!l || l.xs.length !== l.chars.length || !l.xs.length) return ''
+  const f = (v: number) => +v.toFixed(2)
+  return ` data-font-family="${escapeAttr(l.families.join('|'))}" data-font-weight="${l.weight}" data-font-style="${l.style}" data-font-size="${f(l.size)}" data-baseline="${f(l.baseline)}" data-x="${l.xs.map(f).join(' ')}" data-chars="${escapeAttr(l.chars.join('|'))}"`
 }

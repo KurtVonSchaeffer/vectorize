@@ -34,6 +34,8 @@ interface Props {
   transparentLocked: boolean
   onTransparent: (v: boolean) => void
   downloads: [Download, Download] | null
+  /** Lettering rebuilt from a font, as editable text: offered only when there is some. */
+  editableText?: Download | null
   onDownload: (d: Download) => void
   detail: number
   corners: number
@@ -303,6 +305,14 @@ export function ResultCard(p: Props) {
             <button className={link} disabled={p.status !== 'ready'} onClick={() => p.onDownload(p.downloads![1])}>
               Also get {p.downloads[1].label}
             </button>
+          </div>
+        )}
+        {p.editableText && (
+          <div className="text-center text-[13px] text-balance text-ink-2">
+            <button className={link} disabled={p.status !== 'ready'} onClick={() => p.onDownload(p.editableText!)}>
+              Also get {p.editableText.label}
+            </button>
+            . {p.editableText.detail}.
           </div>
         )}
       </div>
