@@ -13,6 +13,7 @@ import { enclosesPaper, paperMask, splitEnclosed, withPaper, type EnclosedArea, 
 import type { FlatTracer } from './flat-tracer'
 import { finalizeSvg, prepareImage, type InputImage } from './image'
 import type { PlacedWord } from '../fonts/lettering'
+import { scaleLayout, type TextLayout } from '../fonts/textlayout'
 import { scalePath } from '../fonts/path'
 import { toEngineConfig, type PrepParams, type TraceParams } from './params'
 import type { Tracer } from './tracer'
@@ -70,7 +71,7 @@ export interface JobSettings {
 
 /** Rebuilt lettering, in the traced image's pixels. */
 export interface TextOptions {
-  words: { text: string; font: string; letters: { char: string; d: string }[]; box: [number, number, number, number] }[]
+  words: { text: string; font: string; letters: { char: string; d: string }[]; box: [number, number, number, number]; layout?: TextLayout }[]
   /** Coverage (0–255) of all placed letters, per traced pixel. */
   coverage: Uint8Array
 }
@@ -298,7 +299,7 @@ function textOptions(words: PlacedWord[], scale: number, w: number, h: number): 
     const letters = word.letters.map((l) => ({ char: l.char, d: scalePath(l.d, scale) }))
     for (const l of letters) g.fill(new Path2D(l.d))
     const box: [number, number, number, number] = [word.box.x0 * scale, word.box.y0 * scale, word.box.x1 * scale, word.box.y1 * scale]
-    return { text: word.text, font: word.font, letters, box }
+    return { text: word.text, font: word.font, letters, box, ...(word.layout ? { layout: scaleLayout(word.layout, scale) } : {}) }
   })
   const data = g.getImageData(0, 0, w, h).data
   const coverage = new Uint8Array(w * h)
@@ -524,7 +525,7 @@ function applyText(map: LabelMap, text: TextOptions, knockout: boolean): { map: 
         if (traced(x, y)) [labels[p], second[p], cov[p]] = [bg, 255, 1]
         else if (map.second[p] === ink && a > 0) [second[p], cov[p]] = [255, 1]
       }
-    layers.push({ color: map.colors[ink], d: word.letters.map((l) => l.d).join(''), shapes: word.letters.map((l) => l.d), text: { word: word.text, font: word.font, letters: word.letters.map((l) => l.char) } })
+    layers.push({ color: map.colors[ink], d: word.letters.map((l) => l.d).join(''), shapes: word.letters.map((l) => l.d), text: { word: word.text, font: word.font, letters: word.letters.map((l) => l.char), layout: word.layout } })
     if (knockout) holes.push({ color: map.colors[bg], box: word.box, d: word.letters.map((l) => l.d).join('') })
     words++
   }

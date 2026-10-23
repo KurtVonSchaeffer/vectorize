@@ -10,6 +10,7 @@ import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip, type ColorMode, type WhiteInk } from './components/ResultCard'
 import { Upload } from './components/Upload'
+import { withEditableText } from './export/editable-text'
 import { downloadsFor, printWidthMm, saveBlob, type Download } from './export/files'
 import { platesOf } from './export/plates'
 import { DEMO_PALETTE } from './palette/demo'
@@ -412,6 +413,21 @@ export default function App() {
     })
   }, [result, source, client.purpose, names, spotNames, chips, plateSvg, oneOn, outputWidthMm])
 
+  // Lettering the client rebuilt from a font ("Try …", or a font picked), as editable text. Only words
+  // set from a font carry a layout; traced lettering stays outlines. Not offered when there are none.
+  const editableText = useMemo((): Download | null => {
+    if (!result || !source) return null
+    const e = withEditableText(result.svg)
+    if (!e.words) return null
+    const baseName = source.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-') || 'vector'
+    return {
+      label: 'SVG with editable text',
+      detail: `${e.words === 1 ? 'The rebuilt word is' : `${e.words} rebuilt words are`} text in ${e.fonts.join(' and ')}, which must be installed to look the same; other lettering stays as shapes`,
+      filename: `${baseName}-editable-text.svg`,
+      make: async () => new Blob([e.svg], { type: 'image/svg+xml' }),
+    }
+  }, [result, source])
+
   // Print files (flag): the plates as they will print, made on request.
   const [preview, setPreview] = useState<{ of: () => Promise<TraceResult>; plates: TraceResult | null; failed: boolean } | null>(null)
   // Spot inks have their own white-is-paper setting.
@@ -806,6 +822,7 @@ export default function App() {
             }
             downloads={downloads}
             onDownload={download}
+            editableText={editableText}
             detail={client.detail}
             corners={client.corners}
             onDetail={(detail) => setClient((c) => ({ ...c, detail }))}
