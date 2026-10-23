@@ -70,7 +70,8 @@ const GOLDEN: Record<string, Output> = {
   polygons: { svg: '8677dd96321bf2ee', knockout: '65e37f64daab25e0', oneColour: '2b59405a91f1731b', pdf: '42dae3a7f3a56797', dxf: 'f826ae6252507542' },
   // svg: fix/edge-fidelity keeps traced corners on small curves; the 1.2 px bars come out longer.
   lettering: { svg: '405ba9f4a2a1daa3', knockout: '2473b7258b77a267', oneColour: '49b9293867655843', pdf: 'c23659a1640d1760', dxf: '580e3545f8a12a97' },
-  stacked: { svg: '0c6d67e576aea33c', knockout: '961dbf1db370e939', oneColour: '53c05cbfcf3d4a0c', pdf: 'b373ac055e8f2694', dxf: 'c3d30721b4d31ab5' },
+  // fix/edge-fidelity: transparent edges traced from their alpha (same shapes and segment count).
+  stacked: { svg: '77d71420c2032852', knockout: '5b5f62dfd1e0a1c7', oneColour: '3b30030398e15cfc', pdf: '4e9419c28ad8c1bb', dxf: '045e141dcb48f151' },
   paper: { svg: '17c8bf47351103ca', knockout: '7d0730e2cb672e05', oneColour: 'e07e4b1b1f3d158e', pdf: 'd012bca1a5e07acf', dxf: 'f3d82f751a422781' },
   gradient: { svg: 'b8ead4384be4c147', knockout: '502e700ee6bf1297', oneColour: '3a58d5581dda2e98', pdf: 'b59c9a0a36fd3dfa', dxf: 'd25c3ee2665431b7' },
 }

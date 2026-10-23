@@ -29,6 +29,8 @@ export const MASTERS: Master[] = [
   { id: 'harbour-300-q75', svg: '/demo-samples/harbour.svg', w: 300, h: 87, bg: '#fff', jpeg: 0.75 },
   { id: 'harbour-600-q40', svg: '/demo-samples/harbour.svg', w: 600, h: 173, bg: '#fff', jpeg: 0.4 },
   { id: 'kestrel-q40', svg: '/demo-samples/kestrel.svg', w: 400, h: 240, bg: '#fff', jpeg: 0.4 },
+  { id: 'rings', svg: '/demo-samples/rings.svg', w: 288, h: 288, bg: '#fff' },
+  { id: 'rings-t', svg: '/demo-samples/rings.svg', w: 288, h: 288, bg: null },
   { id: 'kestrel', svg: '/demo-samples/kestrel.svg', w: 800, h: 480, bg: '#fff' },
   { id: 'summit', svg: '/demo-samples/summit.svg', w: 600, h: 227, bg: null },
 ]

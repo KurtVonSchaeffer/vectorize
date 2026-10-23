@@ -182,7 +182,8 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
 
   // Flat colors are clustered and traced at source resolution (capped by max size); edges get
   // sub-pixel accuracy from anti-aliasing instead of from upscaling.
-  const base = prepareImage(input, { ...prep, upscaleSmall: false }, false)
+  // Partial transparency is kept: a transparent logo's anti-aliased edge is its exact outline.
+  const base = prepareImage(input, { ...prep, upscaleSmall: false }, false, true)
   const scale = base.image.width / sourceWidth
   const speckArea = Math.max(1, (trace.filterSpeckle * scale) ** 2)
   const one = !lineArt && !spotOn ? s.oneColour : undefined
