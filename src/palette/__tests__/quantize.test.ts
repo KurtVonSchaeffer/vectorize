@@ -226,6 +226,42 @@ describe('quantize: thin lettering in its own colour (grey-tagline regression)',
   it('keeps the tagline grey as its own colour', () => {
     expect(colours(quantize(wordmark(), TAGLINE_OPTS)).some((c) => near(c, GREY, 24))).toBe(true)
   })
+
+  // The same thin tagline in other neutrals, under navy or black lettering: each is real artwork
+  // (well clear of both colours it could pass for a mix of) and keeps its own colour.
+  function wordmarkIn(ink: number[], tag: number[]): ImageData {
+    return image(240, 80, (x, y) => {
+      for (const x0 of [10, 60, 110, 160]) {
+        if (y >= 8 && y < 40 && x >= x0 && x < x0 + 40) return [...ink, 255] as [number, number, number, number]
+        if (y >= 8 && y < 40 && (x === x0 - 1 || x === x0 + 40)) return [...mix(ink, WHITE, 0.5), 255] as [number, number, number, number]
+      }
+      if (y >= 55 && y < 64) {
+        const i = (x - 12) % 9
+        if (x >= 12 && x < 228 && i >= 0 && i < 6 && (y === 55 || y === 63 || i === 0 || i === 5)) return [...tag, 255] as [number, number, number, number]
+        if (x >= 12 && x < 228 && (i === 6 || i === 8 || ((y === 56 || y === 62) && i > 0 && i < 5))) return [...mix(tag, WHITE, 0.6), 255] as [number, number, number, number]
+      }
+      return [...WHITE, 255] as [number, number, number, number]
+    })
+  }
+  const NEUTRALS: [string, number[]][] = [
+    ['dark grey', [64, 64, 64]],
+    ['mid grey', [119, 119, 119]],
+    ['light grey', [160, 160, 160]],
+    ['warm grey', [138, 131, 120]],
+    ['cool grey', [112, 122, 132]],
+  ]
+  // Known limit: a dark grey (64) under near-black lettering (17) is ΔE 14.6 from the black, under
+  // ART_DISTINCT. It is then the same case as a 1 px line's 80% edge (a mix 20% of the way to
+  // paper, fading into paper on one side), which must fold (fine-detail tests), so nothing in the
+  // colour or its placement can keep one and fold the other.
+  const KNOWN_LIMIT = new Set(['dark grey under black'])
+  for (const [inkName, ink] of [['navy', NAVY], ['black', [17, 17, 17]]] as const)
+    for (const [name, tag] of NEUTRALS)
+      (KNOWN_LIMIT.has(`${name} under ${inkName}`) ? it.fails : it)(`keeps a thin ${name} tagline under ${inkName} lettering in its own colour`, () => {
+        const cs = colours(quantize(wordmarkIn([...ink], tag), TAGLINE_OPTS))
+        expect(cs.some((c) => near(c, tag, 24))).toBe(true)
+        expect(cs.some((c) => near(c, [...ink], 16))).toBe(true)
+      })
 })
 
 describe('quantize: thin artwork versus edge fringes', () => {

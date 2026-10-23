@@ -1017,6 +1017,17 @@ const ART_CONNECTED = 0.5
 const ART_MIN_PIECE = 8
 /** …and consistent in colour (compression noise scatters over many colours). */
 const ART_CONSISTENT = 0.2
+/** Edge tones: a mix of the colour and a partner at least this far from either end (see edgeSides). */
+const EDGE_TONE_MIN = 0.15
+/** Thin artwork has edge tones toward its surroundings beside at least this share of its pixels… */
+const OWN_EDGE = 0.3
+/** …and toward the other partner beside at most this share (a hairline's tones go both ways). */
+const OTHER_EDGE = 0.1
+/**
+ * Tones toward the other partner count from this far along: a smooth ramp (a 12 px blend between
+ * two colours) moves only a few percent per pixel, below EDGE_TONE_MIN, but toward both sides.
+ */
+const FAINT_TONE_MIN = 0.03
 
 interface ClusterPixels {
   src: ImageData
@@ -1103,6 +1114,52 @@ function clusterShape(c: number, px: ClusterPixels) {
     }
     return inStrokes / n
   }
+  /**
+   * Which way the cluster's soft edge leans: per partner, the share of its pixels next to a tone
+   * between it and that partner (a mix of the two at 15–85%, within BLEND_TOLERANCE). Thin artwork
+   * in its own colour fades into what surrounds it, on that side only; a line of a partner colour
+   * drawn across pixel boundaries has no edge tones of its own (a uniform mix) or tones toward
+   * both sides (its coverage changing along the line).
+   */
+  const edgeSides = (ca: number[], cb: number[], self: number[]) => {
+    const toward = (q: number[], o: number[], min = EDGE_TONE_MIN) => {
+      const ab = [o[0] - self[0], o[1] - self[1], o[2] - self[2]]
+      const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+      if (!len2) return false
+      const t = ((q[0] - self[0]) * ab[0] + (q[1] - self[1]) * ab[1] + (q[2] - self[2]) * ab[2]) / len2
+      return t >= min && t <= 1 - EDGE_TONE_MIN && Math.hypot(q[0] - self[0] - t * ab[0], q[1] - self[1] - t * ab[1], q[2] - self[2] - t * ab[2]) < BLEND_TOLERANCE
+    }
+    let sideA = 0
+    let sideB = 0
+    let faintA = 0
+    let faintB = 0
+    for (const p of own) {
+      const x = p % w
+      const y = (p - x) / w
+      let ta = false
+      let tb = false
+      let fa = false
+      let fb = false
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx
+          const ny = y + dy
+          if (!(dx || dy) || nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+          const q = ny * w + nx
+          if (cl[q] === c || d[q * 4 + 3] < 128) continue
+          const rgb = [d[q * 4], d[q * 4 + 1], d[q * 4 + 2]]
+          if (!ta && toward(rgb, ca)) ta = true
+          if (!tb && toward(rgb, cb)) tb = true
+          if (!fa && toward(rgb, ca, FAINT_TONE_MIN)) fa = true
+          if (!fb && toward(rgb, cb, FAINT_TONE_MIN)) fb = true
+        }
+      if (ta) sideA++
+      if (tb) sideB++
+      if (fa) faintA++
+      if (fb) faintB++
+    }
+    return { a: sideA / n, b: sideB / n, faintA: faintA / n, faintB: faintB / n }
+  }
   /** Share of the cluster's pixels with both partner clusters within FRINGE_REACH px. */
   const between = (a: number, b: number) => {
     let both = 0
@@ -1124,7 +1181,7 @@ function clusterShape(c: number, px: ClusterPixels) {
     }
     return both / n
   }
-  return { thick: thick / n, consistent: mode / n, connected, between }
+  return { thick: thick / n, consistent: mode / n, connected, between, edgeSides }
 }
 
 /**
@@ -1166,11 +1223,24 @@ function dropBlendClusters(
     const others: { id: number; rgb: number[] }[] = centers.flatMap((o, i) => (i !== c && alive[i] ? [{ id: i, rgb: labToRgb(o) }] : []))
     if (paper) others.push({ id: PAPER_CLUSTER, rgb: [255, 255, 255] })
     const self = labToRgb(centers[c])
-    const pairs: { a: number; b: number; linear: boolean }[] = []
+    // A thin partner that is itself a mix of this colour and another (a grey tagline's light
+    // anti-aliased edge, between the grey and white) is this colour's own edge tone: away from
+    // it, it can't make the colour a blend (the grey isn't black mixed with its own edge). A band
+    // of a smooth gradient has an interior, so it's a colour of its own, judged as before.
+    const ownTone = (o: { id: number; rgb: number[] }) =>
+      o.id !== PAPER_CLUSTER &&
+      interior[o.id] <= BLEND_MAX_INTERIOR &&
+      others.some((x) => {
+        if (x === o) return false
+        const info = blendInfo(o.rgb, self, x.rgb, BLEND_TOLERANCE)
+        return !!info && info.mix > 0.05 && info.mix < 0.95 && isLinearMix(o.rgb, self, x.rgb)
+      })
+    const pairs: { a: number; b: number; linear: boolean; own: boolean }[] = []
     for (let i = 0; i < others.length; i++)
       for (let j = i + 1; j < others.length; j++) {
         const info = blendInfo(self, others[i].rgb, others[j].rgb, BLEND_TOLERANCE)
-        if (info && info.mix > 0.05 && info.mix < 0.95) pairs.push({ a: others[i].id, b: others[j].id, linear: isLinearMix(self, others[i].rgb, others[j].rgb) })
+        if (info && info.mix > 0.05 && info.mix < 0.95)
+          pairs.push({ a: others[i].id, b: others[j].id, linear: isLinearMix(self, others[i].rgb, others[j].rgb), own: ownTone(others[i]) || ownTone(others[j]) })
       }
     if (!pairs.length || alive.filter(Boolean).length <= 1) continue
     let fringe = true
@@ -1183,12 +1253,22 @@ function dropBlendClusters(
         Math.min(deltaE2000(centers[c], labOf(a)), deltaE2000(centers[c], labOf(b))) >= ART_DISTINCT &&
         shape.consistent >= ART_CONSISTENT &&
         shape.connected(rgbOf(a), rgbOf(b), self) >= ART_CONNECTED
+      // An exact mix is also artwork when its soft edge fades toward one partner only (a grey
+      // tagline into white; every neutral grey is an exact black–white mix). A line of a partner
+      // colour across pixel boundaries has no such edge, or one toward both sides.
+      const ownEdge = (a: number, b: number) => {
+        const e = shape.edgeSides(rgbOf(a), rgbOf(b), self)
+        // The other side counts even faint tones: a smooth ramp steps only a little per pixel.
+        return (e.a >= OWN_EDGE && e.faintB <= OTHER_EDGE) || (e.b >= OWN_EDGE && e.faintA <= OTHER_EDGE)
+      }
       // Between its two colours: a fringe, unless it's a consistent band 2 px or wider.
-      // Elsewhere, an exact anti-aliasing mix is still most likely a thin line of one colour
-      // drawn across pixel boundaries over the other; but a colour that only matches the JPEG
-      // chroma test can't be a JPEG fringe away from the edge it would come from, so connected,
-      // consistent strokes of it are artwork.
-      fringe = pairs.some(({ a, b, linear }) => (shape.between(a, b) >= FRINGE_BETWEEN ? !band : linear || !art(a, b)))
+      // Elsewhere, a colour that only matches the JPEG chroma test can't be a JPEG fringe away
+      // from the edge it would come from, so connected, consistent strokes of it are artwork; an
+      // exact anti-aliasing mix is too when it also has its own edge on one side only.
+      // A pair with one of its own edge tones, away from it, is no evidence either way (unless
+      // every pair has one: then all are judged, as before).
+      const evidence = pairs.filter(({ a, b, own }) => !own || shape.between(a, b) >= FRINGE_BETWEEN)
+      fringe = (evidence.length ? evidence : pairs).some(({ a, b, linear }) => (shape.between(a, b) >= FRINGE_BETWEEN ? !band : linear ? !(art(a, b) && ownEdge(a, b)) : !art(a, b)))
     }
     if (fringe) alive[c] = false
     else rescued[c] = true
