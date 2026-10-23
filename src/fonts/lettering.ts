@@ -50,6 +50,13 @@ export interface TextDoubt {
 /** Whether every placed word's text is supported by the image (no doubts). */
 export const verified = (words: PlacedWord[]) => words.every((w) => !w.doubts?.length)
 
+/**
+ * Adds how the word is set, unless it has doubts: editable text says which letters it is, so a
+ * word whose letters the image doesn't clearly support stays outlines only (as traced or rebuilt),
+ * never text a reader or search would take as certain.
+ */
+export const withLayout = (word: PlacedWord, layout: TextLayout): PlacedWord => (word.doubts?.length ? word : { ...word, layout })
+
 export interface LineLettering {
   font: string
   words: PlacedWord[]
@@ -281,7 +288,7 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
     const doubts = [...placed.doubts, ...disagree.map((r) => ({ at: -1, char: w.text, rival: r, fit: 0, rivalFit: 0 }))]
     const k = sourcePerOcrPixel(report.scale)
     const layout = scaleLayout({ ...fontNames(match), style: match.style, ...placed.set, chars: placed.letters.map((l) => l.char) }, k)
-    words.push({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), layout, ...(doubts.length ? { doubts } : {}) })
+    words.push(withLayout({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) }, layout))
   }
   return { font: match.label, words, skipped }
 }
