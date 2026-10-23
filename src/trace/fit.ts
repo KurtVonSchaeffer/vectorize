@@ -293,6 +293,13 @@ export function fitLine(pts: Point[]): { c: Point; d: Point } {
   return { c: [cx, cy], d: [Math.cos(angle), Math.sin(angle)] }
 }
 
+/** Signed distance of p from the line a→b: positive on its left (y down: clockwise side). */
+function sideOf(p: Point, a: Point, b: Point): number {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  return (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) / (Math.hypot(dx, dy) || 1)
+}
+
 function distToLine(p: Point, a: Point, b: Point): number {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
@@ -307,16 +314,30 @@ const EDGE_TRIM = 10
 const CORNER_TRIM = 3
 /** Max distance (px) a reconstructed corner may move from the traced contour. */
 const MAX_CORNER_SHIFT = 2.5
+/**
+ * Only two straight edges have a corner to rebuild where they meet. The blunt end of a small curve
+ * (a letter's counter, a dot) passes the turning-angle test too, but its sides keep bending the way
+ * it turns, and extending them puts the "corner" over a pixel outside the shape, through a thin
+ * stroke next to it. A side counts as bending when its samples lie on average this far (px) beyond
+ * its chord, on the outside of the turn: a circle of radius 3.5 px (the counter of a 10 px letter)
+ * averages 0.2 px over the 3 px measured. Compression noise on a straight edge scatters to both sides
+ * and averages near zero, so real corners in JPEGs are still rebuilt.
+ */
+const CORNER_EDGE_BEND = 0.08
 
 /**
  * Intersects the straight edges coming into and leaving a corner (measured just outside the
- * rounded zone). Returns null when the edges are near-parallel or the intersection is
- * implausibly far from the contour, in which case the corner is kept as traced.
+ * rounded zone). Returns null when an edge isn't straight, the edges are near-parallel or the
+ * intersection is implausibly far from the contour, in which case the corner is kept as traced.
  */
 function sharpenCorner(pts: Point[], c: number): { point: Point; inDir: Point; outDir: Point } | null {
   const n = pts.length
-  const at = (i: number) => pts[((i % n) + n) % n]
   const k = CORNER_TRIM
+  // Each edge is measured 3k samples out from the corner. On an outline shorter than both edges of
+  // two corners (a dot of a few pixels), those samples wrap around the whole shape and the "edges"
+  // point anywhere: the rebuilt corners cross over (a bow-tie). Small marks keep their traced shape.
+  if (n < 12 * k) return null
+  const at = (i: number) => pts[((i % n) + n) % n]
   const a0 = at(c - 3 * k)
   const a1 = at(c - k)
   const b0 = at(c + k)
@@ -325,6 +346,13 @@ function sharpenCorner(pts: Point[], c: number): { point: Point; inDir: Point; o
   const outDir = norm(sub(b1, b0))
   const cross = inDir[0] * outDir[1] - inDir[1] * outDir[0]
   if (Math.abs(cross) < 0.2) return null
+  // How far a side's samples lie, on average, beyond its chord on the outside of the turn.
+  const bend = (from: number, p0: Point, p1: Point) => {
+    let sum = 0
+    for (let i = 1; i < 2 * k; i++) sum += sideOf(at(from + i), p0, p1)
+    return (-Math.sign(cross) * sum) / (2 * k - 1)
+  }
+  if (bend(c - 3 * k, a0, a1) > CORNER_EDGE_BEND && bend(c + k, b0, b1) > CORNER_EDGE_BEND) return null
   // Solve a1 + s*inDir = b0 + t*outDir for s.
   const d = sub(b0, a1)
   const s = (d[0] * outDir[1] - d[1] * outDir[0]) / cross

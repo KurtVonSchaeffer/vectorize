@@ -74,7 +74,7 @@ describe('problems found in the result are reported', () => {
   it('degraded artwork: lost lettering strokes', () => {
     const img = paint(110, 70, BLUE, [
       { rings: [rect(0, 30, 110, 40)], color: [240, 240, 235] },
-      { rings: Array.from({ length: 12 }, (_, k) => rect(6 + k * 8, 31.5, 6 + k * 8 + 1.2, 38.5)), color: [30, 140, 70] },
+      { rings: Array.from({ length: 12 }, (_, k) => rect(6 + k * 8, 31.5, 6 + k * 8 + 1, 38.5)), color: [30, 140, 70] },
     ])
     const r = readiness(input({ state: 'checked', report: measuredReport(img) }))
     expect(r.autoCheck).toBe('problems-found')

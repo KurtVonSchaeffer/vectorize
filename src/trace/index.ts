@@ -698,7 +698,8 @@ function insideLoop([px, py]: Point, poly: Point[]): boolean {
  * Ridges weaker than THIN_MIN are left alone, so faint smudges don't become lines, and so are
  * ridges without clean ground around them (within THIN_GROUND of 0, or of 1 for gaps).
  */
-function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: number, raw?: Float32Array): Float32Array {
+// Exported for bench/edge-lab.ts, which shows the field each tracing stage produces.
+export function keepThin(s: Float32Array, w: number, h: number, level: number, sigma: number, raw?: Float32Array): Float32Array {
   // Fine detail: strokes measured across themselves (see TraceOptions.crossSection); `raw` is the
   // field before blurring, to tell a real stroke (with a solid core) from edge-blend residue.
   const crossSection = !!raw

@@ -89,7 +89,7 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   const count = new Float64Array(BINS)
   const sum = new Float64Array(BINS * 3)
   for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] === 0 || (fixed && fixed.labels[i >> 2] >= 0)) continue
+    if (d[i + 3] < OPAQUE || (fixed && fixed.labels[i >> 2] >= 0)) continue
     const b = binOf(d[i], d[i + 1], d[i + 2])
     count[b]++
     sum[b * 3] += d[i]
@@ -218,7 +218,7 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
   const second = new Uint8Array(w * h).fill(EMPTY)
   const cov = new Float32Array(w * h).fill(1)
   for (let p = 0, i = 0; p < labels.length; p++, i += 4) {
-    if (d[i + 3] === 0) labels[p] = EMPTY
+    if (d[i + 3] < OPAQUE) labels[p] = EMPTY
     else if (fixed && fixed.labels[p] >= 0) labels[p] = fixedBase + fixed.labels[p]
     else {
       const b = binOf(d[i], d[i + 1], d[i + 2])
@@ -244,6 +244,8 @@ export function quantize(src: ImageData, opts: QuantizeOptions, fixed?: FixedLab
       cov[p] = 1
     }
   }
+
+  alphaCoverage(d, w, h, labels, clean, second, cov)
 
   const map: LabelMap = { w, h, labels: clean, second, cov, colors: labelRgb }
   if (kept && raw) {
@@ -691,7 +693,7 @@ function separateRegions(src: ImageData, bins: number[], assign: Int32Array, cen
   const cluster = new Int16Array(w * h).fill(-1)
   const size = new Float64Array(k)
   for (let p = 0, i = 0; p < w * h; p++, i += 4) {
-    if (d[i + 3] === 0 || (fixed && fixed.labels[p] >= 0)) continue
+    if (d[i + 3] < OPAQUE || (fixed && fixed.labels[p] >= 0)) continue
     const b = binOf(d[i], d[i + 1], d[i + 2])
     if (paper[b] || point[b] < 0) continue
     cluster[p] = assign[point[b]]
@@ -765,6 +767,12 @@ function separateRegions(src: ImageData, bins: number[], assign: Int32Array, cen
 const BLEND_RESIDUAL = 24 // sRGB units
 
 const EMPTY = 255
+/**
+ * Pixels at least this opaque count as the colour they carry; less opaque ones as transparent
+ * (as when the image's alpha was snapped). Partial transparency still shapes the outline: see
+ * alphaCoverage.
+ */
+const OPAQUE = 128
 const PAPER_LABEL = 254
 
 /**
@@ -957,7 +965,7 @@ function interiorShare(src: ImageData, bins: number[], assign: Int32Array, k: nu
   const { width: w, height: h, data: d } = src
   const cl = new Int16Array(w * h).fill(-1)
   for (let p = 0, i = 0; p < cl.length; p++, i += 4) {
-    if (d[i + 3] === 0) continue
+    if (d[i + 3] < OPAQUE) continue
     const b = binOf(d[i], d[i + 1], d[i + 2])
     if (!paper[b]) cl[p] = clusterOfBin[b]
   }
@@ -1183,3 +1191,35 @@ export function nameSvg(svg: string, names: Map<number, string>): string {
 }
 
 const escapeXml = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
+/**
+ * A transparent image's anti-aliased edge: a pixel's alpha is how much of it its colour covers, and
+ * the rest is nothing. Labels keep the snapped reading (OPAQUE); coverage takes the exact value, so
+ * the traced outline follows the real edge instead of a pixel staircase (which smoothing turns into
+ * ripples). A mostly transparent pixel lends its share to the colour of its most opaque labelled
+ * neighbour, whose colour it is. Pixels relabelled by cleanup are left as they are.
+ */
+function alphaCoverage(d: Uint8ClampedArray, w: number, h: number, labels: Uint8Array, clean: Uint8Array, second: Uint8Array, cov: Float32Array) {
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      const a = d[p * 4 + 3]
+      if (a === 0 || a === 255 || clean[p] !== labels[p]) continue
+      if (a >= OPAQUE) {
+        second[p] = EMPTY
+        cov[p] = a / 255
+        continue
+      }
+      let best = -1
+      let bestA = 0
+      for (let yy = Math.max(0, y - 1); yy <= Math.min(h - 1, y + 1); yy++)
+        for (let xx = Math.max(0, x - 1); xx <= Math.min(w - 1, x + 1); xx++) {
+          const q = yy * w + xx
+          if (clean[q] === EMPTY || clean[q] === PAPER_LABEL) continue
+          if (d[q * 4 + 3] > bestA) [best, bestA] = [clean[q], d[q * 4 + 3]]
+        }
+      if (best < 0) continue
+      second[p] = best
+      cov[p] = 1 - a / 255
+    }
+}

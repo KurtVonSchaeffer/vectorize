@@ -124,8 +124,11 @@ export interface PreparedImage {
   scale: number
 }
 
-/** `pixelated` keeps hard pixel edges: no upscaling, and nearest-neighbor resampling. */
-export function prepareImage(src: InputImage, prep: PrepParams, pixelated: boolean): PreparedImage {
+/**
+ * `pixelated` keeps hard pixel edges: no upscaling, and nearest-neighbor resampling. `softAlpha`
+ * keeps partial transparency (the flat tracer reads it as edge coverage; see quantize).
+ */
+export function prepareImage(src: InputImage, prep: PrepParams, pixelated: boolean, softAlpha = false): PreparedImage {
   const scale = prepScale(src.width, src.height, pixelated ? { ...prep, upscaleSmall: false } : prep)
   const w = Math.max(1, Math.round(src.width * scale))
   const h = Math.max(1, Math.round(src.height * scale))
@@ -135,7 +138,7 @@ export function prepareImage(src: InputImage, prep: PrepParams, pixelated: boole
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(src.bitmap, 0, 0, w, h)
   const image = ctx.getImageData(0, 0, w, h)
-  binarizeAlpha(image)
+  if (!softAlpha) binarizeAlpha(image)
   return { image, scale }
 }
 
