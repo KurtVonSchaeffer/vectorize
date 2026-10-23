@@ -37,6 +37,12 @@ export interface DownloadInput {
   spotNames: Map<number, string> | null
   /** Few flat inks (separations make sense) vs many colors (photo). */
   flat: boolean
+  /**
+   * Print files (flag): `spotNames` are exactly the inks chosen for print (chosenPrintInks), and only
+   * they become spot plates; every other colour, white included, is an ordinary full-colour fill.
+   * Off: every flat colour is a plate, named after the chosen ink or its colour name, as before.
+   */
+  chosenInksOnly?: boolean
 }
 
 /** The long side of a full-colour print PDF (its 720 pt page), which other print files can match. */
@@ -59,11 +65,21 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
       : null
   // A plate or layer is named after the ink chosen for it (spot name) when there is one.
   const inkName = (color: number) => input.spotNames?.get(color) ?? input.names.get(color)
+  // The spot plate a colour prints on, if any. With chosen inks only, a colour's own name isn't an
+  // ink: as a Separation a RIP makes a plate for it, and may take "White" for a white-ink plate.
+  const spotFor = (color: number) => (input.chosenInksOnly ? input.spotNames?.get(color) : inkName(color))
+  const chosen = input.flat && input.chosenInksOnly ? [...new Set(input.spotNames?.values() ?? [])] : null
 
   if (purpose === 'print') {
     const pdf: Download = {
       label: 'PDF',
-      detail: input.flat ? 'Each color on its own plate, named for your printer' : 'Full-color vector PDF',
+      detail: chosen
+        ? chosen.length
+          ? `Spot plates only for the inks you chose (${chosen.join(', ')}); every other color prints in full color`
+          : 'Full-color vector PDF, no spot plates'
+        : input.flat
+          ? 'Each color on its own plate, named for your printer'
+          : 'Full-color vector PDF',
       filename: `${baseName}-print.pdf`,
       make: async () => {
         const all = shapesFromSvg((await input.plateSvg?.()) ?? input.svg)
@@ -71,7 +87,7 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
         const shapes = input.flat ? mergeByColor(all) : all
         const inks = shapes.map((shape) => ({
           shape,
-          spotName: input.flat && !shape.gradient ? (input.spotNames?.get(shape.color) ?? input.names.get(shape.color) ?? undefined) : undefined,
+          spotName: input.flat && !shape.gradient ? (spotFor(shape.color) ?? undefined) : undefined,
         }))
         const bytes = buildPdf(inks, { width: input.width, height: input.height, title: baseName, widthPt: widthMm ? (widthMm * 72) / 25.4 : undefined })
         return new Blob([bytes as BlobPart], { type: 'application/pdf' })

@@ -74,6 +74,8 @@ export interface PlatePreviewProps {
   plates: Plate[]
   /** Gradient shapes: printed in full colour, not on a plate. */
   gradients: number
+  /** Colours with no ink chosen for them: printed in full colour, not on a plate (absent: every colour is a plate). */
+  fullColour?: Plate[]
   /** White artwork only: enclosed white areas, marked on the preview, each with a choice. */
   areas: EnclosedArea[]
   onChoose: (area: EnclosedArea, white: boolean) => void
@@ -512,6 +514,11 @@ function PlatePreview(v: PlatePreviewProps) {
                 </div>
               )}
             </div>
+          )}
+          {!!v.fullColour?.length && (
+            <small className="text-[13px] text-ink-2">
+              {v.plates.length ? 'Not on a plate' : 'No spot plates'}: {v.fullColour.map((c) => c.name).join(', ')} {v.fullColour.length === 1 ? 'prints' : 'print'} in full color. Only the inks you choose for print get their own plate.
+            </small>
           )}
           {v.gradients > 0 && (
             <small className="text-[13px] text-ink-2">
