@@ -75,7 +75,7 @@ export function downloadsFor(purpose: Purpose, input: DownloadInput): [Download,
       label: 'PDF',
       detail: chosen
         ? chosen.length
-          ? `Spot plates only for the inks you chose (${chosen.join(', ')}); every other color prints in full color`
+          ? `Spot plates only for the inks you chose (${chosen.join(', ')}); any other color prints in full color`
           : 'Full-color vector PDF, no spot plates'
         : input.flat
           ? 'Each color on its own plate, named for your printer'

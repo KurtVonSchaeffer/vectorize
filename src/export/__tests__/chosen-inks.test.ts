@@ -66,7 +66,7 @@ describe('print PDF with chosen inks only (print-files flag)', () => {
     const p = await pdfOf({ chosenInksOnly: true, spotNames: new Map([[NAVY, 'PANTONE 2766 C']]) })
     expect(p.separations).toEqual(['PANTONE#202766#20C'])
     expect(p.fills).toEqual(['1 1 1 rg', '/CS1 cs 1 scn', '0.894 0.341 0.18 rg'])
-    expect(p.detail).toBe('Spot plates only for the inks you chose (PANTONE 2766 C); every other color prints in full color')
+    expect(p.detail).toBe('Spot plates only for the inks you chose (PANTONE 2766 C); any other color prints in full color')
   })
 
   it('white ink asked for: a White plate, and nothing else becomes a plate', async () => {
