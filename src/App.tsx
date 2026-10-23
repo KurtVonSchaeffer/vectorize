@@ -665,7 +665,8 @@ export default function App() {
     candidates: () => {
       if (!buildJob || !source || !detection) return []
       const d0 = client.detail
-      return alternatives(detection, source.width, source.height, d0).map((alt): Candidate =>
+      // Lettering too small to trace cleanly (the warning below): sharpening is tried whatever the size.
+      return alternatives(detection, source.width, source.height, d0, smallText).map((alt): Candidate =>
         alt.kind === 'detail'
           ? {
               label: alt.label,
