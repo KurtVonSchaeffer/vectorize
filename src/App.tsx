@@ -11,7 +11,7 @@ import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip, type ColorMode, type WhiteInk } from './components/ResultCard'
 import { Upload } from './components/Upload'
 import { downloadsFor, printWidthMm, saveBlob, type Download } from './export/files'
-import { platesOf } from './export/plates'
+import { chosenPrintInks, platesOf } from './export/plates'
 import { DEMO_PALETTE } from './palette/demo'
 import { oneColourPlateName } from './vectorize/one-colour-ink'
 import { colorNames } from './palette/names'
@@ -390,6 +390,17 @@ export default function App() {
     [result, inks.enabled, oneOn, client.oneColour.ink, client.oneColour.inkName],
   )
 
+  // Print files (flag): the white-ink choice applies to opaque full-colour uploads on paper; spot inks
+  // have their own white-is-paper setting.
+  const whiteInkShown = PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && !!result?.paper
+  // Print files (flag): the inks chosen for print, the only spot plates. White ink is one when asked
+  // for: the background too ('all'), or white inside the artwork ('artwork', when the artwork has any).
+  const printInks = useMemo(() => {
+    if (!PRINT_FILES || !result) return spotNames
+    const white = whiteInkShown && result.background != null && (whiteInk === 'all' || (whiteInk === 'artwork' && result.enclosedPaper)) ? result.background : null
+    return chosenPrintInks(spotNames, white)
+  }, [spotNames, whiteInkShown, whiteInk, result])
+
   const downloads = useMemo(() => {
     if (!result || !source) return null
     const baseName = source.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-') || 'vector'
@@ -400,8 +411,10 @@ export default function App() {
       height: result.height,
       baseName,
       names,
-      spotNames,
+      spotNames: printInks,
       flat: !!chips && chips.length <= 16,
+      // Print files (flag): only the inks chosen for print are spot plates.
+      chosenInksOnly: PRINT_FILES || undefined,
       // One colour: the master keeps each former colour as its own shape, which a cutter would cut apart.
       // Print files (flag): the print / cut SVG is the same artwork as the PDF and DXF, paper left out.
       cutSvgFromPlates: oneOn || PRINT_FILES,
@@ -410,12 +423,10 @@ export default function App() {
       // Print files (flag): full-colour SVG and DXF match the PDF's size (long side 254 mm).
       printWidthMm: PRINT_FILES && !oneOn ? printWidthMm(result.width, result.height) : undefined,
     })
-  }, [result, source, client.purpose, names, spotNames, chips, plateSvg, oneOn, outputWidthMm])
+  }, [result, source, client.purpose, names, printInks, chips, plateSvg, oneOn, outputWidthMm])
 
   // Print files (flag): the plates as they will print, made on request.
   const [preview, setPreview] = useState<{ of: () => Promise<TraceResult>; plates: TraceResult | null; failed: boolean } | null>(null)
-  // Spot inks have their own white-is-paper setting.
-  const whiteInkShown = PRINT_FILES && plates && !oneOn && !inks.enabled && !transparent && !!result?.paper
   // White artwork only: made straight away, to say which white areas need checking.
   const needPlates = platesOpen || (whiteInkShown && whiteInk === 'artwork')
   useEffect(() => {
@@ -438,7 +449,7 @@ export default function App() {
     const covers = (c: WhiteChoice, a: EnclosedArea) => c.at[0] / k >= a.box[0] && c.at[0] / k <= a.box[2] && c.at[1] / k >= a.box[1] && c.at[1] / k <= a.box[3]
     setWhiteChoices((cs) => [...cs.filter((c) => !areas.some((a) => covers(c, a))), ...areas.map((a) => ({ at: [a.at[0] * k, a.at[1] * k] as [number, number], white }))])
   }
-  const plateList = useMemo(() => (shownPlates?.plates ? platesOf(shownPlates.plates.svg, (c) => spotNames?.get(c) ?? names.get(c)) : { plates: [], gradients: 0 }), [shownPlates?.plates, spotNames, names])
+  const plateList = useMemo(() => (shownPlates?.plates ? platesOf(shownPlates.plates.svg, (c) => spotNames?.get(c) ?? names.get(c), PRINT_FILES ? printInks : undefined) : { plates: [], gradients: 0, fullColour: [] }), [shownPlates?.plates, spotNames, names, printInks])
 
   const download = async (d: Download) => {
     try {
@@ -796,6 +807,7 @@ export default function App() {
                     failed: !!shownPlates?.failed,
                     plates: plateList.plates,
                     gradients: plateList.gradients,
+                    fullColour: plateList.fullColour,
                     width: shownPlates?.plates?.width ?? result.width,
                     height: shownPlates?.plates?.height ?? result.height,
                     areas: whiteInkShown && whiteInk === 'artwork' ? (shownPlates?.plates?.enclosed ?? []) : [],
