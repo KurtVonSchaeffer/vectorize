@@ -21,6 +21,15 @@ export const PAPER_SIDE = 0.75
 /** At most this share of the upload's pixels may be less than opaque. */
 const PAPER_MAX_TRANSLUCENT = 0.005
 
+/**
+ * A colour (0xRRGGBB) light and neutral enough to be paper. Removing such a background leaves a
+ * result the automatic check can still compare with the upload, since it composites both over white.
+ */
+export function isPaperColour(c: number): boolean {
+  const [L, a, b] = rgbToLab([(c >> 16) & 255, (c >> 8) & 255, c & 255])
+  return L >= PAPER_MIN_L && Math.hypot(a, b) <= PAPER_MAX_CHROMA
+}
+
 /** The paper pixels (1) of the map, or null when its background isn't paper. */
 export function paperMask(map: LabelMap, bgLabel: number, image: ImageData): Uint8Array | null {
   const { w, h, labels, colors } = map
@@ -28,9 +37,7 @@ export function paperMask(map: LabelMap, bgLabel: number, image: ImageData): Uin
   let translucent = 0
   for (let i = 3; i < image.data.length; i += 4) if (image.data[i] < 255) translucent++
   if (translucent > PAPER_MAX_TRANSLUCENT * w * h) return null
-  const c = colors[bgLabel]
-  const [L, a, b] = rgbToLab([(c >> 16) & 255, (c >> 8) & 255, c & 255])
-  if (L < PAPER_MIN_L || Math.hypot(a, b) > PAPER_MAX_CHROMA) return null
+  if (!isPaperColour(colors[bgLabel])) return null
 
   // Frames the artwork: most of the border, and every side.
   const sides = [

@@ -38,6 +38,16 @@ export async function runCheck(measure: (signal: AbortSignal) => Promise<Fidelit
   }
 }
 
+/** Composites an image over white in place, leaving it fully opaque. */
+export function flattenOnWhite(img: ImageData): void {
+  const d = img.data
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3] / 255
+    for (let k = 0; k < 3; k++) d[i + k] = Math.round(d[i + k] * a + 255 * (1 - a))
+    d[i + 3] = 255
+  }
+}
+
 /**
  * Measures an SVG against the upload in a Web Worker (assessFidelity is one long synchronous
  * computation, so it is stopped by terminating the worker). One check at a time: the latest
@@ -50,7 +60,12 @@ export class FidelityChecker {
   private latest = 0
   private pending: { id: number; resolve: (r: FidelityReport) => void; reject: (e: Error) => void } | null = null
 
-  check(upload: ImageBitmap, svg: string, timeoutMs = CHECK_TIMEOUT_MS): Promise<CheckOutcome> {
+  /**
+   * `onPaper`: the vector's white background was removed on purpose, so it's measured as it would
+   * print on white paper. Otherwise its transparent areas (the paper, and white counters of the
+   * same colour) count as missing detail against the opaque upload, although they look the same.
+   */
+  check(upload: ImageBitmap, svg: string, timeoutMs = CHECK_TIMEOUT_MS, onPaper = false): Promise<CheckOutcome> {
     const id = this.nextId++
     this.latest = id
     return runCheck(async (signal) => {
@@ -62,6 +77,7 @@ export class FidelityChecker {
       g.drawImage(upload, 0, 0, w, h)
       const up = g.getImageData(0, 0, w, h)
       const vec = await rasterizeSvg(svg, w, h)
+      if (onPaper) flattenOnWhite(vec)
       // Superseded while the images were prepared: leave the newer check alone.
       if (signal.aborted || id !== this.latest) throw new Error('cancelled')
       return this.measure(id, up, vec, svg, upload.width, signal)

@@ -130,6 +130,22 @@ export function systemFonts(): Promise<FontCandidate[]> {
  * Fontsource (the same Google Fonts, as WOFF files the parser can read), at the nearest weight
  * the family has; installed fonts come from the computer (Chrome/Edge).
  */
+const weightLists = new Map<string, Promise<number[]>>()
+
+/** The weights a catalog family really has (Fontsource), [400] when that can't be read. Cached per family. */
+export function catalogWeights(ref: string): Promise<number[]> {
+  const id = ref.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  let w = weightLists.get(id)
+  if (!w) {
+    w = fetch(`https://api.fontsource.org/v1/fonts/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info) => (Array.isArray(info?.weights) && info.weights.length ? (info.weights as number[]) : [400]))
+      .catch(() => [400])
+    weightLists.set(id, w)
+  }
+  return w
+}
+
 export async function fontFile(font: FontCandidate): Promise<ArrayBuffer> {
   if (font.source === 'system') throw new Error('System fonts have no file to read.')
   if (font.source === 'installed') {
@@ -139,8 +155,7 @@ export async function fontFile(font: FontCandidate): Promise<ArrayBuffer> {
   }
   // `ref` is the Fontsource id for catalog fonts.
   const id = font.ref.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  const info = await fetch(`https://api.fontsource.org/v1/fonts/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-  const weights: number[] = info?.weights ?? [400]
+  const weights = await catalogWeights(font.ref)
   const weight = weights.reduce((best, w) => (Math.abs(w - font.weight) < Math.abs(best - font.weight) ? w : best), weights[0])
   const res = await fetch(`https://cdn.jsdelivr.net/fontsource/fonts/${id}@latest/latin-${weight}-normal.woff`)
   if (!res.ok) throw new Error(`Couldn't download ${font.ref}.`)

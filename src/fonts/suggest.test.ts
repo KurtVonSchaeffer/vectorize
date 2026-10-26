@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FontReport } from './identify'
 import type { LineLettering, PlacedWord } from './lettering'
 import type { FontCandidate } from './match'
-import { placeSuggestion, SUGGEST_MIN_SCORE, worthSuggesting } from './suggest'
+import { ADMIN_SUGGEST_MIN_SCORE, placeSuggestion, SUGGEST_MIN_SCORE, worthSuggesting } from './suggest'
 
 const report = { lines: [{ text: 'EST 1998' }, { text: 'Prism' }], chars: '', scale: 2 } as unknown as FontReport
 const match = { label: 'Arial Bold', score: 0.89 } as FontCandidate & { score: number }
@@ -16,6 +16,12 @@ describe('font suggestions', () => {
     expect(worthSuggesting({ score: 0.85 })).toBe(true)
     expect(worthSuggesting({ score: 0.84 })).toBe(false)
     expect(worthSuggesting(undefined)).toBe(false)
+  })
+
+  it('suggests weaker matches to layout artists in the admin panel', () => {
+    expect(worthSuggesting({ score: 0.75 })).toBe(false)
+    expect(worthSuggesting({ score: 0.75 }, ADMIN_SUGGEST_MIN_SCORE)).toBe(true)
+    expect(worthSuggesting({ score: 0.69 }, ADMIN_SUGGEST_MIN_SCORE)).toBe(false)
   })
 
   it('keeps only words whose text the image supports', async () => {

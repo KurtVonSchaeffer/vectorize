@@ -1,6 +1,7 @@
 import type { OnlineFont } from '../../supabase/functions/identify-font/whatfontis'
 import type { FontReport, TextLine } from './identify'
 import { inkMask } from './match'
+import { ADMIN_MODE } from '../quality/flags'
 
 export type { OnlineFont }
 
@@ -13,8 +14,12 @@ const ENDPOINT = import.meta.env.VITE_FONT_API_URL || '/api/identify-font'
 
 let available: Promise<boolean> | null = null
 
-/** Whether the server has a key, so the option is only offered when it will work. */
+/**
+ * Whether the server has a key, so the option is only offered when it will work. Never in the admin
+ * panel: WhatFontIs is free for personal use only.
+ */
 export function onlineAvailable(): Promise<boolean> {
+  if (ADMIN_MODE) return Promise.resolve(false)
   available ??= fetch(ENDPOINT)
     .then(async (r) => r.ok && (await r.json()).configured === true)
     .catch(() => false)

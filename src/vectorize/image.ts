@@ -111,6 +111,7 @@ export function hasVisiblePixels(image: ImageData): boolean {
 /** Scale factor applied to the source before tracing. */
 export function prepScale(width: number, height: number, prep: PrepParams): number {
   const longest = Math.max(width, height)
+  if (prep.scale) return Math.min(prep.scale, prep.maxSize / longest)
   if (longest > prep.maxSize) return prep.maxSize / longest
   if (prep.upscaleSmall && longest < UPSCALE_BELOW) {
     return Math.min(4, Math.ceil(UPSCALE_BELOW / longest))

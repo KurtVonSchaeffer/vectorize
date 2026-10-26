@@ -17,9 +17,16 @@ import type { FontCandidate } from './match'
  */
 export const SUGGEST_MIN_SCORE = 0.85
 
+/**
+ * In the admin panel the person choosing is a layout artist who can tell a right typeface from a
+ * near miss, so weaker matches are suggested too (Barron's own "barron.com", correctly matched to
+ * Quicksand Bold, scored 0.75). Still only suggested by name: nothing is replaced until they choose.
+ */
+export const ADMIN_SUGGEST_MIN_SCORE = 0.7
+
 /** Whether a line's best match is close enough to suggest by name. */
-export function worthSuggesting(match: { score: number } | undefined): match is { score: number } {
-  return !!match && match.score >= SUGGEST_MIN_SCORE
+export function worthSuggesting(match: { score: number } | undefined, min = SUGGEST_MIN_SCORE): match is { score: number } {
+  return !!match && match.score >= min
 }
 
 export interface FontSuggestion {

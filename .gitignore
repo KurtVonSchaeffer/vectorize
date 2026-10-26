@@ -6,3 +6,6 @@ public/ocr
 .vercel
 supabase/.temp
 *.tsbuildinfo
+bench-out/
+# Local test images and scratch helpers (third-party logos stay out of the repo)
+public/_tmp-check/

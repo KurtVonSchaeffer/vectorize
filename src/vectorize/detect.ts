@@ -16,6 +16,15 @@ export interface Detection {
    * removes. Hairlines and small text are near 1; large shapes only lose their rim.
    */
   fine: number
+  /**
+   * How busy the artwork is (0–1): the share of its pixels next to a sharp colour change within
+   * the artwork. Shapes of solid colour only change where two colours meet (the Barron logo:
+   * 0.05); hatched and engraved illustrations change everywhere (the Gorilla Glue gorilla: 0.41).
+   * Absent on older records.
+   */
+  texture?: number
+  /** Flat art that is a hatched or engraved illustration: traced with a shading layer. */
+  illustration?: boolean
 }
 
 const SAMPLE = 200
@@ -86,7 +95,9 @@ export function detectArt(img: ImageData): Detection {
     // accent or a tinted dark colour would otherwise be lost to black ink.
     const ink = inkStats(img, step, hasAlpha ? null : (background ?? dominant(exact)))
     // Uniform ink is flat digital art; it's only drawn as black line art when it's black already.
-    if (ink.neutral >= 0.9 && (ink.uniform < 0.7 || ink.lightness <= BLACK_INK)) kind = 'lineart'
+    // A small but clearly coloured accent (Amrod's blue dots beside black lettering: under 10% of the
+    // ink) keeps the artwork flat, or line art would draw it as black blobs.
+    if (ink.neutral >= 0.9 && ink.accent < COLOUR_ACCENT_SHARE && (ink.uniform < 0.7 || ink.lightness <= BLACK_INK)) kind = 'lineart'
   }
   let gradients = 0
   if (kind === 'flat') {
@@ -98,7 +109,51 @@ export function detectArt(img: ImageData): Detection {
       gradients = 0
     }
   }
-  return { kind, hasAlpha, background, gradients, fine: fineShare(img, hasAlpha ? null : (background ?? dominant(exact))) }
+  const paper = hasAlpha ? null : (background ?? dominant(exact))
+  const art = artTexture(img, paper)
+  // A hatched or engraved illustration (fur, wood grain, shading in pen strokes) is drawn in many
+  // shades that change everywhere. A plain background around it (a brand-guide grid, a page) can
+  // hold most of the pixels and pass it as flat, where it loses its shading to a few colours.
+  // Judged on the artwork alone, it stays flat (clean lettering, outlines and shapes) with a
+  // full-colour shading layer where the texture is (illustration.ts).
+  const illustration = kind === 'flat' && art.spread < ILLUSTRATION_SPREAD && art.busy > ILLUSTRATION_BUSY
+  return { kind, hasAlpha, background, gradients, fine: fineShare(img, paper), texture: art.busy, ...(illustration ? { illustration } : {}) }
+}
+
+/** Illustrations: the 8 most common shades cover under this share of the artwork… */
+const ILLUSTRATION_SPREAD = 0.75
+/** …and over this share of it is next to a sharp colour change. */
+const ILLUSTRATION_BUSY = 0.3
+
+/**
+ * The artwork without its background (pixels within 40 of the paper, or transparent), read at
+ * about 400 px. `spread` is the share covered by the 8 most common shades (16 levels per channel);
+ * `busy` the share with an artwork neighbour (right or below) more than 48 levels away in any channel.
+ */
+function artTexture(img: ImageData, paper: number | null): { spread: number; busy: number } {
+  const { width: w, height: h, data: d } = img
+  const step = Math.max(1, Math.ceil(Math.max(w, h) / 400))
+  const pr = paper === null ? 0 : (paper >> 16) & 255
+  const pg = paper === null ? 0 : (paper >> 8) & 255
+  const pb = paper === null ? 0 : paper & 255
+  const isPaper = (i: number) => d[i + 3] < 128 || (paper !== null && Math.max(Math.abs(d[i] - pr), Math.abs(d[i + 1] - pg), Math.abs(d[i + 2] - pb)) <= 40)
+  // Only changes inside the artwork count: lettering on a page changes colour at every outline too.
+  const far = (i: number, j: number) => !isPaper(j) && Math.max(Math.abs(d[i] - d[j]), Math.abs(d[i + 1] - d[j + 1]), Math.abs(d[i + 2] - d[j + 2])) > 48
+  const shades = new Map<number, number>()
+  let n = 0
+  let busy = 0
+  for (let y = 0; y + step < h; y += step)
+    for (let x = 0; x + step < w; x += step) {
+      const i = (y * w + x) * 4
+      if (isPaper(i)) continue
+      n++
+      const shade = ((d[i] >> 4) << 8) | ((d[i + 1] >> 4) << 4) | (d[i + 2] >> 4)
+      shades.set(shade, (shades.get(shade) ?? 0) + 1)
+      if (far(i, i + step * 4) || far(i, i + step * w * 4)) busy++
+    }
+  if (!n) return { spread: 1, busy: 0 }
+  const top = [...shades.values()].sort((a, b) => b - a).slice(0, 8).reduce((s, v) => s + v, 0)
+  return { spread: top / n, busy: busy / n }
 }
 
 /**
@@ -148,20 +203,28 @@ function dominant(exact: Map<number, number>): number {
 const NEUTRAL_CHROMA = 10
 /** Ink at most this light (L*, about #303030) is near-black, as scanned or printed black ink is. */
 const BLACK_INK = 20
+/**
+ * Solid ink at least this colourful (Lab chroma) is a deliberate colour, not a scan's tint or a
+ * JPEG fringe (those stay well under it); a share of the ink this large keeps the artwork in colour.
+ */
+const ACCENT_CHROMA = 30
+const COLOUR_ACCENT_SHARE = 0.02
 
 /**
  * The ink: sampled pixels clearly unlike the paper (or, on transparent art, all opaque pixels).
  * `neutral` is the share of ink with little colour. `uniform` is the share of solid ink (far from
  * the paper) within a small distance of its median colour: flat digital art is close to 1,
  * scanned or drawn ink, whose tone varies, is lower. `lightness` is the solid ink's median L*.
+ * `accent` is the share of ink that is solid and clearly coloured (ACCENT_CHROMA).
  */
-function inkStats(img: ImageData, step: number, paper: number | null): { neutral: number; uniform: number; lightness: number } {
+function inkStats(img: ImageData, step: number, paper: number | null): { neutral: number; uniform: number; lightness: number; accent: number } {
   const { width: w, height: h, data: d } = img
   const pr = paper === null ? 0 : (paper >> 16) & 255
   const pg = paper === null ? 0 : (paper >> 8) & 255
   const pb = paper === null ? 0 : paper & 255
   let ink = 0
   let neutral = 0
+  let accent = 0
   const solid: number[] = []
   for (let y = 0; y < h; y += step)
     for (let x = 0; x < w; x += step) {
@@ -172,14 +235,18 @@ function inkStats(img: ImageData, step: number, paper: number | null): { neutral
       if (diff <= 48) continue
       ink++
       const [, A, B] = rgbToLab([r, g, b])
-      if (Math.hypot(A, B) < NEUTRAL_CHROMA) neutral++
-      if (diff > 96) solid.push((r << 16) | (g << 8) | b)
+      const chroma = Math.hypot(A, B)
+      if (chroma < NEUTRAL_CHROMA) neutral++
+      if (diff > 96) {
+        solid.push((r << 16) | (g << 8) | b)
+        if (chroma >= ACCENT_CHROMA) accent++
+      }
     }
-  if (!ink) return { neutral: 0, uniform: 1, lightness: 100 }
+  if (!ink) return { neutral: 0, uniform: 1, lightness: 100, accent: 0 }
   const median = (shift: number) => solid.map((c) => (c >> shift) & 255).sort((a, b) => a - b)[solid.length >> 1] ?? 0
   const [mr, mg, mb] = [median(16), median(8), median(0)]
   const near = solid.filter((c) => Math.max(Math.abs(((c >> 16) & 255) - mr), Math.abs(((c >> 8) & 255) - mg), Math.abs((c & 255) - mb)) <= 16).length
-  return { neutral: neutral / ink, uniform: solid.length ? near / solid.length : 1, lightness: rgbToLab([mr, mg, mb])[0] }
+  return { neutral: neutral / ink, uniform: solid.length ? near / solid.length : 1, lightness: rgbToLab([mr, mg, mb])[0], accent: accent / ink }
 }
 
 /** Every `step`-th pixel, as a small image. */

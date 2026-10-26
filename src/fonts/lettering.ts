@@ -1,6 +1,6 @@
 import { flatten, parsePath, type Subpath } from '../export/path'
 import { traceLabels } from '../trace'
-import { fontFile } from './candidates'
+import { catalogWeights, fontFile } from './candidates'
 import type { FontReport, TextLine } from './identify'
 import { inkMask, type FontCandidate } from './match'
 import type { Box } from './ocr'
@@ -272,10 +272,137 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
     const readings = w.readings ?? []
     const alnum = (t: string) => t.replace(/[^\p{L}\p{N}]/gu, '')
     const disagree = [...new Set(readings.filter((r) => alnum(r) !== alnum(w.text)))]
+    const split = disagree.length ? null : await splitByWeight(match, w.glyphs, placed, img, minOverlap)
+    if (split) {
+      for (const part of split) words.push({ text: part.text, index, font: part.font, ...toSourcePixels(part, report.scale) })
+      continue
+    }
     const doubts = [...placed.doubts, ...disagree.map((r) => ({ at: -1, char: w.text, rival: r, fit: 0, rivalFit: 0 }))]
     words.push({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) })
   }
   return { font: match.label, words, skipped }
+}
+
+/**
+ * The letters of a word (indices, inclusive) that may be in another weight, when every doubt is a
+ * poor fit with no look-alike and at least two letters remain:
+ * - the doubtful letters run unbroken to the end of the word (with punctuation just before them,
+ *   ".com") or from its start; or
+ * - they all lie on one side of punctuation inside the word: on a small or blurry upload only some of
+ *   the light letters fail the bold match ("barron.com" at 560 px flags the "c" alone), so the split
+ *   is at the punctuation, the part after it keeping it (".com"), the part before leaving it.
+ * splitByWeight still accepts the part only if a sibling weight fits every one of its letters.
+ */
+export function weightSplitRange(chars: string, doubts: TextDoubt[]): { from: number; to: number } | null {
+  if (!doubts.length || doubts.some((d) => d.at < 0 || d.rival !== '?')) return null
+  const at = doubts.map((d) => d.at).sort((a, b) => a - b)
+  const glyphs = [...chars]
+  const n = glyphs.length
+  const letter = (i: number) => /[\p{L}\p{N}]/u.test(glyphs[i])
+  const remaining = (from: number, to: number) => glyphs.filter((_, i) => (i < from || i > to) && letter(i)).length
+  const ok = (from: number, to: number) => (remaining(from, to) >= 2 ? { from, to } : null)
+  const first = at[0]
+  const last = at[at.length - 1]
+  if (last - first + 1 === at.length) {
+    let from = first
+    let to = last
+    if (to === n - 1) {
+      while (from > 0 && !letter(from - 1)) from--
+      return ok(from, to)
+    }
+    if (from === 0) {
+      while (to < n - 1 && !letter(to + 1)) to++
+      return ok(from, to)
+    }
+  }
+  // Punctuation between the letters that fit and the doubtful ones: the nearest before the first doubt…
+  for (let p = first - 1; p > 0; p--) if (!letter(p)) return ok(p, n - 1)
+  // …or the nearest after the last one.
+  for (let p = last + 1; p < n - 1; p++) if (!letter(p)) return ok(0, p - 1)
+  return null
+}
+
+/** Weights tried for the part of a word drawn in another weight of the same family, with their names. */
+const SIBLING_WEIGHTS: [number, string][] = [
+  [300, 'Light'],
+  [400, 'Regular'],
+  [500, 'Medium'],
+  [600, 'SemiBold'],
+  [700, 'Bold'],
+  [200, 'ExtraLight'],
+  [800, 'ExtraBold'],
+]
+
+/**
+ * The other weights of a match's family that it really has (catalog fonts: the weights Fontsource
+ * lists, since it serves the nearest one for any other under the wrong name), nearest weight first.
+ * System fonts have no files, so none.
+ */
+export async function siblingWeights(match: FontCandidate): Promise<FontCandidate[]> {
+  if (match.source === 'system') return []
+  // The family as shown ("Quicksand Bold" → "Quicksand"); a catalog ref is a lower-case id.
+  const familyName = match.label.replace(/(\s+(Thin|Hairline|ExtraLight|UltraLight|Light|Regular|Book|Normal|Medium|SemiBold|DemiBold|Bold|ExtraBold|UltraBold|Black|Heavy|Italic|Oblique))+$/i, '') || match.label
+  const has = match.source === 'google' ? new Set(await catalogWeights(match.ref)) : null
+  return SIBLING_WEIGHTS.filter(([weight]) => weight !== match.weight && (!has || has.has(weight)))
+    .sort(([a], [b]) => Math.abs(a - match.weight) - Math.abs(b - match.weight))
+    .map(([weight, name]) => ({ ...match, weight, family: match.family.replace(/-\d+$/, `-${weight}`), label: `${familyName} ${name}` }))
+}
+
+/**
+ * The client chose this font: when it doesn't line up, the same family in its other weights, nearest
+ * first. On a small or blurry upload light strokes spread, so the client's "Quicksand Light" can
+ * miss where "Quicksand Regular" lines up. `used` says which weight was placed.
+ */
+export async function placeLineInFamily(report: FontReport, line: TextLine, match: FontCandidate, opts: { named?: boolean } = {}): Promise<{ placed: LineLettering; used: FontCandidate }> {
+  const placed = await placeLine(report, line, match, opts)
+  if (placed.words.length) return { placed, used: match }
+  for (const sibling of await siblingWeights(match)) {
+    const p = await placeLine(report, line, sibling, opts).catch(() => null)
+    if (p?.words.length) return { placed: p, used: sibling }
+  }
+  return { placed, used: match }
+}
+
+/**
+ * A wordmark set in two weights of one family, read as one word: "barron.com" is Quicksand Bold
+ * then Quicksand Light, so the light letters don't fit the bold match and the whole word was kept
+ * traced. When the letters that don't fit (no look-alike fits either) run from one point to the
+ * end of the word, or from its start, and at least two letters fit, that part is placed again in the
+ * family's other weights; the best weight that fits every letter makes it a word of its own. Null
+ * when there's no such split (the word stays as placed, with its doubts).
+ */
+async function splitByWeight(
+  match: FontCandidate,
+  glyphs: { char: string; box: Box }[],
+  placed: { letters: { char: string; d: string }[]; box: Box; doubts: TextDoubt[] },
+  img: ImageData,
+  minOverlap: number,
+): Promise<{ text: string; font: string; letters: { char: string; d: string }[]; box: Box }[] | null> {
+  if (match.source === 'system') return null
+  const range = weightSplitRange(glyphs.map((g) => g.char).join(''), placed.doubts)
+  if (!range) return null
+  const { from, to } = range
+  const kept = glyphs.map((_, i) => i).filter((i) => i < from || i > to)
+
+  const part = glyphs.slice(from, to + 1)
+  const partBox: Box = { x0: Math.min(...part.map((g) => g.box.x0)), y0: Math.min(...part.map((g) => g.box.y0)), x1: Math.max(...part.map((g) => g.box.x1)), y1: Math.max(...part.map((g) => g.box.y1)) }
+  let best: { font: string; placed: NonNullable<ReturnType<typeof placeWord>>; fit: number } | null = null
+  for (const sibling of await siblingWeights(match)) {
+    const font = await loadFont(sibling, true).catch(() => null)
+    if (!font) continue
+    const p = placeWord(font, part, partBox, img, minOverlap)
+    if (!p || p.doubts.length) continue
+    const fit = overlap(p.letters.map((l) => l.d), partBox, img)
+    if (!best || fit > best.fit) best = { font: sibling.label, placed: p, fit }
+  }
+  if (!best) return null
+
+  const text = (ix: number[]) => ix.map((i) => glyphs[i].char).join('')
+  const keptLetters = kept.map((i) => placed.letters[i])
+  const keptBox: Box = { x0: Math.min(...kept.map((i) => glyphs[i].box.x0)), y0: Math.min(...kept.map((i) => glyphs[i].box.y0)), x1: Math.max(...kept.map((i) => glyphs[i].box.x1)), y1: Math.max(...kept.map((i) => glyphs[i].box.y1)) }
+  const first = { text: text(kept), font: match.label, letters: keptLetters, box: keptBox }
+  const second = { text: part.map((g) => g.char).join(''), font: best.font, letters: best.placed.letters, box: best.placed.box }
+  return from === 0 ? [second, first] : [first, second]
 }
 
 /**

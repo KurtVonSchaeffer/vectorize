@@ -20,21 +20,39 @@ import { DEFAULT_INKS, type InkSettings } from './palette/quantize'
 import type { BrandSettings } from './palette/brand'
 import { loadSavedBrand, loadSavedPalette, saveBrand, savePalette } from './palette/storage'
 import { FidelityChecker } from './quality/check'
-import { CLEAN_GEOMETRY, FINE_DETAIL, PRINT_FILES, QUALITY_REPORTING } from './quality/flags'
+import { ADMIN_MODE, CLEAN_GEOMETRY, FINE_DETAIL, PRINT_FILES, QUALITY_REPORTING, STRAIGHT_EDGES, EXACT_ARCS } from './quality/flags'
+import { profileFor } from './admin/complexity'
+import { applyDefaults, buildRun, defaultRunsApi, renderModeOf, suggestedAssetType, type LearnedDefaults, type RunRecord } from './admin/runs'
+import { ReviewPanel, type ReviewDraft } from './components/ReviewPanel'
 import { isReviewed, readiness, type CheckOutcome, type Review } from './quality/readiness'
 import { lostShading, shadingLossOf } from './quality/shading'
 import { useImprover, type Candidate } from './useImprover'
 import { DEFAULT_CLIENT, detailBoost, prepFor, purposeAffectsTrace, traceParamsFor, type ClientSettings, type Purpose } from './vectorize/client'
 import { detectArt, type Detection } from './vectorize/detect'
-import { alternatives, worthSharpening } from './vectorize/improve'
+import { ADMIN_SHARPEN_BELOW, alternatives, compressionRipple, SHARPEN_BELOW, worthSharpening } from './vectorize/improve'
 import { exampleImage } from './vectorize/example'
 import { FlatTracer } from './vectorize/flat-tracer'
 import { bitmapToImageData, hasVisiblePixels, imageDataToInput, loadImage, type InputImage, type SourceImage } from './vectorize/image'
 import { buildTraceJob, inkNames, runTraceJob, type TraceJob, type TraceResult } from './vectorize/pipeline'
-import { paperOutFor, type EnclosedArea, type WhiteChoice } from './vectorize/paper'
+import { isPaperColour, paperOutFor, type EnclosedArea, type WhiteChoice } from './vectorize/paper'
 import { CancelledError, TimeoutError, Tracer } from './vectorize/tracer'
 
 const DEBOUNCE_MS = 180
+/**
+ * The shading layer of an illustration: full colour, traced at twice the size (up to 2400 px) so
+ * pen strokes 1–2 px wide are 2–4 px and keep their shape, with Detail raised a quarter of the way
+ * to the maximum. Halfway kept specks of 2 px (at 2×): on the Gorilla Glue logo, a quarter (3 px)
+ * has 45% fewer paths in the shading and looks 96% the same (SSIM of the texture).
+ */
+function shadingFor(c: ClientSettings) {
+  const fine = { ...c, detail: c.detail + (1 - c.detail) / 4 }
+  return { trace: traceParamsFor('photo', fine), prep: { maxSize: 2400, upscaleSmall: false, scale: 2 } }
+}
+
+/** Where the admin panel records runs and reviews (docs/admin-panel.md); null outside it. */
+const runsApi = ADMIN_MODE ? defaultRunsApi() : null
+/** Uploads up to this size (longest side, px) are also tried with AI sharpening (see ADMIN_SHARPEN_BELOW). */
+const sharpenBelow = ADMIN_MODE ? ADMIN_SHARPEN_BELOW : SHARPEN_BELOW
 
 /** "1898" (8 could be 9), for a warning about a reading the image doesn't clearly support. */
 function describeDoubt(w: PlacedWord): string {
@@ -108,6 +126,13 @@ export default function App() {
   const checker = useRef<FidelityChecker>(null)
   useEffect(() => () => checker.current?.dispose(), [])
 
+  // ---------- Admin panel: compression measured on upload, the run recorded, the artist's review ----------
+  const [compression, setCompression] = useState(0)
+  const [defaults, setDefaults] = useState<LearnedDefaults | null>(null)
+  const [run, setRun] = useState<{ sourceId: string; record: RunRecord } | null>(null)
+  const [reviewSave, setReviewSave] = useState<{ status: 'saving' | 'saved' } | { status: 'error'; message: string } | null>(null)
+  const openedId = useRef<string | null>(null)
+
   const showToast = useCallback((text: string, undo?: () => void) => setToast({ text, undo }), [])
   useEffect(() => {
     if (!toast) return
@@ -121,7 +146,25 @@ export default function App() {
       setOpening(true)
       try {
         const img = await loadImage(blob, name)
-        const det = detectArt(bitmapToImageData(img.bitmap))
+        const pixels = bitmapToImageData(img.bitmap)
+        const det = detectArt(pixels)
+        openedId.current = img.id
+        if (ADMIN_MODE) {
+          const ripple = compressionRipple(pixels)
+          setCompression(ripple)
+          setRun(null)
+          setReviewSave(null)
+          setDefaults(null)
+          // Learned defaults for this kind of logo, if a supervisor approved some; tracing starts with
+          // the usual settings and moves to these when they arrive.
+          runsApi
+            ?.getDefaults(profileFor({ detection: det, compression: ripple, width: img.width, height: img.height }))
+            .then((d) => {
+              if (!d || openedId.current !== img.id) return
+              setDefaults(d)
+              setClient((c) => applyDefaults(c, d))
+            })
+        }
         setSource((prev) => {
           if (prev) {
             URL.revokeObjectURL(prev.url)
@@ -139,7 +182,7 @@ export default function App() {
         setResult(null)
         setTraceError(null)
         setUpscaled(null)
-        setClient((c) => ({ ...c, style: 'auto', maxColors: null, keepBlends: false }))
+        setClient((c) => ({ ...c, style: 'auto', maxColors: null, keepBlends: false, simplified: false }))
         // Every upload starts in full color: print inks (one ink, library matching) are a choice
         // per image, never carried over silently from the previous one.
         setInks((s) => (s.enabled ? { ...s, enabled: false } : s))
@@ -222,6 +265,11 @@ export default function App() {
   const oneOn = maxColors === 1 && kind === 'flat' && !inks.enabled
   const { ink: oneInk, gapMm, outputWidthMm, previewGaps } = client.oneColour
   const gapsShown = oneOn && plates && previewGaps && gapMm > 0
+  // Hatched or engraved illustrations (detectArt) get a full-colour shading layer where the texture
+  // is, or (Simplified) the texture redrawn as a few solid shapes; the flat colours draw the rest
+  // (lettering, outlines, banners) with clean edges.
+  const illustration = kind === 'flat' && client.style === 'auto' && !!detection?.illustration
+  const simplified = client.simplified
   const buildJob = useMemo(() => {
     if (!input || !source) return null
     const c = { ...DEFAULT_CLIENT, detail, corners, maxColors, keepBlends, exactShapes, gradients }
@@ -237,17 +285,20 @@ export default function App() {
         knockout,
         keepBlends,
         exactShapes,
+        ...(illustration ? (simplified ? { simplified: true } : { shading: shadingFor(c) }) : {}),
         gradients,
         brand,
         ...(CLEAN_GEOMETRY ? { cleanGeometry: true } : {}),
         // Fine detail changes the master only; without print files the print and cut SVGs are the
         // master, so it needs them (print and cut files then stay exactly as before).
         ...(FINE_DETAIL && PRINT_FILES ? { fineDetail: true } : {}),
+        ...(STRAIGHT_EDGES ? { straightEdges: true } : {}),
+        ...(EXACT_ARCS ? { exactArcs: true } : {}),
         lettering: vary.lettering ?? letteringWords,
         oneColour: oneOn ? { ink: oneInk, gapMm, outputWidthMm } : undefined,
         ...(vary.paperOut ? { paperOut: vary.paperOut, paperWords: vary.paperWords, whiteChoices: vary.whiteChoices } : {}),
       })
-  }, [input, source, detection, kind, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords, oneOn, oneInk, gapMm, outputWidthMm])
+  }, [input, source, detection, kind, illustration, simplified, detail, corners, maxColors, keepBlends, exactShapes, gradients, inks, palette, removed, transparent, brand, letteringWords, oneOn, oneInk, gapMm, outputWidthMm])
   // The preview is the master, unless the client asked to see the production file's gaps.
   const job = useMemo(() => buildJob?.(gapsShown) ?? null, [buildJob, gapsShown])
 
@@ -324,8 +375,10 @@ export default function App() {
   const [check, setCheck] = useState<{ svg: string; outcome: CheckOutcome } | null>(null)
   const [review, setReview] = useState<Review | null>(null)
   // Results changed from the upload on purpose (one colour, spot inks, line and pixel art, colours
-  // removed or matched to brand colours, a background removed) can't be compared with it.
-  const changedOnPurpose = oneOn || inks.enabled || kind === 'lineart' || kind === 'pixel' || removed.length > 0 || (transparent && !detection?.hasAlpha) || (result?.named.length ?? 0) > 0
+  // removed or matched to brand colours, a background removed) can't be compared with it. A white
+  // or near-white background removed still can: the check composites both images over white.
+  const paperRemoved = transparent && !detection?.hasAlpha && detection?.background != null && isPaperColour(detection.background)
+  const changedOnPurpose = oneOn || inks.enabled || kind === 'lineart' || kind === 'pixel' || removed.length > 0 || (transparent && !detection?.hasAlpha && !paperRemoved) || (result?.named.length ?? 0) > 0
   useEffect(() => {
     const svg = result?.svg
     if (!QUALITY_REPORTING || !svg || !source) return
@@ -336,14 +389,14 @@ export default function App() {
     let live = true
     setCheck({ svg, outcome: { state: 'checking' } })
     ;(checker.current ??= new FidelityChecker())
-      .check(source.bitmap, svg)
+      .check(source.bitmap, svg, undefined, paperRemoved)
       .then((outcome) => live && setCheck({ svg, outcome }))
     return () => {
       live = false
       // Measuring a result nobody will see is wasted work.
       checker.current?.cancel()
     }
-  }, [result?.svg, source, changedOnPurpose])
+  }, [result?.svg, source, changedOnPurpose, paperRemoved])
   const chips: Chip[] | null = flatKind && palettes ? palettes.map((p) => ({ color: p.color, name: names.get(p.color) ?? '' })) : null
 
   // Print files (flag), white artwork only: the words of text found (letter counters are paper, see
@@ -508,6 +561,52 @@ export default function App() {
         reviewed: isReviewed(review, result?.svg, client.purpose),
       })
     : null
+
+  // Admin panel: one run per upload, recorded once its first result has been checked, so the
+  // success rate counts what the engine did on its own; the review then records where the artist
+  // ended up (their final settings and the final result's check).
+  const checkSummary = (c: CheckOutcome | null): RunRecord['autoCheck'] =>
+    c?.state === 'checked' ? { verdict: c.report.verdict, edgeRecall: c.report.edgeRecall, wrongShare: c.report.wrongShare, fineLost: c.report.features.lost } : null
+  useEffect(() => {
+    if (!runsApi || !source || !detection || !result || status !== 'ready' || checkNow?.state === 'checking') return
+    if (run?.sourceId === source.id) return
+    const record = buildRun({
+      name: source.name,
+      type: source.name.split('.').pop()?.toLowerCase() ?? '',
+      width: source.width,
+      height: source.height,
+      detection,
+      colours: result.palette?.length ?? 0,
+      compression,
+      settings: client,
+      defaultsId: defaults?.id ?? null,
+      paths: result.paths,
+      ms: result.ms,
+      autoCheck: checkSummary(checkNow),
+      engineVersion: import.meta.env.VITE_ENGINE_VERSION || 'dev',
+    })
+    setRun({ sourceId: source.id, record })
+    const svg = result.svg
+    fetch(source.url)
+      .then((r) => r.blob())
+      .then((original) => runsApi.postRun(record, { original, svg }))
+      .catch((err) => setReviewSave({ status: 'error', message: `The run wasn't saved: ${err instanceof Error ? err.message : String(err)}` }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recorded once per upload, from its first checked result
+  }, [source, detection, result, status, checkNow?.state, run?.sourceId])
+
+  const saveReview = (draft: ReviewDraft) => {
+    if (!runsApi || !run || !result) return
+    setReviewSave({ status: 'saving' })
+    runsApi
+      .postReview(run.record.runId, { ...draft, finalSettings: client, finalAutoVerdict: checkSummary(checkNow)?.verdict ?? null, final: { paths: result.paths, mode: renderModeOf(kind, illustration, simplified) }, reviewedAt: new Date().toISOString() })
+      .then(() => {
+        setReviewSave({ status: 'saved' })
+        // A person has looked at this exact vector, whatever they decided.
+        setReview({ svg: result.svg, purpose: client.purpose })
+      })
+      .catch((err) => setReviewSave({ status: 'error', message: err instanceof Error ? err.message : String(err) }))
+  }
+
   const headline = (
     QUALITY_REPORTING
       ? // Says what was made, not how good it is: that is the check's and the reviewer's to say.
@@ -665,7 +764,7 @@ export default function App() {
     candidates: () => {
       if (!buildJob || !source || !detection) return []
       const d0 = client.detail
-      return alternatives(detection, source.width, source.height, d0).map((alt): Candidate =>
+      return alternatives(detection, source.width, source.height, d0, sharpenBelow).map((alt): Candidate =>
         alt.kind === 'detail'
           ? {
               label: alt.label,
@@ -709,13 +808,14 @@ export default function App() {
   return (
     <div className="mx-auto grid max-w-[1200px] gap-5 px-5 pt-[18px] pb-12">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <button className="flex items-center gap-2.5 py-1 font-display text-[19px]/none font-extrabold tracking-[-0.02em]" onClick={reset} aria-label="Vectorize, start over">
+        <button className="flex items-center gap-2.5 py-1 font-display text-[19px]/none font-extrabold tracking-[-0.02em]" onClick={reset} aria-label={ADMIN_MODE ? 'Barron Vectoriser, start over' : 'Vectorize, start over'}>
           <svg className="size-[26px]" viewBox="0 0 26 26" aria-hidden="true">
             <path d="M4 20C7 6 19 6 22 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
             <rect x="2" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
             <rect x="19.5" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
           </svg>
-          Vectorize
+          {ADMIN_MODE ? 'Barron Vectoriser' : 'Vectorize'}
+          {ADMIN_MODE && <span className="rounded-full bg-accent px-2 py-0.5 font-sans text-xs font-bold tracking-normal text-accent-ink">Layout team</span>}
         </button>
         {source && (
           <button className="rounded-full border border-line bg-card px-4 py-2 font-semibold hover:border-ink-2" onClick={reset}>
@@ -745,6 +845,8 @@ export default function App() {
             <div className="pl-1 text-[13px] wrap-anywhere text-ink-2">
               <b className="font-semibold text-ink">{source.name}</b> · {source.width}×{source.height}
             </div>
+            {runsApi && result && run?.sourceId === source.id && <ReviewPanel key={run.record.runId} complexity={run.record.complexity} suggestedType={suggestedAssetType(run.record.detection)} state={reviewSave} onSave={saveReview} />}
+            {ADMIN_MODE && !runsApi && <p className="pl-1 text-[13px] text-ink-2">Reviews can't be saved: this browser blocks storage and no results service is set up.</p>}
           </div>
           <ResultCard
             status={status}
@@ -818,6 +920,7 @@ export default function App() {
                   setRemoved([])
                   setClient((c) => ({ ...c, style }))
                 }}
+                illustration={illustration ? { simplified, onChange: (s) => setClient((c) => ({ ...c, simplified: s })) } : null}
                 maxColors={client.maxColors}
                 onMaxColors={(maxColors) => setClient((c) => ({ ...c, maxColors }))}
                 oneColour={client.oneColour}
@@ -860,17 +963,19 @@ export default function App() {
                       const picked = only ?? line.shapes.map((_, k) => k)
                       const part = only ? { ...line, shapes: picked.map((k) => line.shapes[k]) } : line
                       let placed: LineLettering
+                      let used = match
                       try {
-                        const { placeLine } = await import('./fonts/lettering')
-                        placed = await placeLine(report, part, match, { named })
+                        const { placeLineInFamily } = await import('./fonts/lettering')
+                        ;({ placed, used } = await placeLineInFamily(report, part, match, { named }))
                       } catch (err) {
                         if (!quiet) showToast(`Couldn't rebuild the lettering: ${err instanceof Error ? err.message : String(err)}`)
                         return false
                       }
                       if (!placed.words.length) {
-                        if (!quiet) showToast(`${match.label} doesn't line up with this lettering closely enough, so it stays as traced.`)
+                        if (!quiet) showToast(`${match.label} doesn't line up with this lettering closely enough, in any of its weights, so it stays as traced.`)
                         return false
                       }
+                      if (used !== match && !quiet) showToast(`Used ${used.label}: ${match.label} didn't line up, and the lettering in this image fits ${used.label} better.`)
                       // Text the image doesn't clearly support (a look-alike fits as well, or the OCR
                       // readings disagree) is never rebuilt automatically: those words stay traced.
                       // When the client picks the font themselves, it's rebuilt, with a warning.
@@ -894,7 +999,7 @@ export default function App() {
                     }}
                     onClearFont={(index) => setLettering(({ [index]: _, ...rest }) => rest)}
                     sharpen={
-                      detection && worthSharpening(detection, source.width, source.height)
+                      detection && worthSharpening(detection, source.width, source.height, sharpenBelow)
                         ? async () => {
                             // Shared with the background improver: computed once, then cached.
                             const up = await (enhancer.current ??= new Enhancer()).upscale(source.id, bitmapToImageData(source.bitmap), '2x')

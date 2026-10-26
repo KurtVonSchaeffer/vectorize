@@ -65,6 +65,10 @@ const SPLIT_MIN = 400
 const SPLIT_MIN_EXPLAINED = 0.5
 /** ...and only when it holds less than this share of the image's border pixels (more is background). */
 const SPLIT_MAX_BORDER = 0.5
+/** A region is a ring when its pixels' distances from the fitted circle's center spread less than this share of the radius. */
+const RING_MAX_WIDTH = 0.15
+/** How far (px) around the fitted circle's center a ring's center is searched. */
+const RING_SEARCH = 25
 /** Staircase test (isStaircase): a jump is a step this many times the mean, flat under this share of it. */
 const STAIR_JUMP = 3
 const STAIR_FLAT = 0.3
@@ -144,6 +148,19 @@ export function findGradients(img: ImageData, opts: GradientOptions = {}): Gradi
       } else rejected.push(lists[i])
     }
   })
+  // The rings of a round badge share its center, but a short arc (one side of a ring, between
+  // lettering and the artwork it frames) is too little of a circle to find it. Large regions that
+  // failed are tried again with the centers of the rings found.
+  const centers = regions.flatMap((g) => (g.fill.kind === 'radial' ? [[g.fill.cx, g.fill.cy] as [number, number]] : []))
+  if (centers.length)
+    for (let k = rejected.length - 1; k >= 0; k--) {
+      if (rejected[k].length < minArea) continue
+      const g = fitRegion(rejected[k], w, R, G, B, undefined, centers)
+      if (g) {
+        regions.push(g)
+        rejected.splice(k, 1)
+      }
+    }
   const kept = regions.sort((a, b) => b.pixels.length - a.pixels.length).slice(0, opts.max ?? 16)
   if (!kept.length) return kept
   // Pieces of a gradient cut off by other shapes (the counter of an "O" in lettering on a
@@ -362,7 +379,8 @@ function blurred(d: Uint8ClampedArray, w: number, h: number): [Float32Array, Flo
   return [out[0], out[1], out[2], valid]
 }
 
-function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number }): GradientRegion | null {
+/** `centers`: radial centers (image px) to try as well, from rings already found. */
+function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Array, B: Float32Array, diag?: { explained: number }, centers: [number, number][] = []): GradientRegion | null {
   const m = pixels.length
   // Mean color and position.
   let mr = 0, mg = 0, mb = 0, mx = 0, my = 0
@@ -428,6 +446,47 @@ function fitRegion(pixels: Uint32Array, w: number, R: Float32Array, G: Float32Ar
       const fit = profileFit(pixels, R, G, B, (i) => Math.hypot(xs[i] - cx, ys[i] - cy))
       radial = { ...fit, cx: cx + mx, cy: cy + my }
     }
+  }
+
+  // A ring (the band of a round badge) is often shaded across its width, dark at both edges and
+  // light in the middle: the colour rises and falls with the radius, so the paraboloid above can't
+  // find the center. The ring's own shape gives it: a circle fitted to its pixels (Kåsa's
+  // algebraic fit, x² + y² + D·x + E·y + F = 0), accepted for a band that is thin against its
+  // radius. Drawn as a radial gradient with stops across the band.
+  const circle = leastSquares(m, (i) => [xs[i], ys[i], 1], Float32Array.from(xs, (x, i) => -(x * x + ys[i] * ys[i])))
+  if (circle) {
+    const cx = -circle[0] / 2
+    const cy = -circle[1] / 2
+    let sum = 0, sq = 0
+    for (let i = 0; i < m; i++) {
+      const d = Math.hypot(xs[i] - cx, ys[i] - cy)
+      sum += d
+      sq += d * d
+    }
+    const mean = sum / m
+    const spread = Math.sqrt(Math.max(0, sq / m - mean * mean))
+    if (mean > 0 && spread < mean * RING_MAX_WIDTH) {
+      // The fit is off when only an arc of the ring shows (the Gorilla Glue badge's lower ring,
+      // between the banner and the gorilla: 0.58 of the colour explained, against 0.96 at the
+      // center a search finds). Search around it, coarse then fine, for the center whose radius
+      // explains the colour best.
+      const at = (x: number, y: number) => profileFit(pixels, R, G, B, (i) => Math.hypot(xs[i] - x, ys[i] - y))
+      let best = { x: cx, y: cy, fit: at(cx, cy) }
+      for (const [reach, step] of [[RING_SEARCH, RING_SEARCH / 5], [RING_SEARCH / 5, 1]]) {
+        const from = best
+        for (let dy = -reach; dy <= reach; dy += step)
+          for (let dx = -reach; dx <= reach; dx += step) {
+            if (!dx && !dy) continue
+            const fit = at(from.x + dx, from.y + dy)
+            if (fit.rms < best.fit.rms) best = { x: from.x + dx, y: from.y + dy, fit }
+          }
+      }
+      if (!radial || best.fit.rms < radial.rms) radial = { ...best.fit, cx: best.x + mx, cy: best.y + my }
+    }
+  }
+  for (const [x, y] of centers) {
+    const fit = profileFit(pixels, R, G, B, (i) => Math.hypot(xs[i] - (x - mx), ys[i] - (y - my)))
+    if (!radial || fit.rms < radial.rms) radial = { ...fit, cx: x, cy: y }
   }
 
   // Radial has more freedom, so it must be clearly better.

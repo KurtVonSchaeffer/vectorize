@@ -10,6 +10,8 @@ interface Props {
   detected: ArtKind
   style: Style
   onStyle: (s: Style) => void
+  /** Hatched or engraved illustrations: shading layer, or the texture as a few solid shapes; null otherwise. */
+  illustration: { simplified: boolean; onChange: (simplified: boolean) => void } | null
   maxColors: number | null
   onMaxColors: (n: number | null) => void
   showColors: boolean
@@ -48,6 +50,27 @@ export function MoreOptions(p: Props) {
             ))}
           </select>
         </div>
+
+        {p.illustration && (
+          <div className={field}>
+            <span className={fieldLabel} id="illustration-label">
+              Illustration
+            </span>
+            <div className={seg} role="group" aria-labelledby="illustration-label">
+              <button className={segBtn} aria-pressed={!p.illustration.simplified} onClick={() => p.illustration!.onChange(false)}>
+                Detailed shading
+              </button>
+              <button className={segBtn} aria-pressed={p.illustration.simplified} onClick={() => p.illustration!.onChange(true)}>
+                Simplified shapes
+              </button>
+            </div>
+            <small>
+              {p.illustration.simplified
+                ? 'Fur, faces and shading as a few solid shapes, as a designer would redraw them: few paths, easy to edit, screen print and embroider.'
+                : 'Keeps the pen strokes of fur and faces in full colour, closest to the image. Print plates and cut files always use the simplified shapes.'}
+            </small>
+          </div>
+        )}
 
         {p.showColors && p.maxColors === 1 && <OneColour {...p} />}
         {p.showColors && p.maxColors !== 1 && (

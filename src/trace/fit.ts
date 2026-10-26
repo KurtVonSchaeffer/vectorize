@@ -1,4 +1,5 @@
 import type { Point } from './contours'
+import { ARC_TOLERANCE, arcCubics, arcTangent, filletBetween, findArcs, followsCircle, type Arc } from './arcs'
 
 export interface FitOptions {
   /** Max distance (px) a fitted curve may deviate from the contour. */
@@ -11,6 +12,18 @@ export interface FitOptions {
    * tangentially: straight edges stay straight, with fewer anchors, and a thin bar's sides don't bulge.
    */
   straightRuns?: boolean
+  /**
+   * Straight edges (behind a flag, docs/straight-edges.md): long stretches of an ordinary outline
+   * that are straight well within the curve tolerance are drawn as exact lines (fitWithEdges).
+   * Ignored with straightRuns, which handles thin outlines its own way.
+   */
+  straightEdges?: boolean
+  /**
+   * Exact arcs (behind a flag, docs/exact-arcs.md): stretches of an ordinary outline that are circular
+   * arcs within a tight tolerance are drawn as exact arcs (one centre and radius), meeting straight
+   * edges and curves tangentially (fitWithEdges). Ignored with straightRuns.
+   */
+  exactArcs?: boolean
 }
 
 /** A cubic Bézier: start, two controls, end. */
@@ -21,6 +34,10 @@ export type Cubic = [Point, Point, Point, Point]
  * smooth run with Schneider's error-bounded algorithm. Returns the curves in order.
  */
 export function fitClosed(loop: Point[], opts: FitOptions): Cubic[] {
+  if ((opts.straightEdges || opts.exactArcs) && !opts.straightRuns) {
+    const edged = fitWithEdges(loop, opts)
+    if (edged) return edged
+  }
   const pts = resample(loop, 0.5)
   if (pts.length < 4) return []
   const corners = findCorners(pts, opts.cornerAngle)
@@ -65,6 +82,482 @@ export function fitClosed(loop: Point[], opts: FitOptions): Cubic[] {
     curves.push(...(opts.straightRuns ? fitWithLines(run, t1, t2, opts.error) : fitCubic(run, t1, t2, opts.error)))
   }
   return curves
+}
+
+/**
+ * Straight edges: a stretch of the outline counts as a straight edge when its points lie within
+ * EDGE_TOLERANCE of their least-squares line, it doesn't bow (a parabola fitted across it sags by
+ * at most EDGE_SAGITTA) and it is at least EDGE_MIN_LENGTH long. The bow test is what keeps arcs
+ * curved: points within half a pixel of a line also describe any arc of radius above ~25 px over
+ * 10 px, but such an arc bows by 0.5 px there; with 0.05 px only arcs of radius above ~250 px
+ * could pass over 10 px, and those short chords are then dropped by the end-turn test below. The
+ * tolerance itself is loose because an edge at an angle to the pixel grid traces with small steps.
+ */
+const EDGE_TOLERANCE = 0.5
+const EDGE_SAGITTA = 0.05
+const EDGE_MIN_LENGTH = 10
+/** A straight edge's end points further than this (px) from its line are where a curve starts: trimmed. */
+const EDGE_END_TOLERANCE = 0.15
+/** A gap (px of outline) up to this long between two straight edges, around one corner, is its blur. */
+const CORNER_GAP = 10
+/** Longer windows tried after one fails (straightEdge). */
+const EDGE_LOOKAHEAD = 3
+/** An edge at least this long (px) is kept whatever lies beyond it… */
+const EDGE_SURE_LENGTH = 30
+/** …a shorter one only where the outline turns at least this much (degrees) just past both ends. */
+const EDGE_END_TURN = 12
+
+interface Edge {
+  /** First and last resampled point (indices into the rotated loop, b may be n). */
+  a: number
+  b: number
+  /** Unit direction from a to b. */
+  d: Point
+  /** The drawn line: start and end, on the fitted line. */
+  A: Point
+  B: Point
+}
+
+/**
+ * Straight edges, drawn exactly. Finds the outline's long straight stretches (straightEdge), draws
+ * each as one line on its least-squares fit, and fits the parts between as before (split at
+ * corners, error-bounded cubics) but starting and ending in the neighbouring lines' directions, so
+ * a straight edge flows into a rounded corner without a kink. Where only a detected corner's
+ * blurred tip lies between two straight edges, the corner is rebuilt where their lines meet.
+ * Returns null when the outline has no straight edge (a circle, a letter bowl): the ordinary fit
+ * then draws it, unchanged.
+ *
+ * Exact arcs (docs/exact-arcs.md) also look for circular arcs (findArcs) between the lines and
+ * corners, and on outlines with no line at all: each is drawn on one circle, a rounded corner
+ * between two lines as a fillet touching both (the lines end where it touches), an arc reaching a
+ * line tangent to it, and the curves between meet the arcs tangentially. A part keeps its arcs
+ * only where they do no harm (harmless); without any, the result is as without the flag.
+ */
+function fitWithEdges(loop: Point[], opts: FitOptions): Cubic[] | null {
+  const raw = resample(loop, 0.5)
+  const n = raw.length
+  if (n < 4 * EDGE_MIN_LENGTH) return null
+  const cornersFound = findCorners(raw, opts.cornerAngle)
+  // Start the loop where no straight edge can pass (a corner, else the sharpest turn), so no edge
+  // is cut in two where the loop closes.
+  const s = cornersFound.length ? cornersFound[0] : sharpestTurn(raw)
+  let pts = [...raw.slice(s), ...raw.slice(0, s)]
+  const corners = cornersFound.map((c) => (c - s + n) % n).sort((x, y) => x - y)
+  const isCorner = new Uint8Array(n + 1)
+  for (const c of corners) isCorner[c] = 1
+  isCorner[n] = isCorner[0]
+  const at = (i: number) => pts[((i % n) + n) % n]
+  let spacing = 0
+  for (let i = 0; i < n; i++) spacing += dist(pts[i], pts[(i + 1) % n]) / n
+
+  // Exact arcs find the straight edges too: an arc ends where the line it runs into begins.
+  const found: Edge[] = []
+  for (let i = 0; i < n && (opts.straightEdges || opts.exactArcs); ) {
+    let e = straightEdge(pts, i, isCorner, spacing)
+    if (!e) {
+      i++
+      continue
+    }
+    // The first point that starts an edge may still be on the curve before it, which cuts the edge
+    // short: an edge starting a little later that reaches further replaces it.
+    for (let k = i + 1, end = Math.min(e.b - 1, i + Math.ceil((2 * EDGE_MIN_LENGTH) / spacing)); k <= end; k++) {
+      const f = straightEdge(pts, k, isCorner, spacing)
+      if (f && f.b > e.b) e = f
+    }
+    // An edge that just continues the previous one (a step of the pixel grid broke it) joins it.
+    const prev = found[found.length - 1]
+    const joined = prev && e.a - prev.b <= Math.ceil(2 / spacing) ? joinEdges(pts, prev, e, isCorner) : null
+    if (joined) found[found.length - 1] = joined
+    else found.push(e)
+    i = e.b
+  }
+  // A short edge is kept only where the outline clearly turns just past both its ends (a corner,
+  // a rounded corner): a chord of a large gentle arc, straight within the tolerances over a short
+  // stretch, has the arc bending on only slightly either side, and stays a curve.
+  const reach = Math.ceil(EDGE_MIN_LENGTH / spacing)
+  const turns = (p: Point, q: Point, d: Point) => Math.abs(Math.asin(Math.max(-1, Math.min(1, cross(d, norm(sub(q, p))))))) * (180 / Math.PI) >= EDGE_END_TURN || dot(d, sub(q, p)) <= 0
+  const edges = found.filter((e) => dist(e.A, e.B) >= EDGE_SURE_LENGTH || (turns(at(e.a - reach + n), at(e.a - (reach >> 1) + n), e.d) && turns(at(e.b + (reach >> 1)), at(e.b + reach), e.d)))
+  if (!edges.length && !opts.exactArcs) return null
+
+  const out: Cubic[] = []
+  const line = (A: Point, B: Point): Cubic => {
+    const d = dist(A, B) / 3
+    const u = norm(sub(B, A))
+    return [A, add(A, mul(u, d)), sub(B, mul(u, d)), B]
+  }
+  /** Corners strictly between points g0 and g1 (g1 may run past n, round the loop), in order. */
+  const cornersBetween = (g0: number, g1: number) => [...corners, ...corners.map((c) => c + n)].filter((c) => c > g0 && c < g1)
+  /** The curve from `first` (direction t1) through points k0+1..k1-1 to `last` (t2, pointing back). */
+  const piece = (first: Point, t1: Point | null, k0: number, k1: number, last: Point, t2: Point | null): Cubic[] => {
+    const run: Point[] = [first]
+    for (let j = k0 + 1; j < k1; j++) run.push(at(j))
+    run.push(last)
+    if (run.length < 2 || (run.length === 2 && dist(first, last) < 1e-9)) return []
+    return fitCubic(run, t1 ?? leftTangent(run), t2 ?? rightTangent(run), opts.error)
+  }
+  /**
+   * Fits the outline between stops (the part between two lines, or between two corners), its own
+   * corners kept (rebuilt where possible), its ends following the given points and directions.
+   * With exact arcs, each sub-run's arcs (arcs[i]) are drawn exactly, and the parts between them
+   * are curves meeting them tangentially. Also returns how many cubics splitting the arcs into
+   * pieces of at most 90° added.
+   */
+  const fitBetween = (stops: number[], sharp: (ReturnType<typeof sharpenCorner> | null)[], ends: { first?: Point; t1?: Point; last?: Point; t2?: Point }, arcs?: Arc[][]) => {
+    const curves: Cubic[] = []
+    let splits = 0
+    for (let i = 0; i + 1 < stops.length; i++) {
+      const sa = sharp[i]
+      const sb = sharp[i + 1]
+      const len = stops[i + 1] - stops[i] + 1
+      const trimA = sa ? Math.min(CORNER_TRIM, (len - 2) >> 2) : 0
+      const trimB = sb ? Math.min(CORNER_TRIM, (len - 2) >> 2) : 0
+      const first = i === 0 && ends.first ? ends.first : sa?.point ?? at(stops[i])
+      const last = i + 1 === stops.length - 1 && ends.last ? ends.last : sb?.point ?? at(stops[i + 1])
+      const t1 = i === 0 && ends.t1 ? ends.t1 : sa ? sa.outDir : null
+      const t2 = i + 1 === stops.length - 1 && ends.t2 ? ends.t2 : sb ? neg(sb.inDir) : null
+      let from = first
+      let dir = t1
+      let k0 = stops[i] + trimA
+      for (const arc of arcs?.[i] ?? []) {
+        curves.push(...piece(from, dir, k0, arc.i, arc.S, neg(arcTangent(arc.c, arc.S, arc.sgn))))
+        const drawn = arcCubics(arc.c, arc.r, arc.S, arc.E, arc.sgn)
+        curves.push(...drawn)
+        splits += drawn.length - 1
+        from = arc.E
+        dir = arcTangent(arc.c, arc.E, arc.sgn)
+        k0 = arc.j
+      }
+      curves.push(...piece(from, dir, k0, stops[i + 1] - trimB, last, t2))
+    }
+    return { curves, splits }
+  }
+  /**
+   * Arcs are drawn only where they do no harm to the outline between points k0 and k1: no more
+   * nodes than the ordinary fit (beyond splitting an arc into 90° pieces), on average no further
+   * from the traced points, and at most no further than the ordinary fit or ARC_CLOSE (an exact
+   * arc keeps its true radius where a free curve bends to the tracing's small errors).
+   */
+  const harmless = (exact: Cubic[], splits: number, plain: Cubic[], k0: number, k1: number) => {
+    if (exact.length > plain.length + splits) return false
+    const off = (curves: Cubic[]) => {
+      const poly = curves.flatMap((c, q) => samples(c).slice(q ? 1 : 0))
+      let max = 0
+      let sum = 0
+      for (let k = k0 + 1; k < k1; k++) {
+        const p = at(k)
+        let best = Infinity
+        for (let q = 1; q < poly.length; q++) best = Math.min(best, distToSegment(p, poly[q - 1], poly[q]))
+        max = Math.max(max, best)
+        sum += best
+      }
+      return { max, mean: sum / Math.max(1, k1 - k0 - 1) }
+    }
+    const e = off(exact)
+    const p = off(plain)
+    return e.max <= Math.max(ARC_CLOSE, p.max + ARC_SLACK) && e.mean <= p.mean + ARC_SLACK
+  }
+  /** Arcs between stops (index ranges), clear of the blurred tips of the corners among them. */
+  const arcsBetween = (stops: number[], sharp: (ReturnType<typeof sharpenCorner> | null)[], cyclic = false) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const [x, y] of pts) {
+      x0 = Math.min(x0, x)
+      y0 = Math.min(y0, y)
+      x1 = Math.max(x1, x)
+      y1 = Math.max(y1, y)
+    }
+    const maxR = Math.max(x1 - x0, y1 - y0)
+    return stops.slice(1).map((b, i) => findArcs(at, stops[i] + (sharp[i] ? CORNER_TRIM : 0), b - (sharp[i + 1] ? CORNER_TRIM : 0), spacing, maxR, cyclic))
+  }
+
+  // Exact arcs on an outline with no straight edge; without any (or where they'd do harm), the
+  // ordinary fit, unchanged.
+  if (!edges.length) {
+    if (corners.length) {
+      // Between corners (the loop starts at the first), each corner rebuilt where possible.
+      const stops = [...corners, n]
+      const sharp = corners.map((c) => sharpenCorner(pts, c))
+      sharp.push(sharp[0])
+      const arcs = arcsBetween(stops, sharp)
+      if (!arcs.some((a) => a.length)) return null
+      const exact = fitBetween(stops, sharp, {}, arcs)
+      return harmless(exact.curves, exact.splits, fitBetween(stops, sharp, {}).curves, 0, n) ? exact.curves : null
+    }
+    // A smooth loop: start where it is flattest, so no arc is cut in two where it closes.
+    const f = flattestPoint(pts)
+    pts = [...pts.slice(f), ...pts.slice(0, f)]
+    const arcs = arcsBetween([0, n], [null, null], true)
+    if (!arcs[0].length) return null
+    const t0 = tangentAt(pts, 0)
+    const exact = fitBetween([0, n], [null, null], { t1: t0, t2: neg(t0) }, arcs)
+    return harmless(exact.curves, exact.splits, fitBetween([0, n], [null, null], { t1: t0, t2: neg(t0) }).curves, 0, n) ? exact.curves : null
+  }
+
+  // Sharp joins first: a gap holding just one corner's blurred tip becomes that corner.
+  const m = edges.length
+  const sharpJoin: boolean[] = []
+  for (let k = 0; k < m; k++) {
+    const e = edges[k]
+    const f = edges[(k + 1) % m]
+    const g0 = e.b
+    const g1 = k + 1 < m ? f.a : f.a + n
+    const inside = cornersBetween(g0, g1)
+    let join = false
+    if (inside.length === 1 && (g1 - g0) * spacing <= CORNER_GAP && m > 1) {
+      const cross = e.d[0] * f.d[1] - e.d[1] * f.d[0]
+      if (Math.abs(cross) >= 0.2) {
+        const d = sub(f.A, e.B)
+        const t = (d[0] * f.d[1] - d[1] * f.d[0]) / cross
+        const X = add(e.B, mul(e.d, t))
+        // The corner must lie beyond both edges and near the traced tip.
+        if (dot(sub(X, e.A), e.d) > 0 && dot(sub(f.B, X), f.d) > 0 && dist(X, at(inside[0])) <= MAX_CORNER_SHIFT) {
+          e.B = X
+          f.A = X
+          join = true
+        }
+      }
+    }
+    sharpJoin.push(join)
+  }
+  const gaps = edges.map((e, k) => {
+    const f = edges[(k + 1) % m]
+    const g0 = e.b
+    const g1 = k + 1 < m ? f.a : f.a + n
+    const stops = [g0, ...cornersBetween(g0, g1), g1]
+    const sharp = stops.map((c, i) => (i === 0 || i === stops.length - 1 ? null : sharpenCorner(pts, c % n)))
+    return { e, f, g0, g1, stops, sharp, arcs: [] as Arc[][] }
+  })
+  // Exact arcs in the parts between lines. An arc reaching a line meets it tangentially: a rounded
+  // corner between two lines becomes a fillet touching both, the lines ending where it touches.
+  // A part keeps its arcs (and its lines their new ends) only where they do no harm.
+  if (opts.exactArcs) {
+    const near = Math.ceil(ARC_JOIN_GAP / spacing)
+    for (let k = 0; k < m; k++) {
+      if (sharpJoin[k]) continue
+      const g = gaps[k]
+      const { e, f } = g
+      const arcs = arcsBetween(g.stops, g.sharp)
+      if (!arcs.some((a) => a.length)) continue
+      const was = { eB: e.B, fA: f.A }
+      const firstArc = arcs[0][0] as Arc | undefined
+      const lastArc = arcs[arcs.length - 1][arcs[arcs.length - 1].length - 1] as Arc | undefined
+      const touchesE = !!firstArc && firstArc.i - g.g0 <= near
+      const touchesF = !!lastArc && g.g1 - lastArc.j <= near
+      if (!(touchesE && touchesF && firstArc === lastArc && e !== f && fillet(firstArc, e, f))) {
+        if (touchesE) tangentTo(firstArc!, e, true)
+        if (touchesF) tangentTo(lastArc!, f, false)
+      }
+      const exact = fitBetween(g.stops, g.sharp, { first: e.B, t1: e.d, last: f.A, t2: neg(f.d) }, arcs)
+      const plain = fitBetween(g.stops, g.sharp, { first: was.eB, t1: e.d, last: was.fA, t2: neg(f.d) }).curves
+      if (harmless([line(e.A, e.B), ...exact.curves, line(f.A, f.B)], exact.splits, [line(e.A, was.eB), ...plain, line(was.fA, f.B)], g.g0, g.g1)) g.arcs = arcs
+      else {
+        e.B = was.eB
+        f.A = was.fA
+      }
+    }
+  }
+  /** Makes an arc the fillet between lines e and f (tangent to both, which then end where it touches), where it nearly is one. */
+  function fillet(arc: Arc, e: Edge, f: Edge): boolean {
+    const c = filletBetween(at, arc.i, arc.j, e.B, e.d, f.A, f.d, arc)
+    if (!c || !followsCircle(at, arc.i, arc.j, spacing, c)) return false
+    const T = foot(c.c, e.B, e.d)
+    const U = foot(c.c, f.A, f.d)
+    const shift = Math.max(ARC_JOIN_GAP, ARC_JOIN_SHIFT * c.r)
+    if (dot(sub(T, e.A), e.d) < ARC_JOIN_GAP || dot(sub(f.B, U), f.d) < ARC_JOIN_GAP || dist(T, arc.S) > shift || dist(U, arc.E) > shift) return false
+    if (dot(arcTangent(c.c, T, arc.sgn), e.d) <= ARC_JOIN_ALIGN || dot(arcTangent(c.c, U, arc.sgn), f.d) <= ARC_JOIN_ALIGN) return false
+    Object.assign(arc, { c: c.c, r: c.r, S: T, E: U })
+    e.B = T
+    f.A = U
+    return true
+  }
+  /** Makes an arc touch line e (following its end B when `afterLine`, else leading into its start A), where it nearly does. */
+  function tangentTo(arc: Arc, e: Edge, afterLine: boolean) {
+    const T = foot(arc.c, afterLine ? e.B : e.A, e.d)
+    const r = dist(arc.c, T)
+    if (Math.abs(r - arc.r) > ARC_TOLERANCE || !followsCircle(at, arc.i, arc.j, spacing, { c: arc.c, r })) return
+    if (dot(arcTangent(arc.c, T, arc.sgn), e.d) <= ARC_JOIN_ALIGN) return
+    if (afterLine ? dot(sub(T, e.A), e.d) < ARC_JOIN_GAP : dot(sub(e.B, T), e.d) < ARC_JOIN_GAP) return
+    if (dist(T, afterLine ? arc.S : arc.E) > Math.max(ARC_JOIN_GAP, ARC_JOIN_SHIFT * r)) return
+    arc.r = r
+    if (afterLine) {
+      arc.S = T
+      arc.E = onCircle(arc.c, r, arc.E)
+      e.B = T
+    } else {
+      arc.E = T
+      arc.S = onCircle(arc.c, r, arc.S)
+      e.A = T
+    }
+  }
+
+  for (let k = 0; k < m; k++) {
+    const { e, f, stops, sharp, arcs } = gaps[k]
+    out.push(line(e.A, e.B))
+    if (sharpJoin[k]) continue
+    // The part between: its own corners kept (rebuilt where possible), its ends following the lines.
+    out.push(...fitBetween(stops, sharp, { first: e.B, t1: e.d, last: f.A, t2: neg(f.d) }, arcs).curves)
+  }
+  return out
+}
+
+/** How much further (px) from the outline than the ordinary fit an outline with arcs may be. */
+const ARC_SLACK = 0.02
+const ARC_CLOSE = 0.15
+/** An arc this close (px) to a line's end is taken to meet it, and a line must keep at least this much. */
+const ARC_JOIN_GAP = 2
+/** How far (as a share of the radius) meeting a line tangentially may move an arc's end. */
+const ARC_JOIN_SHIFT = 0.35
+/** An arc meets a line tangentially only where it already runs nearly along it (cosine). */
+const ARC_JOIN_ALIGN = 0.95
+
+/** The foot of the perpendicular from c to the line through P with unit direction d. */
+const foot = (c: Point, P: Point, d: Point): Point => add(P, mul(d, dot(sub(c, P), d)))
+/** The point of the circle (c, r) nearest p. */
+const onCircle = (c: Point, r: number, p: Point): Point => add(c, mul(norm(sub(p, c)), r))
+
+/** Index of the point where the outline turns least (chords ~5 px each way). */
+function flattestPoint(pts: Point[]): number {
+  const n = pts.length
+  const k = Math.min(10, Math.max(2, Math.floor(n / 8)))
+  let best = 0
+  let least = Infinity
+  for (let i = 0; i < n; i++) {
+    const p = pts[(i - k + n) % n]
+    const c = pts[i]
+    const q = pts[(i + k) % n]
+    let d = Math.abs(Math.atan2(q[1] - c[1], q[0] - c[0]) - Math.atan2(c[1] - p[1], c[0] - p[0]))
+    if (d > Math.PI) d = 2 * Math.PI - d
+    if (d < least) [least, best] = [d, i]
+  }
+  return best
+}
+
+/**
+ * The longest straight edge starting at point i (none through a corner), or null when there is none
+ * at least EDGE_MIN_LENGTH long. Traced edges at an angle to the pixel grid step a little every few
+ * pixels, so a short window can look bowed where a longer one plainly isn't: windows a quarter
+ * longer each time are tried, past up to EDGE_LOOKAHEAD failures, and the longest that passes is
+ * then extended point by point. Finally the edge sheds end points that already lean into the next
+ * curve.
+ */
+function straightEdge(pts: Point[], i: number, isCorner: Uint8Array, spacing: number): Edge | null {
+  const n = pts.length
+  if (isCorner[i]) return null
+  const fits = (j: number) => {
+    if (j > n || isCorner[j]) return null
+    for (let k = i + 1; k < j; k++) if (isCorner[k]) return null
+    return straightFit(pts, i, j)
+  }
+  let j = -1
+  let fit: { c: Point; d: Point } | null = null
+  for (let len = EDGE_MIN_LENGTH, misses = 0; misses <= EDGE_LOOKAHEAD && i + len / spacing <= n; len *= 1.25) {
+    const k = i + Math.ceil(len / spacing)
+    const f = fits(k)
+    if (f) [j, fit, misses] = [k, f, 0]
+    else misses++
+  }
+  if (!fit) return null
+  for (let step = Math.max(1, (j - i) >> 3); ; ) {
+    const next = fits(j + step)
+    if (next) [j, fit] = [j + step, next]
+    else if (step > 1) step >>= 1
+    else break
+  }
+  return edgeOf(pts, i, j, fit)
+}
+
+/** Two neighbouring edges as one, when together they are still one straight edge. */
+function joinEdges(pts: Point[], e: Edge, f: Edge, isCorner: Uint8Array): Edge | null {
+  for (let k = e.a + 1; k < f.b; k++) if (isCorner[k]) return null
+  const fit = straightFit(pts, e.a, f.b)
+  return fit && edgeOf(pts, e.a, f.b, fit)
+}
+
+/** The edge on points a..b, given their line: end points that lean off it (into the next curve) shed. */
+function edgeOf(pts: Point[], a: number, b: number, fit: { c: Point; d: Point }): Edge | null {
+  const n = pts.length
+  const at = (k: number) => pts[k % n]
+  for (;;) {
+    const off = (k: number) => Math.abs(dot(sub(at(k), fit.c), [-fit.d[1], fit.d[0]]))
+    let moved = false
+    if (b - a > 4 && off(a) > EDGE_END_TOLERANCE) (a++, (moved = true))
+    if (b - a > 4 && off(b) > EDGE_END_TOLERANCE) (b--, (moved = true))
+    if (!moved) break
+    fit = straightFit(pts, a, b) ?? fit
+  }
+  if (dist(at(a), at(b)) < EDGE_MIN_LENGTH) return null
+  let d = fit.d
+  if (dot(sub(at(b), at(a)), d) < 0) d = neg(d)
+  const proj = (p: Point) => add(fit.c, mul(d, dot(sub(p, fit.c), d)))
+  return { a, b, d, A: proj(at(a)), B: proj(at(b)) }
+}
+
+/**
+ * Least-squares line through points i..j (wrapping) when they form a straight edge: all within
+ * EDGE_TOLERANCE of it, progressing along it, and not bowing by more than EDGE_SAGITTA. Else null.
+ */
+function straightFit(pts: Point[], i: number, j: number): { c: Point; d: Point } | null {
+  const n = pts.length
+  const run: Point[] = []
+  for (let k = i; k <= j; k++) run.push(pts[k % n])
+  const line = fitLine(run)
+  const nrm: Point = [-line.d[1], line.d[0]]
+  // Coordinates along (u) and across (v) the line; a parabola v = a·u² + b·u + c fitted to them.
+  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, t0 = 0, t1 = 0, t2 = 0
+  let lo = Infinity, hi = -Infinity, prev = -Infinity
+  const sign = dot(sub(run[run.length - 1], run[0]), line.d) < 0 ? -1 : 1
+  for (const p of run) {
+    const q = sub(p, line.c)
+    const u = dot(q, line.d)
+    const v = dot(q, nrm)
+    if (Math.abs(v) > EDGE_TOLERANCE) return null
+    // No doubling back along the line.
+    if (sign * u < prev - EDGE_TOLERANCE) return null
+    prev = Math.max(prev, sign * u)
+    lo = Math.min(lo, u)
+    hi = Math.max(hi, u)
+    const u2 = u * u
+    s0++; s1 += u; s2 += u2; s3 += u2 * u; s4 += u2 * u2
+    t0 += v; t1 += u * v; t2 += u2 * v
+  }
+  // Solve [[s4 s3 s2] [s3 s2 s1] [s2 s1 s0]]·[a b c] = [t2 t1 t0] for a (Cramer's rule).
+  const det3 = (m: number[]) => m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6])
+  const D = det3([s4, s3, s2, s3, s2, s1, s2, s1, s0])
+  if (Math.abs(D) < 1e-12) return null
+  const a = det3([t2, s3, s2, t1, s2, s1, t0, s1, s0]) / D
+  const half = (hi - lo) / 2
+  if (Math.abs(a) * half * half > EDGE_SAGITTA) return null
+  return line
+}
+
+/** Index of the point where the outline turns most sharply (chords ~3 px each way). */
+function sharpestTurn(pts: Point[]): number {
+  const n = pts.length
+  const k = Math.min(6, Math.max(2, Math.floor(n / 8)))
+  let best = 0
+  let most = -1
+  for (let i = 0; i < n; i++) {
+    const p = pts[(i - k + n) % n]
+    const c = pts[i]
+    const q = pts[(i + k) % n]
+    let d = Math.abs(Math.atan2(q[1] - c[1], q[0] - c[0]) - Math.atan2(c[1] - p[1], c[0] - p[0]))
+    if (d > Math.PI) d = 2 * Math.PI - d
+    if (d > most) [most, best] = [d, i]
+  }
+  return best
+}
+
+/** Whether a cubic is a straight line (its controls on the chord, between its ends). */
+export function isLine(c: Cubic): boolean {
+  const len = dist(c[0], c[3])
+  if (len < 1e-9) return false
+  const u = norm(sub(c[3], c[0]))
+  for (const p of [c[1], c[2]]) {
+    const q = sub(p, c[0])
+    if (Math.abs(q[0] * u[1] - q[1] * u[0]) > 1e-7 * Math.max(1, len)) return false
+    const t = dot(q, u)
+    if (t < -1e-9 || t > len + 1e-9) return false
+  }
+  return true
 }
 
 /** Points within this distance (px) of one line form a straight stretch… */
@@ -414,6 +907,7 @@ const sub = (a: Point, b: Point): Point => [a[0] - b[0], a[1] - b[1]]
 const add = (a: Point, b: Point): Point => [a[0] + b[0], a[1] + b[1]]
 const mul = (a: Point, s: number): Point => [a[0] * s, a[1] * s]
 const dot = (a: Point, b: Point) => a[0] * b[0] + a[1] * b[1]
+const cross = (a: Point, b: Point) => a[0] * b[1] - a[1] * b[0]
 const neg = (a: Point): Point => [-a[0], -a[1]]
 const norm = (a: Point): Point => {
   const l = Math.hypot(a[0], a[1]) || 1

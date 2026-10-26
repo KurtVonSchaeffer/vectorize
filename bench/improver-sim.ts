@@ -7,14 +7,18 @@ import type { Enhancer } from '../src/ai/enhancer'
 import { findText, matchFonts } from '../src/fonts/identify'
 import { placeLine, type PlacedWord } from '../src/fonts/lettering'
 import { readFromSharpened } from '../src/fonts/sharpened'
-import { placeSuggestion, worthSuggesting, type FontSuggestion } from '../src/fonts/suggest'
+import { ADMIN_SUGGEST_MIN_SCORE, placeSuggestion, SUGGEST_MIN_SCORE, worthSuggesting, type FontSuggestion } from '../src/fonts/suggest'
+import { ADMIN_MODE, CLEAN_GEOMETRY, FINE_DETAIL, PRINT_FILES, STRAIGHT_EDGES, EXACT_ARCS } from '../src/quality/flags'
 import { scoreAgainstUpload } from '../src/quality/render'
 import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor } from '../src/vectorize/client'
 import { detectArt, type Detection } from '../src/vectorize/detect'
 import { bitmapToImageData, type InputImage, type SourceImage } from '../src/vectorize/image'
-import { alternatives, betterOffer, isImprovement, worthSharpening, type Scored } from '../src/vectorize/improve'
+import { ADMIN_SHARPEN_BELOW, alternatives, betterOffer, isImprovement, SHARPEN_BELOW, worthSharpening, type Scored } from '../src/vectorize/improve'
 import { buildTraceJob, runTraceJob, type TraceResult } from '../src/vectorize/pipeline'
 import type { Tracer } from '../src/vectorize/tracer'
+
+/** As the app: admin mode tries AI sharpening on larger uploads (ADMIN_SHARPEN_BELOW). */
+const sharpenBelow = ADMIN_MODE ? ADMIN_SHARPEN_BELOW : SHARPEN_BELOW
 
 export interface SimOption {
   label: string
@@ -65,6 +69,11 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
       knockout: o.knockout ?? false,
       exactShapes: true,
       gradients: true,
+      // The same feature flags as the app (App.tsx), so ?admin=on measures the admin panel's engine.
+      ...(CLEAN_GEOMETRY ? { cleanGeometry: true } : {}),
+      ...(FINE_DETAIL && PRINT_FILES ? { fineDetail: true } : {}),
+      ...(STRAIGHT_EDGES ? { straightEdges: true } : {}),
+      ...(EXACT_ARCS ? { exactArcs: true } : {}),
       lettering: o.lettering,
     })
   const traceOf = (j: ReturnType<typeof job>) => runTraceJob({ vtracer: tracer, flat: null }, j, source, false)
@@ -76,13 +85,13 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
   const plain = await traceOf(job({}))
   if (det.kind === 'flat') {
     try {
-      const up = worthSharpening(det, source.width, source.height) ? await sharpened() : null
+      const up = worthSharpening(det, source.width, source.height, sharpenBelow) ? await sharpened() : null
       const sharp = up ? await createImageBitmap(up) : null
       const report = await readFromSharpened(source.bitmap, sharp, (image) => findText(image, plain.palette?.map((p) => p.color) ?? [], undefined, sharp ? source.bitmap : undefined))
       const lines = await matchFonts(report, [])
       for (let i = 0; i < lines.length; i++) {
         const best = lines[i].matches[0]
-        if (!worthSuggesting(best)) continue
+        if (!worthSuggesting(best, ADMIN_MODE ? ADMIN_SUGGEST_MIN_SCORE : SUGGEST_MIN_SCORE)) continue
         const s = await placeSuggestion(report, i, best, placeLine)
         if (s) suggestions.push(s)
       }
@@ -105,7 +114,7 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
     // In the order the app checks them, keeping the best so far (as useImprover does).
     if (betterOffer(firstScore, proxy, offered?.proxy.score)) offered = option
   }
-  for (const alt of alternatives(det, source.width, source.height, client.detail)) {
+  for (const alt of alternatives(det, source.width, source.height, client.detail, sharpenBelow)) {
     if (alt.kind === 'detail') await consider(alt.label, await traceOf(job({ detail: alt.detail })))
     else {
       const up = await sharpened()

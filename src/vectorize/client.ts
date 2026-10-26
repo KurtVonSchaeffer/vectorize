@@ -21,6 +21,11 @@ export interface ClientSettings {
   exactShapes: boolean
   /** Keep smooth gradients as SVG gradients instead of color bands. */
   gradients: boolean
+  /**
+   * Illustrations (hatched or engraved art): draw the texture as a few solid shapes, as a designer's
+   * redraw would, instead of with the full-colour shading layer.
+   */
+  simplified: boolean
   /** One colour (Color mode → One color): the ink, and the separation gap cut into print and cut files. */
   oneColour: OneColourSettings
 }
@@ -49,7 +54,7 @@ export interface OneColourSettings {
   previewGaps: boolean
 }
 
-export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true, oneColour: { ink: null, inkName: null, gapMm: 0.5, outputWidthMm: 200, previewGaps: false } }
+export const DEFAULT_CLIENT: ClientSettings = { purpose: 'print', style: 'auto', detail: 0.5, corners: 0.75, maxColors: null, keepBlends: false, exactShapes: true, gradients: true, simplified: false, oneColour: { ink: null, inkName: null, gapMm: 0.5, outputWidthMm: 200, previewGaps: false } }
 
 /**
  * Per-image additions to the Detail slider, from what the image is like. Measured on the

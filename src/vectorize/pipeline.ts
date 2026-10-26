@@ -9,6 +9,7 @@ import { colorAt, findGradients } from '../palette/gradients'
 import { blendRatio, nameSvg, quantize, type FixedLabels, type Ink, type InkSettings, type QuantizeOptions } from '../palette/quantize'
 import { layersToSvg, traceLabels, type LabelMap, type ShapeCounts, type TracedLayer, type TraceOptions } from '../trace'
 import { removeFlatBackground } from './background'
+import { composeIllustration, fillTexture, onlyTexture, simplifyTexture, texturedMask } from './illustration'
 import { enclosesPaper, paperMask, splitEnclosed, withPaper, type EnclosedArea, type WhiteChoice } from './paper'
 import type { FlatTracer } from './flat-tracer'
 import { finalizeSvg, prepareImage, type InputImage } from './image'
@@ -47,6 +48,16 @@ export interface JobSettings {
    */
   fineDetail?: boolean
   /**
+   * Straight edges (behind a flag): long straight stretches of traced outlines are drawn as exact
+   * lines, with tangent joins into neighbouring curves (see TraceOptions.straightEdges).
+   */
+  straightEdges?: boolean
+  /**
+   * Exact arcs (behind a flag): circular stretches of traced outlines are drawn as exact arcs, with
+   * tangent joins into straight edges and curves (see TraceOptions.exactArcs).
+   */
+  exactArcs?: boolean
+  /**
    * One ink for the whole artwork. The gap separates regions that were different colours, and
    * is cut only into production files (knockout jobs), never into the master vector.
    */
@@ -57,6 +68,14 @@ export interface JobSettings {
   gradients?: boolean
   /** Words to rebuild from a font (source-image pixels). */
   lettering?: PlacedWord[]
+  /**
+   * Illustrations (flat art): also trace in full colour with these settings and draw that over
+   * the regions that are texture (illustration.ts). The master artwork only: print plates and cut
+   * files get the texture simplified instead.
+   */
+  shading?: { trace: TraceParams; prep: PrepParams }
+  /** Illustrations (flat art): redraw the texture as a few solid shapes (simplifyTexture), with no shading. */
+  simplified?: boolean
   /**
    * Print plates and cut files on paper (see paper.ts): 'border' leaves the paper background out,
    * 'all' leaves every area of the paper colour out (no white ink at all). Applies to knockout
@@ -100,6 +119,11 @@ export interface FlatOptions {
   /** With 'border': words of text and choices for enclosed areas, in traced image pixels (see splitEnclosed). */
   paperWords?: [number, number, number, number][]
   whiteChoices?: WhiteChoice[]
+  /**
+   * Illustrations (see illustration.ts): 'shade' fills the texture with one colour for the
+   * full-colour shading layer to draw over; 'simplify' redraws it as a few solid shapes.
+   */
+  texture?: 'shade' | 'simplify'
 }
 
 export interface OneColourSummary {
@@ -158,7 +182,7 @@ export interface FlatResult {
  */
 export type TraceJob =
   | { kind: 'vtracer'; image: ImageData; params: TraceParams; scale: number; background: number | null }
-  | { kind: 'flat'; image: ImageData; options: FlatOptions; scale: number }
+  | { kind: 'flat'; image: ImageData; options: FlatOptions; scale: number; shading?: { image: ImageData; params: TraceParams; scale: number } }
 
 /** Outlines smaller than this (px²) are dropped by the flat tracer. */
 const TRACE_MIN_AREA = 2
@@ -189,11 +213,17 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
   // Fine detail is for the master (stacked) artwork only. In print plates and cut files, which must
   // tile without gaps, the audit set showed new hairline gaps and crossings (docs/fine-detail.md).
   const fine = !!s.fineDetail && !one && !spotOn && !s.knockout
+  // The shading layer is for the master artwork only. Print plates and cut files of an illustration
+  // get its texture as a few solid shapes, which a screen printer or cutter can use.
+  const illustration = (!!s.shading || !!s.simplified) && !one && !spotOn && !lineArt
+  const shade = illustration && s.shading && !s.simplified && !s.knockout ? prepareImage(input, s.shading.prep, false).image : null
   return {
     kind: 'flat',
     image: base.image,
     scale,
+    ...(shade && s.shading ? { shading: { image: shade, params: s.shading.trace, scale: shade.width / sourceWidth } } : {}),
     options: {
+      ...(illustration ? { texture: shade ? ('shade' as const) : ('simplify' as const) } : {}),
       lineArt,
       removeColors: s.removeColors,
       transparent: s.transparent,
@@ -241,6 +271,8 @@ export function buildTraceJob(input: InputImage, sourceWidth: number, s: JobSett
         exactShapes: s.exactShapes ?? true,
         ...(s.cleanGeometry && !one ? { connectedStacking: true } : {}),
         ...(fine ? { crossSection: true, straightRuns: true, roundShapes: true } : {}),
+        ...(s.straightEdges ? { straightEdges: true } : {}),
+        ...(s.exactArcs ? { exactArcs: true } : {}),
       },
     },
   }
@@ -358,6 +390,10 @@ export function runFlat(image: ImageData, o: FlatOptions, inspect?: (map: LabelM
     return m
   }
   map = paper(map)
+  // Illustrations: the texture is drawn by the shading layer, so the flat map keeps one colour there;
+  // or it's redrawn as a few solid shapes.
+  const texture = o.texture ? texturedMask(image) : null
+  if (texture) map = o.texture === 'shade' ? fillTexture(map, texture) : simplifyTexture(map, texture, image)
   let palette = paletteOf(map, bgLabel).filter((e) => !map.fills?.[map.colors.indexOf(e.color)])
   // One colour: many regions, one ink. The background is paper, not an ink (even when it's the ink's colour).
   if (oneColour) {
@@ -607,10 +643,20 @@ export async function runTraceJob(
   const start = performance.now()
   const size = { width: job.image.width, height: job.image.height }
   if (job.kind === 'flat') {
+    // The shading layer is traced alongside, in VTracer's own worker, from the texture only (found
+    // again here, as runFlat does in its worker; it takes milliseconds).
+    const shading = job.shading
+      ? tracers.vtracer.trace(onlyTexture(job.shading.image, texturedMask(job.image), job.image.width, job.image.height), toEngineConfig(job.shading.params, job.shading.scale))
+      : null
     const res = tracers.flat ? await tracers.flat.run(job.image, job.options) : runFlat(job.image, job.options)
     const finalized = finalizeSvg(res.svg, job.image, original)
-    const svg = nameSvg(finalized, inkNames({ palette: res.palette, inks: annotate ? res.inks : [], named: res.named }))
-    return { svg, ms: performance.now() - start, paths: res.paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, paper: res.paper, enclosedPaper: res.enclosedPaper, enclosed: res.enclosed, ...size }
+    let svg = nameSvg(finalized, inkNames({ palette: res.palette, inks: annotate ? res.inks : [], named: res.named }))
+    let paths = res.paths
+    if (shading) {
+      svg = composeIllustration(svg, finalizeSvg((await shading).svg, job.shading!.image, original))
+      paths = (svg.match(/<path\b/g) ?? []).length
+    }
+    return { svg, ms: performance.now() - start, paths, inks: annotate ? res.inks : null, palette: res.palette, background: res.background, blendsRemoved: res.blendsRemoved, shapes: res.shapes, named: res.named, gradients: res.gradients, lettered: res.lettered, oneColour: res.oneColour, paper: res.paper, enclosedPaper: res.enclosedPaper, enclosed: res.enclosed, ...size }
   }
   const out = await tracers.vtracer.trace(job.image, toEngineConfig(job.params, job.scale))
   const svg = finalizeSvg(out.svg, job.image, original)

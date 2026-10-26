@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { canListInstalledFonts, installedFonts, weightOf } from '../fonts/candidates'
 import { loadIndex } from '../fonts/catalog'
 import { readFromSharpened } from '../fonts/sharpened'
-import { worthSuggesting } from '../fonts/suggest'
+import { ADMIN_SUGGEST_MIN_SCORE, SUGGEST_MIN_SCORE, worthSuggesting } from '../fonts/suggest'
+import { ADMIN_MODE } from '../quality/flags'
 import { smallestTextLine, wordBoxes } from '../fonts/textsize'
 import type { FontProgress, FontReport, TextLine } from '../fonts/identify'
 import type { LineLettering } from '../fonts/lettering'
@@ -153,7 +154,7 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
         for (let i = 0; i < lines.length && live(); i++) {
           const best = lines[i].matches[0]
           unmatched.push({ line: i, text: lines[i].text, closest: best ?? null })
-          if (worthSuggesting(best)) onSuggestFont?.(report, i, best)
+          if (worthSuggesting(best, ADMIN_MODE ? ADMIN_SUGGEST_MIN_SCORE : SUGGEST_MIN_SCORE)) onSuggestFont?.(report, i, best)
         }
         if (live()) onAutoUnmatched?.(unmatched)
       }
@@ -205,7 +206,9 @@ export function FontPanel({ imageId, bitmap, colors, lettering, canRebuild, onUs
                           <button
                             className={cx(btnSmall, USE)}
                             disabled={placing !== null}
-                            onClick={() => useFont(state.report, i, m)}
+                            // A layout artist picking from the list has chosen the font, as with one typed by
+                            // name: the looser fit applies (MIN_OVERLAP_NAMED). Customers keep the strict one.
+                            onClick={() => useFont(state.report, i, m, undefined, ADMIN_MODE)}
                             title={`Replace the traced letters with ${m.label}, so they're perfectly clean`}
                           >
                             {placing === `${i}|${m.label}` ? 'Rebuilding…' : 'Use for lettering'}

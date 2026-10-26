@@ -37,6 +37,8 @@ export interface PrepParams {
   maxSize: number
   /** Upscale small images first; smooths jaggies and gives the curve fitter more to work with. */
   upscaleSmall: boolean
+  /** Resize by exactly this factor instead (still capped by maxSize). */
+  scale?: number
 }
 
 export interface Preset {

@@ -1,5 +1,5 @@
 import { area, contours, type Point } from './contours'
-import { fitClosed, mergeCurves, type Cubic } from './fit'
+import { fitClosed, isLine, mergeCurves, type Cubic } from './fit'
 import { judge } from './finedetail'
 import { circlePath, decomposeCirclePolygon, insideCircle, insidePolygon, polygonPath, type CirclePolygon } from './decompose'
 import { detectShape, type ShapeKind } from './shapes'
@@ -76,6 +76,18 @@ export interface TraceOptions {
    * With the ordinary curve tolerance a 1 px bar's sides otherwise bulge, drawing it half as wide again.
    */
   straightRuns?: boolean
+  /**
+   * Straight edges (behind a flag, docs/straight-edges.md): long straight stretches of an outline
+   * not replaced by an exact shape are drawn as exact lines (`L`), with the curves beside them
+   * meeting them tangentially, and corners between two of them rebuilt where the lines meet.
+   */
+  straightEdges?: boolean
+  /**
+   * Exact arcs (behind a flag, docs/exact-arcs.md): stretches of an outline not replaced by an exact
+   * shape that are circular arcs are drawn as exact arcs (cubics of at most 90° on one circle),
+   * meeting straight edges tangentially (a rounded corner becomes a fillet) and curves smoothly.
+   */
+  exactArcs?: boolean
 }
 
 /** Exact shapes made, plus how many merged outlines were split into overlapping shapes. */
@@ -218,7 +230,7 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         const ys = s.map((p) => p[1])
         const under = majorityBelow(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), (p) => insidePolygon(p, s), layerRank)
         if (under < 0) return null
-        const d = toPath(fitClosed(s, { error: opts.error, cornerAngle: opts.cornerAngle }), fmt)
+        const d = toPath(fitClosed(s, plainFit(opts)), fmt, opts.straightEdges)
         const same = refills.find((r) => r.color === colors[under])
         if (same) same.d += d
         else refills.push({ color: colors[under], d, fill: fillOf(under) })
@@ -329,7 +341,7 @@ export function traceLabels(map: LabelMap, opts: TraceOptions): { svg: string; p
         shapes[exact.kind]++
         return exact.d
       }
-      return toPath(fineCurves.get(loop) ?? ordCurves.get(loop) ?? fitLoop(loop, null, opts), fmt)
+      return toPath(fineCurves.get(loop) ?? ordCurves.get(loop) ?? fitLoop(loop, null, opts), fmt, opts.straightEdges)
     })
     const d = parts.join('')
     layers.push(...below.filter((b) => b.d && b.color >= 0))
@@ -380,8 +392,8 @@ function regionHas(rings: Point[][], w: number, h: number, test: (p: number) => 
  * Curve fitting for one outline on a detail layer: a thin outline (thickness, twice its area over
  * its perimeter, up to THIN_OUTLINE) has its straight stretches drawn as lines (straightRuns).
  */
-function fitOptions(loop: Point[], opts: TraceOptions): { error: number; cornerAngle: number; straightRuns?: boolean } {
-  const base = { error: opts.error, cornerAngle: opts.cornerAngle }
+function fitOptions(loop: Point[], opts: TraceOptions): { error: number; cornerAngle: number; straightRuns?: boolean; straightEdges?: boolean; exactArcs?: boolean } {
+  const base = plainFit(opts)
   if (!opts.straightRuns) return base
   let per = 0
   for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) per += Math.hypot(loop[i][0] - loop[j][0], loop[i][1] - loop[j][1])
@@ -389,6 +401,10 @@ function fitOptions(loop: Point[], opts: TraceOptions): { error: number; cornerA
   // A thin outline's ends turn through 180° within its width: no corners there to sharpen (rebuilt
   // corners 1 px apart make hooks), just one smooth cap between its straight sides.
   return thickness > THIN_OUTLINE ? base : { ...base, cornerAngle: 181, straightRuns: true }
+}
+/** Curve fitting for an ordinary outline (straight edges and exact arcs only with their flags; without them, as before). */
+function plainFit(opts: TraceOptions): { error: number; cornerAngle: number; straightEdges?: boolean; exactArcs?: boolean } {
+  return { error: opts.error, cornerAngle: opts.cornerAngle, ...(opts.straightEdges ? { straightEdges: true } : {}), ...(opts.exactArcs ? { exactArcs: true } : {}) }
 }
 /** Outlines up to this thick (px) are thin (see fitOptions). */
 const THIN_OUTLINE = 3
@@ -403,7 +419,7 @@ const MERGE_TOLERANCE = 0.1
  * its contour; the closer fit is kept when it doesn't cross.
  */
 function fitLoop(loop: Point[], fine: ReturnType<typeof fitOptions> | null, opts: TraceOptions): Cubic[] {
-  const curves = fitClosed(loop, fine ?? { error: opts.error, cornerAngle: opts.cornerAngle })
+  const curves = fitClosed(loop, fine ?? plainFit(opts))
   if (!fine || !crossesItself(curves)) return curves
   const closer = fitClosed(loop, { ...fine, error: Math.max(MIN_FIT_ERROR, fine.error / 3) })
   return crossesItself(closer) ? curves : closer
@@ -624,11 +640,12 @@ export function layersToSvg(layers: TracedLayer[], w: number, h: number): string
 
 const escapeAttr = (v: string) => v.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
-function toPath(curves: Cubic[], fmt: (v: number) => number): string {
+function toPath(curves: Cubic[], fmt: (v: number) => number, lines = false): string {
   if (!curves.length) return ''
   const p = (pt: Point) => `${fmt(pt[0])} ${fmt(pt[1])}`
   let d = `M${p(curves[0][0])}`
-  for (const c of curves) d += `C${p(c[1])} ${p(c[2])} ${p(c[3])}`
+  // Straight edges: a curve that is a straight line is written as one (`L`).
+  for (const c of curves) d += lines && isLine(c) ? `L${p(c[3])}` : `C${p(c[1])} ${p(c[2])} ${p(c[3])}`
   return d + 'Z'
 }
 

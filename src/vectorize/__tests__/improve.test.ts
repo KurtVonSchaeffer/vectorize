@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Detection } from '../detect'
-import { betterOffer, compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored } from '../improve'
+import { ADMIN_SHARPEN_BELOW, alternatives, betterOffer, compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored } from '../improve'
 
 const r = (score: number, segments: number, more: Partial<Scored> = {}): Scored => ({ score, segments, edgeF1: 0.95, colours: 3, ...more })
 const det = (patch: Partial<Detection> = {}): Detection => ({ kind: 'flat', hasAlpha: false, background: null, gradients: 0, fine: 0.2, ...patch })
@@ -55,6 +55,15 @@ describe('worthSharpening', () => {
     expect(worthSharpening(det({ fine: 0.9 }), 1200, 800)).toBe(true)
     expect(worthSharpening(det({ kind: 'photo' }), 240, 160)).toBe(false)
     expect(worthSharpening(det({ kind: 'pixel' }), 32, 32)).toBe(false)
+  })
+
+  it('tries larger uploads in the admin panel, still never photos', () => {
+    expect(worthSharpening(det(), 560, 300)).toBe(false)
+    expect(worthSharpening(det(), 560, 300, ADMIN_SHARPEN_BELOW)).toBe(true)
+    expect(worthSharpening(det(), 843, 284, ADMIN_SHARPEN_BELOW)).toBe(false)
+    expect(worthSharpening(det({ kind: 'photo' }), 560, 300, ADMIN_SHARPEN_BELOW)).toBe(false)
+    expect(alternatives(det(), 560, 300, 0.5, ADMIN_SHARPEN_BELOW).map((a) => a.kind)).toContain('sharpen')
+    expect(alternatives(det(), 560, 300, 0.5).map((a) => a.kind)).not.toContain('sharpen')
   })
 })
 

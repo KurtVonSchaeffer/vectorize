@@ -79,6 +79,17 @@ describe('detectArt', () => {
     expect(d.kind).toBe('flat')
   })
 
+  it('keeps near-black lettering with a few small blue dots as flat colour', () => {
+    // Amrod's logo: black wordmark, a handful of blue dots well under 10% of the ink, which line art drew as black blobs.
+    const dots = [[40, 20], [52, 14], [64, 22], [58, 32], [70, 36]]
+    const d = detectArt(
+      image(400, 120, (x, y) =>
+        dots.some(([cx, cy]) => Math.hypot(x - cx, y - cy) < 3.5) ? [30, 170, 230, 255] : y > 60 && y < 100 && x > 20 && x < 380 && x % 16 < 9 ? [36, 31, 33, 255] : [255, 255, 255, 255],
+      ),
+    )
+    expect(d.kind).toBe('flat')
+  })
+
   it('keeps navy lettering on white as flat colour', () => {
     const d = detectArt(image(400, 100, (x, y) => (y > 40 && y < 60 && x % 12 < 2 ? [31, 42, 92, 255] : [255, 255, 255, 255])))
     expect(d.kind).toBe('flat')
@@ -87,6 +98,44 @@ describe('detectArt', () => {
   it('keeps a uniform slate-gray logo as flat colour, so it is not turned black', () => {
     const d = detectArt(image(300, 200, (x, y) => (Math.abs(y - 100 - 40 * Math.sin(x / 30)) < 6 ? [60, 64, 72, 255] : [255, 255, 255, 255])))
     expect(d.kind).toBe('flat')
+  })
+
+  // A light gray brand-guide grid around the artwork, as on logo websites.
+  const grid = (x: number, y: number): RGBA => (x % 40 === 0 || y % 40 === 0 ? [205, 205, 205, 255] : [235, 235, 235, 255])
+
+  it('marks a hatched illustration on a grid as an illustration (the Gorilla Glue gorilla)', () => {
+    // Fur in pen strokes: browns, orange and black changing every few pixels, in a disc that
+    // covers a fifth of the image, so the gray grid alone used to make it a flat logo.
+    const FUR = [[90, 45, 20], [150, 70, 25], [200, 110, 40], [20, 12, 8], [120, 60, 30], [230, 200, 140]]
+    const d = detectArt(
+      image(600, 375, (x, y) => {
+        if (Math.hypot(x - 300, y - 187) >= 95) return grid(x, y)
+        const stroke = Math.floor((x * 3 + y * 2 + ((x * y) % 7)) / 4) % FUR.length
+        const shade = ((x * 13 + y * 29) % 41) - 20 // ink pressure varies along each stroke
+        return [...FUR[stroke].map((v) => v + shade), 255] as RGBA
+      }),
+    )
+    expect(d.kind).toBe('flat')
+    expect(d.illustration).toBe(true)
+    expect(d.texture).toBeGreaterThan(0.3)
+  })
+
+  it('keeps flat logos flat on a grid or with small lettering in several colours', () => {
+    const badge = detectArt(image(600, 375, (x, y) => (Math.hypot(x - 300, y - 187) < 95 ? (y < 187 ? [220, 40, 40, 255] : [30, 60, 160, 255]) : grid(x, y))))
+    expect(badge.kind).toBe('flat')
+    expect(badge.illustration).toBeUndefined()
+    expect(badge.texture).toBeLessThan(0.3)
+    // Small anti-aliased lettering in four colours on white: busy outlines, but against the page.
+    const INKS = [[220, 40, 40], [30, 60, 160], [20, 140, 60], [240, 160, 0]]
+    const words = detectArt(
+      image(300, 80, (x, y) => {
+        const ink = INKS[Math.floor(x / 75)]
+        const t = y > 30 && y < 50 ? Math.max(0, 1 - Math.abs((x % 6) - 2) / 1.5) : 0
+        return mix([255, 255, 255], ink, t)
+      }),
+    )
+    expect(words.kind).toBe('flat')
+    expect(words.illustration).toBeUndefined()
   })
 
   it('still recognizes a pencil sketch, whose gray tone varies, as line art', () => {

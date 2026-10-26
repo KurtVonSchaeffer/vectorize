@@ -89,23 +89,29 @@ export function isLossy(name: string): boolean {
 
 /** Images this small (longest side, px) are worth trying with AI sharpening. */
 export const SHARPEN_BELOW = 300
+/**
+ * In the admin panel, larger uploads are tried too: logos pasted from websites and emails are often
+ * 300–600 px, and the Layout team waits for a better result where customers wouldn't. The offer rule
+ * (isImprovement) still decides whether the sharpened version is offered.
+ */
+export const ADMIN_SHARPEN_BELOW = 600
 
 /** Whether AI sharpening (2×) is worth trying: small images, or artwork made of fine strokes. */
-export function worthSharpening(det: Detection, width: number, height: number): boolean {
-  return (det.kind === 'flat' || det.kind === 'lineart') && (Math.max(width, height) <= SHARPEN_BELOW || det.fine >= 0.85)
+export function worthSharpening(det: Detection, width: number, height: number, below = SHARPEN_BELOW): boolean {
+  return (det.kind === 'flat' || det.kind === 'lineart') && (Math.max(width, height) <= below || det.fine >= 0.85)
 }
 
 /** An alternative to try for an image, before its job is made (rebuilt lettering comes separately). */
 export type Alternative = { kind: 'detail'; detail: number; label: string } | { kind: 'sharpen'; label: string }
 
 /** The alternatives worth trying for an image traced at `detail`, cheapest first. */
-export function alternatives(det: Detection, width: number, height: number, detail: number): Alternative[] {
+export function alternatives(det: Detection, width: number, height: number, detail: number, sharpenBelow = SHARPEN_BELOW): Alternative[] {
   const out: Alternative[] = []
   for (const [d, label] of [
     [detail + 0.25, 'traced with more detail'],
     [detail - 0.25, 'traced with simpler shapes'],
   ] as const)
     if (d >= 0 && d <= 1) out.push({ kind: 'detail', detail: d, label })
-  if (worthSharpening(det, width, height)) out.push({ kind: 'sharpen', label: 'sharpened with AI before tracing, which recovers small detail' })
+  if (worthSharpening(det, width, height, sharpenBelow)) out.push({ kind: 'sharpen', label: 'sharpened with AI before tracing, which recovers small detail' })
   return out
 }

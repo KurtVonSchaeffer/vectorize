@@ -33,6 +33,34 @@ describe('findGradients', () => {
     expect(f.stops.length).toBeLessThanOrEqual(3) // a straight blend needs few stops
   })
 
+  it('finds the gradient across a badge ring, dark at both edges, in arcs split by a banner and artwork', () => {
+    // The Gorilla Glue ring: orange at the inner and outer edge, yellow in the middle, radius
+    // 120–150 around (200, 190). A banner (y 160–220) and artwork in the middle (x 150–250, above
+    // the banner) cut it into a lower arc and two short upper arcs.
+    const ORANGE: RGB = [245, 140, 38]
+    const YELLOW: RGB = [255, 212, 86]
+    const DARK: RGB = [30, 20, 10]
+    const img = image(400, 360, (x, y) => {
+      const r = Math.hypot(x + 0.5 - 200, y + 0.5 - 190)
+      if (y >= 160 && y < 220 && x > 20 && x < 380) return DARK // banner
+      if (y < 160 && x >= 150 && x < 250 && r < 152) return DARK // artwork
+      if (r < 120 || r >= 150) return CREAM
+      return lerp(ORANGE, YELLOW, 1 - Math.abs(r - 135) / 15)
+    })
+    const g = findGradients(img)
+    const rings = g.filter((r) => r.fill.kind === 'radial')
+    expect(rings.length).toBe(3)
+    for (const { fill } of rings) {
+      if (fill.kind !== 'radial') continue
+      expect(Math.hypot(fill.cx - 200, fill.cy - 190)).toBeLessThan(3)
+      // Orange at both edges of the band, yellow in the middle.
+      const at = (rad: number) => fill.stops.reduce((best, s) => (Math.abs(s.offset * fill.r - rad) < Math.abs(best.offset * fill.r - rad) ? s : best))
+      expect(close(rgb(at(121).color), ORANGE, 20)).toBe(true)
+      expect(close(rgb(at(135).color), YELLOW, 20)).toBe(true)
+      expect(close(rgb(at(149).color), ORANGE, 20)).toBe(true)
+    }
+  })
+
   it('finds a radial gradient in a disc and its center', () => {
     const img = image(200, 200, (x, y) => {
       const r = Math.hypot(x + 0.5 - 100, y + 0.5 - 100)
