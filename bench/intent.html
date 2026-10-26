@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Design intent</title>
+    <style>
+      body{font:13px ui-monospace,monospace;padding:16px;background:#fff;color:#111}
+      .row{display:flex;gap:8px;flex-wrap:wrap}
+      figure{margin:0}
+      figure img{width:380px;border:1px solid #ddd;background:#fff}
+      figcaption{padding:4px 0}
+      table{border-collapse:collapse;margin:12px 0}
+      td,th{border:1px solid #ccc;padding:3px 8px;text-align:right}
+    </style>
+  </head>
+  <body>
+    <h1>Design intent: object redraw (prototype)</h1>
+    <p id="status">Loading…</p>
+    <div class="row" id="out"></div>
+    <div id="stats"></div>
+    <script type="module" src="./intent.ts"></script>
+  </body>
+</html>
