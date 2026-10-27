@@ -6,10 +6,18 @@
   --color-card: #ffffff;
   --color-ink: #121418;
   --color-ink-2: #5e6672;
+  --color-meta: #5e6672;
   --color-line: #e1e5ea;
+  --color-line-strong: #c9cfd6;
   --color-accent: #c8125c;
   --color-accent-ink: #ffffff;
   --color-accent-soft: #fce7f0;
+  /* Supporting marks: the step numbers, the header pill and the upload icon. */
+  --color-accent-2: #cdeedb;
+  --color-accent-3: #ffe2a8;
+  --color-accent-2-ink: #121418;
+  --color-accent-on-ink: #c8125c;
+  --color-drop-icon: #fce7f0;
   --color-good: #1d8a4b;
   --color-good-soft: #e3f4ea;
   --color-bad: #c0362c;
@@ -34,10 +42,17 @@
     --color-card: #171a20;
     --color-ink: #eceef2;
     --color-ink-2: #9aa3af;
+    --color-meta: #9aa3af;
     --color-line: #272c34;
+    --color-line-strong: #3a414c;
     --color-accent: #ff4f95;
     --color-accent-ink: #1b0611;
     --color-accent-soft: #3a1727;
+    --color-accent-2: #1f4a33;
+    --color-accent-3: #5a4413;
+    --color-accent-2-ink: #eceef2;
+    --color-accent-on-ink: #ff4f95;
+    --color-drop-icon: #3a1727;
     --color-good: #52c47f;
     --color-good-soft: #15301f;
     --color-bad: #ef6a5e;
@@ -47,6 +62,37 @@
     color-scheme: dark;
   }
 }
+
+/* Barron brand for the Layout team build (ADMIN_MODE sets data-brand on <html>). Light only, as in
+   the brand guide, so it overrides the dark-mode values too. */
+:root[data-brand='barron'] {
+  --color-bg: #f9f9fb;
+  --color-card: #ffffff;
+  --color-ink: #202020;
+  --color-ink-2: #5c5c5c;
+  --color-meta: #62748e;
+  --color-line: #ecedf2;
+  --color-line-strong: #c4c4c4;
+  --color-accent: #191d63;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #eef0f8;
+  --color-accent-2: #93d0ac;
+  --color-accent-3: #ffc22c;
+  --color-accent-2-ink: #191d63;
+  --color-accent-on-ink: #ffc22c;
+  --color-drop-icon: #f2f9f6;
+  --color-good: #1d8a4b;
+  --color-good-soft: #e3f4ea;
+  --color-bad: #c0362c;
+  --color-bad-soft: #fbe9e7;
+  --color-check-a: #ffffff;
+  --color-check-b: #eef1f4;
+  --font-display: 'Quicksand Variable', 'Quicksand', 'Segoe UI', sans-serif;
+  --font-body: 'Raleway Variable', 'Raleway', system-ui, sans-serif;
+  color-scheme: light;
+}
+/* Raleway defaults to old-style figures; sizes and millimetres read better lining. */
+:root[data-brand='barron'] body { font-variant-numeric: lining-nums; }
 
 @layer base {
   :root { color-scheme: light; }

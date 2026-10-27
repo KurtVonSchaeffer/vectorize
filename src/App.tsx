@@ -9,7 +9,8 @@ import { SMALL_TEXT_PX } from './fonts/textsize'
 import { InkPanel } from './components/InkPanel'
 import { MoreOptions } from './components/MoreOptions'
 import { ResultCard, type Chip, type ColorMode, type WhiteInk } from './components/ResultCard'
-import { Upload } from './components/Upload'
+import { MAX_UPLOAD_MB, Upload } from './components/Upload'
+import barronLogo from './assets/barron-logo.svg'
 import { downloadsFor, printWidthMm, saveBlob, type Download } from './export/files'
 import { platesOf } from './export/plates'
 import { DEMO_PALETTE } from './palette/demo'
@@ -143,6 +144,10 @@ export default function App() {
   // ---------- Opening an image ----------
   const openBlob = useCallback(
     async (blob: Blob, name: string) => {
+      if (blob.size > MAX_UPLOAD_MB * 1024 * 1024) {
+        showToast(`That file is over ${MAX_UPLOAD_MB} MB. Try a smaller copy.`)
+        return
+      }
       setOpening(true)
       try {
         const img = await loadImage(blob, name)
@@ -806,23 +811,38 @@ export default function App() {
 
   // ---------- Render ----------
   return (
-    <div className="mx-auto grid max-w-[1200px] gap-5 px-5 pt-[18px] pb-12">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <button className="flex items-center gap-2.5 py-1 font-display text-[19px]/none font-extrabold tracking-[-0.02em]" onClick={reset} aria-label={ADMIN_MODE ? 'Barron Vectoriser, start over' : 'Vectorize, start over'}>
-          <svg className="size-[26px]" viewBox="0 0 26 26" aria-hidden="true">
-            <path d="M4 20C7 6 19 6 22 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-            <rect x="2" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
-            <rect x="19.5" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
-          </svg>
-          {ADMIN_MODE ? 'Barron Vectoriser' : 'Vectorize'}
-          {ADMIN_MODE && <span className="rounded-full bg-accent px-2 py-0.5 font-sans text-xs font-bold tracking-normal text-accent-ink">Layout team</span>}
-        </button>
-        {source && (
-          <button className="rounded-full border border-line bg-card px-4 py-2 font-semibold hover:border-ink-2" onClick={reset}>
-            Upload another image
-          </button>
-        )}
+    <>
+      <header className="border-b border-line bg-card">
+        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-4">
+          {ADMIN_MODE ? (
+            <button className="flex items-center gap-3.5" onClick={reset} aria-label="Barron Vectoriser, start over">
+              <img src={barronLogo} alt="" className="h-8 w-auto" />
+              <span className="h-6 w-px bg-line" />
+              <span className="font-display text-xl/none font-bold tracking-[-0.01em] text-accent">Vectoriser</span>
+              <span className="rounded-full bg-accent-3 px-2.5 py-1 text-xs font-semibold text-accent-2-ink">Layout team</span>
+            </button>
+          ) : (
+            <button className="flex items-center gap-2.5 py-1 font-display text-[19px]/none font-extrabold tracking-[-0.02em]" onClick={reset} aria-label="Vectorize, start over">
+              <svg className="size-[26px]" viewBox="0 0 26 26" aria-hidden="true">
+                <path d="M4 20C7 6 19 6 22 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                <rect x="2" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
+                <rect x="19.5" y="18" width="4.5" height="4.5" rx="1" fill="var(--color-accent)" />
+              </svg>
+              Vectorize
+            </button>
+          )}
+          {source ? (
+            <button className="rounded-full border border-line bg-card px-4 py-2 font-semibold hover:border-ink-2" onClick={reset}>
+              Upload another image
+            </button>
+          ) : (
+            <a className="p-3 text-sm font-medium text-accent hover:underline" href="#how">
+              How it works
+            </a>
+          )}
+        </div>
       </header>
+    <div className="mx-auto grid max-w-[1200px] gap-5 px-5 pt-[18px] pb-12">
 
       {!source || !detection ? (
         <Upload onFile={openBlob} onExample={async () => openBlob(await exampleImage(), 'example-badge.jpg')} loading={opening} />
@@ -1064,7 +1084,7 @@ export default function App() {
           <span>{toast.text}</span>
           {toast.undo && (
             <button
-              className="font-bold text-accent"
+              className="font-bold text-accent-on-ink"
               onClick={() => {
                 toast.undo!()
                 setToast(null)
@@ -1076,6 +1096,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </>
   )
 }
 
