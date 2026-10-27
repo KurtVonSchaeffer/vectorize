@@ -174,9 +174,9 @@ fn main() {
 		.collect();
 
 	let arch = Arch::new();
+	// pulp's AVX-512 level (Arch::V4) needs its x86-v4 feature, which is off by default: with
+	// defaults it dispatches up to AVX2 even on AVX-512 hardware.
 	let target = match arch {
-		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-		Arch::V4(_) => "x86-v4 (AVX-512)",
 		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 		Arch::V3(_) => "x86-v3 (AVX2+FMA)",
 		_ => "scalar",
