@@ -286,6 +286,15 @@ A fourth class, **generative**, covers rules for making features rather than fea
 - **Known gap in the prototype:** its labels use pixel boxes and SAM region numbers, which are resolution-bound. The next schema should anchor parts to the object's own frame (normalised coordinates relative to the head or the silhouette) or to template landmarks.
 - **More targets than SVG.** Because the graph holds meaning, the same source could compile to PDF, cut paths, **embroidery** (stitch types per feature class: satin for structure, fill for masses, run stitch for line work; directly relevant to Barron's branding), laser or CNC paths, or an animation rig.
 
+**Text is intent: a font, not outlines.** The app already does the open-source route:
+- Tesseract OCR reads the lettering.
+- A font index of Google Fonts / Fontsource families and the user's installed fonts ranks candidates by glyph overlap.
+- The artist picks one ("Use for lettering"), and the line is rebuilt from the real font's outlines, in two weights where the wordmark has two.
+
+On the Gorilla Glue logo it suggests Reddit Sans Condensed Black for "LA" (89%). In the graph, text should be a node of its own: `{ "type": "text", "content": "GORILLA", "font": "…", "confidence": 0.82, "traits": { "weight": "black", "width": "condensed" } }`, with candidates ranked and the artist choosing when confidence is low. The compiler sets type from the chosen font and falls back to traced outlines without one. Typography traits from a vision model (condensed, slab, athletic, script…) would narrow the search to an approved font library.
+
+**Colour is intent, not sampling.** A mascot doesn't have 37 browns. It has roles: fur primary, fur shadow, fur highlight; gold primary and shadow; ring green. The vision stage names colour roles and their relationships; the compiler maps roles to a production palette per output: RGB for screen, Pantone spot colours for print, CMYK for PDF, thread colours for embroidery, vinyl colours for cutting. Colour gets its own budget, independent of paths: structural colours locked, semantic preferred, decorative variation merged first (12 → 8 → 5 → 3 colours). Today's app already has the production half: brand and ink libraries, spot-colour mode with named plates, and a maximum colour count. What's missing is roles: the graph would say `"base": "fur-primary"`, not `"fill": "#c47a2c"`.
+
 **Template explosion is the biggest risk.** Uploads will include dragons, octopuses, motorbikes and pirate ships; a template per subject grows forever. So the split is:
 - **specific templates** for the common mascot categories (gorilla, lion, eagle, bulldog, hand, skull);
 - a **generic shape grammar** for everything else, built from reusable parts: head, eye, mouth, limb, wing, weapon, badge, ribbon. The grammar scales, and the template count doesn't need to.
