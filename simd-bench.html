@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIMD bake-off</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 24px; color: #151a24; background: #fff; }
+      table { border-collapse: collapse; margin-top: 12px; }
+      th, td { padding: 6px 10px; border-bottom: 1px solid #dde1e8; text-align: left; font-variant-numeric: tabular-nums; }
+      th { font-size: 12px; text-transform: uppercase; color: #5a6273; }
+      #notes { color: #9a5b00; }
+    </style>
+  </head>
+  <body>
+    <h1>SIMD bake-off: tracer blur</h1>
+    <p>TypeScript (current) against WebAssembly SIMD builds. Dev only; see simd/README.md.</p>
+    <p id="status">Running…</p>
+    <p id="notes"></p>
+    <table><thead><tr id="head"></tr></thead><tbody id="rows"></tbody></table>
+    <script type="module">
+      import { runBench } from '/simd/bench.ts'
+      const rows = document.getElementById('rows')
+      const head = document.getElementById('head')
+      const results = []
+      await runBench(
+        (row) => {
+          results.push(row)
+          if (!head.children.length) for (const k of Object.keys(row)) head.insertAdjacentHTML('beforeend', `<th>${k}</th>`)
+          rows.insertAdjacentHTML('beforeend', `<tr>${Object.values(row).map((v) => `<td>${v}</td>`).join('')}</tr>`)
+        },
+        (s) => (document.getElementById('notes').textContent += s + ' '),
+      )
+      window.__bench = results
+      document.getElementById('status').textContent = 'Done.'
+    </script>
+  </body>
+</html>

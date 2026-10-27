@@ -1,0 +1,109 @@
+# Native SIMD shootout (simd/native/README.md): records the tracer's blur calls on Linux, hands them
+# to a Windows runner as an artifact, builds the C++ + Highway, Rust + pulp and C# + .NET engines
+# there, times them against the TypeScript and WebAssembly baselines, and checks every engine's
+# output traces to the same shapes. Results: the run summary and the simd-results artifact.
+#
+# Only the synthetic cases run here: the logo cases need local artwork that stays out of the repo.
+name: SIMD shootout
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: Rounds (engine order changes each round)
+        default: '5'
+  push:
+    branches: [simd/native-shootout]
+    paths: ['simd/native/**', '.github/workflows/simd-shootout.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simd-shootout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    name: Record blur calls
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Record
+        run: npx vitest run simd/native/record.test.ts
+        env:
+          RECORD: '1'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simd-recordings
+          path: simd/native/data
+          retention-days: 7
+
+  shootout:
+    name: Build, time and verify (Windows x64)
+    needs: record
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: simd-recordings
+          path: simd/native/data
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      # The same toolchain versions as the local build (simd/native/README.md).
+      - name: Toolchains
+        shell: pwsh
+        run: |
+          $tools = Join-Path $HOME 'simd-tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          Invoke-WebRequest -UseBasicParsing -OutFile "$tools\llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-x86_64.zip
+          Expand-Archive "$tools\llvm-mingw.zip" -DestinationPath $tools
+          git clone --quiet --depth 1 --branch 1.4.0 https://github.com/google/highway "$tools\highway"
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build engines
+        run: node simd/native/build.mjs
+      - name: Time engines and baselines
+        run: node simd/native/run.mjs ${{ inputs.rounds || '5' }}
+      - name: Verify traced shapes
+        run: npx vitest run simd/native/verify.test.ts
+        env:
+          VERIFY: '1'
+      - name: Machine and summary
+        if: always()
+        shell: pwsh
+        run: |
+          $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+          "Runner CPU: $($cpu.Name), $($cpu.NumberOfCores) cores / $($cpu.NumberOfLogicalProcessors) threads" | Tee-Object simd/native/out/machine.txt
+          if (Test-Path simd/native/out/results.md) {
+            "## SIMD shootout`n`n$(Get-Content -Raw simd/native/out/machine.txt)`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            Get-Content -Raw simd/native/out/results.md | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simd-results
+          path: |
+            simd/native/out/results.md
+            simd/native/out/results.jsonl
+            simd/native/out/verify.json
+            simd/native/out/machine.txt
+          retention-days: 30

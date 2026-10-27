@@ -1,0 +1,15 @@
+[package]
+name = "blur_pulp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pulp = "0.22.3"
+
+[[bin]]
+name = "blur-pulp"
+path = "src/main.rs"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"

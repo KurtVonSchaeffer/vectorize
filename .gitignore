@@ -6,3 +6,11 @@ public/ocr
 .vercel
 supabase/.temp
 *.tsbuildinfo
+
+# Native SIMD shootout recordings and outputs (simd/native/README.md): regenerated, ~160 MB
+simd/native/data/
+simd/native/out/
+simd/native/**/target/
+simd/native/**/bin/
+simd/native/**/obj/
+simd/native/**/build/
