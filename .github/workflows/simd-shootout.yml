@@ -91,6 +91,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force simd/native/out | Out-Null
           $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
           "Runner CPU: $($cpu.Name), $($cpu.NumberOfCores) cores / $($cpu.NumberOfLogicalProcessors) threads" | Tee-Object simd/native/out/machine.txt
           if (Test-Path simd/native/out/results.md) {

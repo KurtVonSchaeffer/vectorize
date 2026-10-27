@@ -27,6 +27,10 @@ const ENGINES = [
   { id: 'dotnet', cmd: [dotnet, join(here, 'csharp', 'bin', 'Release', 'net10.0', 'blur-dotnet.dll')] },
 ]
 
+// Engines that failed to build are left out (build.mjs reports why).
+for (const e of ENGINES.filter((e) => !existsSync(e.cmd.at(-1)))) console.log(`${process.env.GITHUB_ACTIONS ? "::warning::" : ""}${e.id} not built, skipped`)
+const BUILT = ENGINES.filter((e) => existsSync(e.cmd.at(-1)))
+
 /** One process, pinned to `cpu` at high priority. */
 function pinned(cmd, args, env = {}) {
   const [file, ...rest] = win
@@ -41,7 +45,7 @@ rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
 const results = join(out, 'results.jsonl')
 for (let round = 0; round < rounds; round++) {
-  const order = [...ENGINES.slice(round % ENGINES.length), ...ENGINES.slice(0, round % ENGINES.length)]
+  const order = [...BUILT.slice(round % BUILT.length), ...BUILT.slice(0, round % BUILT.length)]
   for (const e of order) {
     mkdirSync(join(out, e.id), { recursive: true })
     for (const c of cases) {
