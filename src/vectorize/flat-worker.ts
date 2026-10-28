@@ -12,7 +12,10 @@ export interface FlatRequest {
 export type FlatResponse = { id: number; ok: true; result: FlatResult } | { id: number; ok: false; error: string }
 
 // The blur in WebAssembly SIMD; where it can't load (older browsers), the TypeScript blur runs.
-const simd = useSimdBlur(true)
+// Traces wait for it at most a few seconds, once: a fetch that hangs must not hold them up, and
+// if it finishes later, later blurs use it.
+const SIMD_WAIT_MS = 3000
+const simd = Promise.race([useSimdBlur(true), new Promise((done) => setTimeout(done, SIMD_WAIT_MS))])
 
 self.onmessage = async (e: MessageEvent<FlatRequest>) => {
   const { id, pixels, width, height, options } = e.data

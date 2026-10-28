@@ -4,8 +4,9 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = join(root, 'public', 'simd')
 const tools = join(homedir(), 'simd-tools')
 mkdirSync(out, { recursive: true })
