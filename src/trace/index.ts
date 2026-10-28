@@ -3,6 +3,7 @@ import { fitClosed, mergeCurves, type Cubic } from './fit'
 import { judge } from './finedetail'
 import { circlePath, decomposeCirclePolygon, insideCircle, insidePolygon, polygonPath, type CirclePolygon } from './decompose'
 import { detectShape, type ShapeKind } from './shapes'
+import { simdBlur } from './simd-blur'
 import { gradientSvg, type GradientFill } from '../palette/gradients'
 
 /** A cleaned color map at source resolution, as produced by the quantizer. */
@@ -900,6 +901,9 @@ export function blur(src: Float32Array, w: number, h: number, sigma: number, box
   if (bx1 < bx0 || by1 < by0) return out
   const x0 = Math.max(0, bx0 - r), x1 = Math.min(w - 1, bx1 + r)
   const y0 = Math.max(0, by0 - r), y1 = Math.min(h - 1, by1 + r)
+  // The same blur in WebAssembly SIMD, once the tracing worker has loaded it (simd-blur.ts).
+  const fast = simdBlur(src, w, h, k, r, x0, x1, y0, y1, by0, by1)
+  if (fast) return fast
 
   // Rows outside the box are all 0 and blur to 0, so the horizontal pass only needs box rows.
   const tmp = new Float32Array(w * h)
