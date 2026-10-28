@@ -443,10 +443,12 @@ function nearestRgb(centers: Lab[], bins: number[], sum: Float64Array, count: Fl
 
 /** Distance from `c` to the segment from `a` to `b` (RGB); beyond the ends, to the nearer end. */
 function lineOffset(c: number[], a: number[], b: number[]): number {
-  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
-  const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
-  const t = len2 ? Math.min(1, Math.max(0, ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2)) : 0
-  return Math.hypot(c[0] - a[0] - t * ab[0], c[1] - a[1] - t * ab[1], c[2] - a[2] - t * ab[2])
+  const ab0 = b[0] - a[0]
+  const ab1 = b[1] - a[1]
+  const ab2 = b[2] - a[2]
+  const len2 = ab0 ** 2 + ab1 ** 2 + ab2 ** 2
+  const t = len2 ? Math.min(1, Math.max(0, ((c[0] - a[0]) * ab0 + (c[1] - a[1]) * ab1 + (c[2] - a[2]) * ab2) / len2)) : 0
+  return Math.hypot(c[0] - a[0] - t * ab0, c[1] - a[1] - t * ab1, c[2] - a[2] - t * ab2)
 }
 
 /**
@@ -490,50 +492,73 @@ function vetoDistantBlends(w: number, h: number, labels: Uint8Array, plain: Uint
  * and drew dark slivers along the feathers. Where the partner has no pixels nearby, the closest
  * mix with a color that has (or none) replaces it; everywhere else the choice is unchanged.
  */
-function vetoDistantPartners(d: Uint8ClampedArray, w: number, h: number, labels: Uint8Array, second: Uint8Array, cov: Float32Array, anchors: { lab: number[]; label: number }[]) {
-  const rgbOf = new Map<number, number[]>()
-  for (const a of anchors) if (!rgbOf.has(a.label)) rgbOf.set(a.label, a.lab)
-  const votes = new Uint16Array(256)
-  const seen: number[] = []
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
+export function vetoDistantPartners(d: Uint8ClampedArray, w: number, h: number, labels: Uint8Array, second: Uint8Array, cov: Float32Array, anchors: { lab: number[]; label: number }[]) {
+  const rgbOf: (number[] | undefined)[] = []
+  const colors: number[] = []
+  for (const a of anchors)
+    if (!rgbOf[a.label]) {
+      rgbOf[a.label] = a.lab
+      if (a.label !== EMPTY) colors.push(a.label)
+    }
+  // Label counts in the window around the pixel, slid along the row: the column entering on the
+  // right is added, the one leaving on the left removed. Labels don't change here, so the counts
+  // are the same as counting the whole window at every pixel, which was most of this step's time.
+  // A color is present where it has at least PRESENT_MIN pixels in the window.
+  const votes = new Int32Array(256)
+  const c = [0, 0, 0]
+  // Of equally close colors the one a scan of the window meets first wins: its first pixel there.
+  const first = (l: number, x: number, top: number, bottom: number) => {
+    const x0 = Math.max(0, x - PRESENT_RADIUS)
+    const x1 = Math.min(w - 1, x + PRESENT_RADIUS)
+    for (let row = top; row <= bottom; row += w) for (let xx = x0; xx <= x1; xx++) if (labels[row + xx] === l) return row + xx
+    return Infinity
+  }
+  for (let y = 0; y < h; y++) {
+    let x = 0
+    while (x < w && (second[y * w + x] === EMPTY || cov[y * w + x] >= 1)) x++
+    if (x === w) continue // no edge pixel on this row
+    const top = Math.max(0, y - PRESENT_RADIUS) * w
+    const bottom = Math.min(h - 1, y + PRESENT_RADIUS) * w
+    // Start from the previous pixel's window; the loop then slides it onto this one.
+    votes.fill(0)
+    for (let xx = Math.max(0, x - PRESENT_RADIUS - 1); xx < Math.min(w, x + PRESENT_RADIUS); xx++) for (let q = top + xx; q <= bottom + xx; q += w) votes[labels[q]]++
+    for (; x < w; x++) {
+      const xin = x + PRESENT_RADIUS
+      const xout = x - PRESENT_RADIUS - 1
+      if (xin < w) for (let q = top + xin; q <= bottom + xin; q += w) votes[labels[q]]++
+      if (xout >= 0) for (let q = top + xout; q <= bottom + xout; q += w) votes[labels[q]]--
       const p = y * w + x
       const s = second[p]
-      if (s === EMPTY || cov[p] >= 1) continue
-      for (let yy = Math.max(0, y - PRESENT_RADIUS); yy <= Math.min(h - 1, y + PRESENT_RADIUS); yy++)
-        for (let xx = Math.max(0, x - PRESENT_RADIUS); xx <= Math.min(w - 1, x + PRESENT_RADIUS); xx++) {
-          const l = labels[yy * w + xx]
-          if (l === EMPTY) continue
-          if (!votes[l]) seen.push(l)
-          votes[l]++
-        }
-      const present = seen.filter((l) => votes[l] >= PRESENT_MIN)
-      for (const l of seen) votes[l] = 0
-      seen.length = 0
-      if (present.includes(s)) continue
-      const P = rgbOf.get(labels[p])
-      const c = [d[p * 4], d[p * 4 + 1], d[p * 4 + 2]]
+      if (s === EMPTY || cov[p] >= 1 || votes[s] >= PRESENT_MIN) continue
+      const P = rgbOf[labels[p]]
+      c[0] = d[p * 4]
+      c[1] = d[p * 4 + 1]
+      c[2] = d[p * 4 + 2]
       // An almost exact, real mix keeps its partner even with no pixel of it nearby: a 1 px line
       // drawn as two 50% rows has no pixel labelled with its color.
-      const S = rgbOf.get(s)
-      if (P && S && lineOffset(c, P, S) <= EXACT_MIX && cov[p] >= MIX_MIN && cov[p] <= 1 - MIX_MIN) continue
+      const S = rgbOf[s]
+      if (P && S && cov[p] >= MIX_MIN && cov[p] <= 1 - MIX_MIN && lineOffset(c, P, S) <= EXACT_MIX) continue
       // The partner isn't here: the closest mix with a color that is, or no partner.
       second[p] = EMPTY
       cov[p] = 1
       if (!P) continue
       let best = -1
       let bestOff = Infinity
-      for (const l of present) {
-        if (l === labels[p] || !rgbOf.has(l)) continue
-        const off = lineOffset(c, P, rgbOf.get(l)!)
-        if (off < bestOff) [bestOff, best] = [off, l]
+      for (const l of colors) {
+        if (l === labels[p] || votes[l] < PRESENT_MIN) continue
+        const off = lineOffset(c, P, rgbOf[l]!)
+        if (off < bestOff || (off === bestOff && first(l, x, top, bottom) < first(best, x, top, bottom))) {
+          bestOff = off
+          best = l
+        }
       }
       if (best < 0) continue
-      const t = blendRatio(c, P, rgbOf.get(best)!, BLEND_RESIDUAL)
+      const t = blendRatio(c, P, rgbOf[best]!, BLEND_RESIDUAL)
       if (t === null) continue
       second[p] = best
       cov[p] = 1 - t
     }
+  }
 }
 
 /** A color at least this far (RGB) from its nearest cluster may be an edge blend of two others. */
