@@ -731,20 +731,33 @@ function separateRegions(src: ImageData, bins: number[], assign: Int32Array, cen
     }
   const contact = new Float64Array(k * k)
   const step = new Float64Array(k * k)
-  const pair = (p: number, q: number) => {
-    const a = cluster[p]
-    const b = cluster[q]
-    if (a < 0 || b < 0 || a === b) return
+  // Math.hypot of small channel differences, remembered: the same values, computed once each.
+  const hypots = new Float64Array(32 * 32 * 32).fill(-1)
+  const pair = (p: number, q: number, a: number, b: number) => {
     const lo = Math.min(a, b) * k + Math.max(a, b)
     if (!candidate[lo]) return
     contact[lo]++
-    step[lo] += Math.hypot(d[p * 4] - d[q * 4], d[p * 4 + 1] - d[q * 4 + 1], d[p * 4 + 2] - d[q * 4 + 2])
+    const dr = Math.abs(d[p * 4] - d[q * 4]), dg = Math.abs(d[p * 4 + 1] - d[q * 4 + 1]), db = Math.abs(d[p * 4 + 2] - d[q * 4 + 2])
+    if ((dr | dg | db) >= 32) step[lo] += Math.hypot(dr, dg, db)
+    else {
+      const i = (dr << 10) | (dg << 5) | db
+      if (hypots[i] < 0) hypots[i] = Math.hypot(dr, dg, db)
+      step[lo] += hypots[i]
+    }
   }
+  // Most neighbours share a cluster: only pairs of two different clusters reach pair().
   for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      const p = y * w + x
-      if (x + 1 < w) pair(p, p + 1)
-      if (y + 1 < h) pair(p, p + w)
+    for (let x = 0, p = y * w; x < w; x++, p++) {
+      const a = cluster[p]
+      if (a < 0) continue
+      if (x + 1 < w) {
+        const b = cluster[p + 1]
+        if (b >= 0 && b !== a) pair(p, p + 1, a, b)
+      }
+      if (y + 1 < h) {
+        const b = cluster[p + w]
+        if (b >= 0 && b !== a) pair(p, p + w, a, b)
+      }
     }
   const total = size.reduce((s, v) => s + v, 0)
   const rgb = centers.map((c) => labToRgb(c))
@@ -852,6 +865,7 @@ function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number,
   const comp = new Int32Array(n).fill(-1)
   const stack = new Int32Array(n)
   const members: number[] = []
+  const touched: number[] = []
   const border = new Uint32Array(256)
   let id = 0
   for (let start = 0; start < n; start++) {
@@ -861,13 +875,13 @@ function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number,
     let top = 0
     stack[top++] = start
     comp[start] = id
-    let touched: number[] = []
+    touched.length = 0
     while (top) {
       const p = stack[--top]
       members.push(p)
       const x = p % w
-      const nbrs = [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p >= w ? p - w : -1, p < n - w ? p + w : -1]
-      for (const q of nbrs) {
+      for (let j = 0; j < 4; j++) {
+        const q = neighbour(p, x, j, w, n)
         if (q < 0) continue
         if (labels[q] === label) {
           if (comp[q] === -1) {
@@ -890,7 +904,8 @@ function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number,
       while (top) {
         const p = stack[--top]
         const x = p % w
-        for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p >= w ? p - w : -1, p < n - w ? p + w : -1]) {
+        for (let j = 0; j < 4; j++) {
+          const q = neighbour(p, x, j, w, n)
           if (q >= 0 && labels[q] === label && comp[q] === -1) {
             comp[q] = id
             stack[top++] = q
@@ -899,9 +914,16 @@ function removeSpecks(labels: Uint8Array, w: number, h: number, minArea: number,
       }
     }
     for (const l of touched) border[l] = 0
-    touched = []
     id++
   }
+}
+
+/** Pixel p's neighbour j (left, right, up, down), or -1 off the image; x is p's column. */
+function neighbour(p: number, x: number, j: number, w: number, n: number): number {
+  if (j === 0) return x > 0 ? p - 1 : -1
+  if (j === 1) return x < w - 1 ? p + 1 : -1
+  if (j === 2) return p >= w ? p - w : -1
+  return p < n - w ? p + w : -1
 }
 
 /** A small region's colour must differ from the one around it by at least this (sRGB distance). */
