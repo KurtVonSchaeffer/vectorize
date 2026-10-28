@@ -2,6 +2,7 @@ import { flatten, parsePath, type Subpath } from '../export/path'
 import { traceLabels } from '../trace'
 import { fontFile } from './candidates'
 import type { FontReport, TextLine } from './identify'
+import { findMark } from './marks'
 import { inkMask, type FontCandidate } from './match'
 import type { Box } from './ocr'
 import { scalePath } from './path'
@@ -269,11 +270,19 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
       skipped++
       continue
     }
+    // A ®, ™ or © after the word is redrawn from the same font, as part of the word.
+    const mark = findMark(font, placed, img)
+    let text = w.text
+    if (mark) {
+      placed.letters.push({ char: mark.char, d: mark.d })
+      placed.box = { x0: Math.min(placed.box.x0, mark.box.x0), y0: Math.min(placed.box.y0, mark.box.y0), x1: Math.max(placed.box.x1, mark.box.x1), y1: Math.max(placed.box.y1, mark.box.y1) }
+      if (!text.includes(mark.char)) text += mark.char
+    }
     const readings = w.readings ?? []
     const alnum = (t: string) => t.replace(/[^\p{L}\p{N}]/gu, '')
     const disagree = [...new Set(readings.filter((r) => alnum(r) !== alnum(w.text)))]
     const doubts = [...placed.doubts, ...disagree.map((r) => ({ at: -1, char: w.text, rival: r, fit: 0, rivalFit: 0 }))]
-    words.push({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) })
+    words.push({ text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) })
   }
   return { font: match.label, words, skipped }
 }
