@@ -98,6 +98,8 @@ jobs:
             "## SIMD shootout`n`n$(Get-Content -Raw simd/native/out/machine.txt)`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             Get-Content -Raw simd/native/out/results.md | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           }
+          # The summary and artifacts need a login to read; annotations on a public repo don't.
+          node simd/native/annotate.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
