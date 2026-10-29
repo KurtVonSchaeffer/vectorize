@@ -233,8 +233,14 @@ async function score(file: File, original: File | null, category: string): Promi
       against: original ? 'original' : 'upload',
       originalSvg: original && /\.svg$/i.test(original.name) ? await original.text() : null,
       colours: colourFidelity(ref1.data, res1.data, W, H).colours,
+      lossyReference: !original && r.compressed,
     })
     r.flags = structureFlags(r.structure)
+    // A brand colour lost altogether fails against an original (it's a flag against the upload).
+    if (r.first && r.structure.missingColours?.length) {
+      r.verdict.push(`colour missing: ${r.structure.missingColours.map((m) => m.colour).join(', ')}`)
+      r.pass = false
+    }
     visuals.set(r, {
       file: file.name,
       width: W,

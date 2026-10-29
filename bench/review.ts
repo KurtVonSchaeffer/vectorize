@@ -6,6 +6,7 @@
 // Nothing here changes what the app does.
 import type { ColourMatch } from '../src/quality/compare'
 import { shapesFromSvg, type Subpath } from '../src/export/path'
+import { deltaE2000, rgbToLab } from '../src/palette/color'
 
 /** Thresholds for the structural flags. They raise REVIEW, never FAIL on their own. */
 export const STRUCTURE = {
@@ -21,6 +22,23 @@ export const STRUCTURE = {
   minCutPieceMm: 1,
   /** A colour this far (ΔE2000) from the original's is listed as wrong. */
   wrongColourDE: 3,
+  /**
+   * Missing colours: an exact reference colour covering at least this share of its opaque
+   * pixels, with nothing in the result's fills or gradient stops within `missingColourDE`,
+   * and not an anti-aliasing mix of two result colours (within `blendTolerance` sRGB units).
+   */
+  missingColourShare: 0.001,
+  missingColourDE: 10,
+  blendTolerance: 12,
+}
+
+export interface MissingColour {
+  colour: string
+  /** The closest colour the result uses, and how far it is (ΔE2000). */
+  nearest: string
+  deltaE: number
+  /** Share of the reference's opaque pixels, percent. */
+  share: number
 }
 
 export interface Box {
@@ -48,6 +66,8 @@ export interface Structure {
   /** The spot with the most outline (fractions), enlarged when nothing is flagged. */
   focus: { x: number; y: number }
   wrongColours: ColourMatch[]
+  /** Reference colours the result doesn't contain at all; null when not checked (lossy upload as reference). */
+  missingColours: MissingColour[] | null
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -247,6 +267,56 @@ function originalNodes(svg: string): number | null {
   }
 }
 
+const hexOf = (c: number) => `#${c.toString(16).padStart(6, '0').toUpperCase()}`
+
+/**
+ * Colours of the reference that the result has lost altogether, such as thin grey lettering
+ * turned navy. The solid-area colour comparison (colourFidelity) can't see these: thin strokes
+ * have no pixels whose neighbours all share their colour. Anti-aliased edge colours (a linear
+ * mix of two colours the result uses) and gradient steps between kept stops aren't reported.
+ */
+export function missingColours(reference: ImageData, resultSvg: string): MissingColour[] {
+  const counts = new Map<number, number>()
+  const d = reference.data
+  let opaque = 0
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 250) continue
+    opaque++
+    const k = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]
+    counts.set(k, (counts.get(k) ?? 0) + 1)
+  }
+  const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255]
+  const used = [...new Set([...resultSvg.matchAll(/(?:fill|stop-color)="#([0-9a-fA-F]{6})"/g)].map((m) => parseInt(m[1], 16)))]
+  const usedRgb = used.map(rgb)
+  const usedLab = usedRgb.map((c) => rgbToLab(c as [number, number, number]))
+  const isBlend = (c: number[]) => {
+    for (let i = 0; i < usedRgb.length; i++)
+      for (let j = i + 1; j < usedRgb.length; j++) {
+        const a = usedRgb[i]
+        const ab = usedRgb[j].map((v, k) => v - a[k])
+        const len2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+        if (!len2) continue
+        const t = ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / len2
+        if (t > 0.02 && t < 0.98 && Math.hypot(c[0] - a[0] - t * ab[0], c[1] - a[1] - t * ab[1], c[2] - a[2] - t * ab[2]) < STRUCTURE.blendTolerance) return true
+      }
+    return false
+  }
+  const out: MissingColour[] = []
+  for (const [c, n] of counts) {
+    if (n / Math.max(1, opaque) < STRUCTURE.missingColourShare) continue
+    const lab = rgbToLab(rgb(c) as [number, number, number])
+    let best = Infinity
+    let nearest = -1
+    usedLab.forEach((u, i) => {
+      const e = deltaE2000(lab, u)
+      if (e < best) [best, nearest] = [e, i]
+    })
+    if (best <= STRUCTURE.missingColourDE || isBlend(rgb(c))) continue
+    out.push({ colour: hexOf(c), nearest: nearest >= 0 ? hexOf(used[nearest]) : 'none', deltaE: +best.toFixed(1), share: +((n / opaque) * 100).toFixed(2) })
+  }
+  return out.sort((a, b) => b.share - a.share)
+}
+
 export function structureChecks(o: {
   svg: string
   plateSvg: string
@@ -258,6 +328,8 @@ export function structureChecks(o: {
   against: 'original' | 'upload'
   originalSvg: string | null
   colours: ColourMatch[]
+  /** The reference is a lossy upload (JPEG noise has no exact colours to miss). */
+  lossyReference?: boolean
 }): Structure {
   const subs = shapesFromSvg(o.svg).flatMap((s) => s.subpaths)
   const nodes = segCount(subs)
@@ -285,6 +357,7 @@ export function structureChecks(o: {
     ...compareShapes(o.reference, o.result),
     focus: ol.focus,
     wrongColours: o.colours.filter((c) => c.deltaE > STRUCTURE.wrongColourDE),
+    missingColours: o.lossyReference ? null : missingColours(o.reference, o.svg),
   }
 }
 
@@ -300,6 +373,7 @@ export function structureFlags(s: Structure): string[] {
   if (s.shapes.broken) f.push(`${s.shapes.broken} broken shape(s) vs ${vs}`)
   if (s.shapes.missing) f.push(`${s.shapes.missing} missing detail(s) vs ${vs}`)
   if (s.shapes.extra) f.push(`${s.shapes.extra} extra shape(s) not in ${vs}`)
+  if (s.missingColours?.length) f.push(`colour(s) missing from the result: ${s.missingColours.map((m) => `${m.colour} (${m.share}% of ${vs}; nearest used ${m.nearest}, ΔE ${m.deltaE})`).join(', ')}`)
   if (s.wrongColours.length) f.push(`incorrect colour(s): ${s.wrongColours.map((c) => `${c.reference}→${c.candidate} (ΔE ${c.deltaE.toFixed(1)})`).join(', ')}`)
   if (s.openOutlines) f.push(`cut file: ${s.openOutlines} open outline(s)`)
   if (s.tinyCutPieces) f.push(`cut file: ${s.tinyCutPieces} of ${s.cutPieces} pieces under ${STRUCTURE.minCutPieceMm} mm at 200 mm wide (hard to weed)`)
