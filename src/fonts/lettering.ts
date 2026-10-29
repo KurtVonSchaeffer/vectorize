@@ -5,6 +5,7 @@ import type { FontReport, TextLine } from './identify'
 import { inkMask, type FontCandidate } from './match'
 import type { Box } from './ocr'
 import { scalePath } from './path'
+import { fontNames, scaleLayout, type TextLayout } from './textlayout'
 import { yieldToPage } from './yield'
 
 /**
@@ -23,6 +24,11 @@ export interface PlacedWord {
   box: Box
   /** The word's position in its text line. */
   index?: number
+  /**
+   * How the word is set (font names, size, baseline, letter origins), in the same pixels as its
+   * outlines: an export can write it as editable text that lands on them (export/editable-text).
+   */
+  layout?: TextLayout
   /**
    * Letters the image doesn't clearly support: another character (a look-alike such as 9 for 8)
    * fits the artwork about as well or better, or the OCR passes disagreed on the word. A word with
@@ -43,6 +49,13 @@ export interface TextDoubt {
 
 /** Whether every placed word's text is supported by the image (no doubts). */
 export const verified = (words: PlacedWord[]) => words.every((w) => !w.doubts?.length)
+
+/**
+ * Adds how the word is set, unless it has doubts: editable text says which letters it is, so a
+ * word whose letters the image doesn't clearly support stays outlines only (as traced or rebuilt),
+ * never text a reader or search would take as certain.
+ */
+export const withLayout = (word: PlacedWord, layout: TextLayout): PlacedWord => (word.doubts?.length ? word : { ...word, layout })
 
 export interface LineLettering {
   font: string
@@ -273,7 +286,9 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
     const alnum = (t: string) => t.replace(/[^\p{L}\p{N}]/gu, '')
     const disagree = [...new Set(readings.filter((r) => alnum(r) !== alnum(w.text)))]
     const doubts = [...placed.doubts, ...disagree.map((r) => ({ at: -1, char: w.text, rival: r, fit: 0, rivalFit: 0 }))]
-    words.push({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) })
+    const k = sourcePerOcrPixel(report.scale)
+    const layout = scaleLayout({ ...fontNames(match), style: match.style, ...placed.set, chars: placed.letters.map((l) => l.char) }, k)
+    words.push(withLayout({ text: w.text, index, font: match.label, ...toSourcePixels(placed, report.scale), ...(doubts.length ? { doubts } : {}) }, layout))
   }
   return { font: match.label, words, skipped }
 }
@@ -282,7 +297,7 @@ export async function placeLine(report: FontReport, line: TextLine, match: FontC
  * Fits one size and baseline for the word (least squares over every letter's top, bottom and
  * width), then puts each letter at its own traced position, so spacing matches the artwork.
  */
-function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], wordBox: Box, img: ImageData, minOverlap: number): { letters: { char: string; d: string }[]; box: Box; doubts: TextDoubt[] } | null {
+function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], wordBox: Box, img: ImageData, minOverlap: number): { letters: { char: string; d: string }[]; box: Box; doubts: TextDoubt[]; set: { size: number; baseline: number; xs: number[] } } | null {
   const found = glyphs.map((g) => ({ g, glyph: font.glyph(g.char) }))
   if (found.some((o) => !o.glyph)) return null
   const outlines = found.map(({ g, glyph }) => ({ g, glyph: glyph!, bb: glyph!.bbox }))
@@ -314,11 +329,9 @@ function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], word
   if (Math.sqrt(err / (outlines.length * 3)) > height * MAX_FIT_ERROR) return null
 
   const size = s * font.unitsPerEm
-  const letters = outlines.map(({ g, glyph, bb }) => {
-    // Center each letter on its traced position.
-    const x = (g.box.x0 + g.box.x1) / 2 - (s * (bb.x1 + bb.x2)) / 2
-    return { char: g.char, d: glyph.path(x, y0, size) }
-  })
+  const xs = outlines.map(({ g, bb }) => (g.box.x0 + g.box.x1) / 2 - (s * (bb.x1 + bb.x2)) / 2)
+  // Center each letter on its traced position.
+  const letters = outlines.map(({ g, glyph }, i) => ({ char: g.char, d: glyph.path(xs[i], y0, size) }))
   const box: Box = {
     x0: Math.min(...outlines.map((o) => o.g.box.x0)),
     y0: Math.min(...outlines.map((o) => o.g.box.y0)),
@@ -353,7 +366,7 @@ function placeWord(font: GlyphSource, glyphs: { char: string; box: Box }[], word
     if (fit < MIN_LETTER_FIT && !(best.rival && best.fit > fit - margin)) doubts.push({ at, char: g.char, rival: '?', fit: +fit.toFixed(3), rivalFit: 0 })
     else if (best.rival && best.fit > fit - margin) doubts.push({ at, char: g.char, rival: best.rival, fit: +fit.toFixed(3), rivalFit: +best.fit.toFixed(3) })
   })
-  return { letters, box, doubts }
+  return { letters, box, doubts, set: { size, baseline: y0, xs } }
 }
 
 /** A box grown by `n` pixels on every side, kept inside the image. */
