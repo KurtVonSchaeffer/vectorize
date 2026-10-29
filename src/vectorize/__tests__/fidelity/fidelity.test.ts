@@ -117,7 +117,9 @@ describe('corners and concave points survive curve fitting (RC9)', () => {
       expect(Math.max(...shape.map((v) => distToOutline(v, ringsOf(P, P[0].fill))))).toBeLessThanOrEqual(0.5)
     }, SLOW)
 
-  it.fails('keeps the inner corners of a 3 px notch (RC9: rounded off)', () => {
+  // RC9 was alpha snapping: on a transparent upload the notch's anti-aliased edge became a pixel
+  // staircase. Traced from its alpha, the 3 px notch keeps its corners as it does on white.
+  it('keeps the inner corners of a 3 px notch (RC9)', () => {
     const shape = notched(3)
     const r = vectorize(paint(80, 80, null, [{ rings: [shape], color: [180, 30, 40] }]))
     const P = svgPaths(r.svg)

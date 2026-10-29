@@ -194,6 +194,68 @@ describe('resample', () => {
   })
 })
 
+/** Farthest any point of the curves lies outside the polygon `loop` (0 when all inside or on it). */
+function farthestOutside(curves: Cubic[], loop: Point[]): number {
+  const segDist = (p: Point, a: Point, b: Point) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1]
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)))
+    return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+  }
+  const inside = ([x, y]: Point) => {
+    let c = false
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++)
+      if (loop[i][1] > y !== loop[j][1] > y && x < ((loop[j][0] - loop[i][0]) * (y - loop[i][1])) / (loop[j][1] - loop[i][1]) + loop[i][0]) c = !c
+    return c
+  }
+  let worst = 0
+  for (const c of curves)
+    for (let t = 0; t <= 1; t += 0.05) {
+      const p = bezierAt(c, t)
+      if (inside(p)) continue
+      worst = Math.max(worst, Math.min(...loop.map((a, i) => segDist(p, a, loop[(i + 1) % loop.length]))))
+    }
+  return worst
+}
+
+describe('corners on small rounded outlines', () => {
+  // Real outlines from a 300 px, JPEG-40 logo ("EST. 1998 · CAPE TOWN", 10 px lettering): the upper
+  // counter of the "8" and the "·". Their blunt ends used to pass as corners and be rebuilt where
+  // the curving edges meet, 1.5 px outside: the counter cut through the 8's thin top stroke (a
+  // pinched 8) and the dot became a bow-tie.
+  const counter: Point[] = [[121.749, 58.5], [122.5, 58.445], [123.5, 58.466], [124.5, 58.446], [124.66, 58.5], [125.5, 58.783], [126.429, 59.5], [126.5, 59.58], [127.044, 60.5], [127.084, 61.5], [126.5, 62.442], [126.451, 62.5], [125.52, 63.5], [125.5, 63.518], [124.5, 63.928], [123.5, 63.982], [122.5, 64.017], [121.5, 63.949], [120.5, 63.501], [120.498, 63.5], [119.649, 62.5], [119.5, 62.295], [119.092, 61.5], [119.129, 60.5], [119.5, 59.906], [119.856, 59.5], [120.5, 58.923], [121.5, 58.519]]
+  const dot: Point[] = [[142.11, 64.5], [142.5, 64.167], [143.5, 64.204], [143.845, 64.5], [144.028, 65.5], [143.503, 66.5], [143.5, 66.503], [142.5, 66.652], [142.334, 66.5], [141.87, 65.5]]
+
+  it('keeps the counter of a small letter inside its traced outline', () => {
+    expect(farthestOutside(fitClosed(counter, { error: 0.5, cornerAngle: 60 }), counter)).toBeLessThan(0.6)
+  })
+
+  it('keeps a small dot round instead of a bow-tie', () => {
+    const curves = fitClosed(dot, { error: 0.5, cornerAngle: 60 })
+    expect(farthestOutside(curves, dot)).toBeLessThan(0.6)
+    expect(crossesItself(curves)).toBe(false)
+  })
+
+  it('keeps the counter from crossing itself', () => {
+    expect(crossesItself(fitClosed(counter, { error: 0.5, cornerAngle: 60 }))).toBe(false)
+  })
+})
+
+/** Whether the closed path of curves crosses itself (flattened, 16 pieces per curve). */
+function crossesItself(curves: Cubic[]): boolean {
+  const pts = curves.flatMap((c) => Array.from({ length: 16 }, (_, i) => bezierAt(c, i / 16)))
+  const n = pts.length
+  const cross = (a: Point, b: Point, c: Point, d: Point) => {
+    const o = (p: Point, q: Point, r: Point) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]))
+    return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0
+  }
+  for (let i = 0; i < n; i++)
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue
+      if (cross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) return true
+    }
+  return false
+}
+
 describe('fitClosed robustness', () => {
   it('never shoots control points far outside a tiny, thin outline', () => {
     // A real outline from 8 px serif text (JPEG): a small hook whose short runs used to solve to

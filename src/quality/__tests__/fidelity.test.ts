@@ -18,7 +18,7 @@ const ids = (r: FidelityReport) => r.issues.map((i) => i.id)
 const lettering = () =>
   paint(110, 70, BLUE, [
     { rings: [rect(0, 30, 110, 40)], color: [240, 240, 235] },
-    { rings: Array.from({ length: 12 }, (_, k) => rect(6 + k * 8, 31.5, 6 + k * 8 + 1.2, 38.5)), color: [30, 140, 70] },
+    { rings: Array.from({ length: 12 }, (_, k) => rect(6 + k * 8, 31.5, 6 + k * 8 + 1, 38.5)), color: [30, 140, 70] },
   ])
 const logo = (bg: RGB | null, noise = 0) => paint(120, 120, bg, [{ rings: [circle(60, 60, 45)], color: [40, 110, 180] }, { rings: [rect(35, 50, 85, 70)], color: [250, 220, 80] }], noise)
 function gradient(): ImageData {
@@ -36,7 +36,7 @@ function gradient(): ImageData {
 const svgOf = (w: number, h: number, paths: string, viewBox = '') => `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"${viewBox ? ` viewBox="${viewBox}"` : ''}>${paths}</svg>`
 
 describe('finds known reconstruction defects against the upload', () => {
-  it('lost lettering strokes (1.2 px strokes on a band)', () => {
+  it('lost lettering strokes (1 px strokes on a band)', () => {
     const r = measured(lettering())
     expect(r.features.lost).toBe(12)
     expect(r.features.lostArea).toBeGreaterThan(0.9)
