@@ -7,6 +7,7 @@ import type { Enhancer } from '../src/ai/enhancer'
 import { findText, matchFonts } from '../src/fonts/identify'
 import { placeLine, type PlacedWord } from '../src/fonts/lettering'
 import { readFromSharpened } from '../src/fonts/sharpened'
+import { SMALL_TEXT_PX, smallestTextLine } from '../src/fonts/textsize'
 import { placeSuggestion, worthSuggesting, type FontSuggestion } from '../src/fonts/suggest'
 import { scoreAgainstUpload } from '../src/quality/render'
 import { DEFAULT_CLIENT, detailBoost, prepFor, traceParamsFor } from '../src/vectorize/client'
@@ -74,11 +75,16 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
   // with the app's own rule (fonts/suggest.ts); they are never improver candidates.
   const suggestions: FontSuggestion[] = []
   const plain = await traceOf(job({}))
+  // As the app: lettering measured too small to trace cleanly (the warning) makes AI sharpening an
+  // alternative whatever the image size (improve.ts worthSharpening).
+  let smallText = false
   if (det.kind === 'flat') {
     try {
       const up = worthSharpening(det, source.width, source.height) ? await sharpened() : null
       const sharp = up ? await createImageBitmap(up) : null
       const report = await readFromSharpened(source.bitmap, sharp, (image) => findText(image, plain.palette?.map((p) => p.color) ?? [], undefined, sharp ? source.bitmap : undefined))
+      const px = smallestTextLine(report)
+      smallText = px !== null && px < SMALL_TEXT_PX
       const lines = await matchFonts(report, [])
       for (let i = 0; i < lines.length; i++) {
         const best = lines[i].matches[0]
@@ -105,7 +111,7 @@ export async function simulateImprover(source: SourceImage, enhancer: Enhancer, 
     // In the order the app checks them, keeping the best so far (as useImprover does).
     if (betterOffer(firstScore, proxy, offered?.proxy.score)) offered = option
   }
-  for (const alt of alternatives(det, source.width, source.height, client.detail)) {
+  for (const alt of alternatives(det, source.width, source.height, client.detail, smallText)) {
     if (alt.kind === 'detail') await consider(alt.label, await traceOf(job({ detail: alt.detail })))
     else {
       const up = await sharpened()

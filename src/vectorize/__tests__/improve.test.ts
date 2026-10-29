@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Detection } from '../detect'
-import { betterOffer, compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored } from '../improve'
+import { betterOffer, compressionRipple, COMPRESSED_RIPPLE, isImprovement, isLossy, worthSharpening, type Scored, alternatives } from '../improve'
 
 const r = (score: number, segments: number, more: Partial<Scored> = {}): Scored => ({ score, segments, edgeF1: 0.95, colours: 3, ...more })
 const det = (patch: Partial<Detection> = {}): Detection => ({ kind: 'flat', hasAlpha: false, background: null, gradients: 0, fine: 0.2, ...patch })
@@ -55,6 +55,15 @@ describe('worthSharpening', () => {
     expect(worthSharpening(det({ fine: 0.9 }), 1200, 800)).toBe(true)
     expect(worthSharpening(det({ kind: 'photo' }), 240, 160)).toBe(false)
     expect(worthSharpening(det({ kind: 'pixel' }), 32, 32)).toBe(false)
+  })
+
+  it('also tries it when the lettering is too small to trace cleanly, whatever the image size', () => {
+    // A 360 px logo with a 7 px tagline: traced, the tagline falls apart; sharpened 2×, it reads.
+    expect(worthSharpening(det(), 360, 120, true)).toBe(true)
+    expect(worthSharpening(det(), 1200, 800, true)).toBe(true)
+    expect(worthSharpening(det({ kind: 'photo' }), 1200, 800, true)).toBe(false)
+    expect(alternatives(det(), 360, 120, 0.5, true).some((a) => a.kind === 'sharpen')).toBe(true)
+    expect(alternatives(det(), 360, 120, 0.5).some((a) => a.kind === 'sharpen')).toBe(false)
   })
 })
 
