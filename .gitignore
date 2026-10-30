@@ -6,3 +6,6 @@ public/ocr
 .vercel
 supabase/.temp
 *.tsbuildinfo
+
+# Rust blur engine builds (simd/build.mjs)
+simd/rust-*/target/

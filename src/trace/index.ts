@@ -3,6 +3,7 @@ import { fitClosed, mergeCurves, type Cubic } from './fit'
 import { judge } from './finedetail'
 import { circlePath, decomposeCirclePolygon, insideCircle, insidePolygon, polygonPath, type CirclePolygon } from './decompose'
 import { detectShape, type ShapeKind } from './shapes'
+import { engineBlur } from './blur-engines'
 import { gradientSvg, type GradientFill } from '../palette/gradients'
 
 /** A cleaned color map at source resolution, as produced by the quantizer. */
@@ -895,11 +896,14 @@ export function blur(src: Float32Array, w: number, h: number, sigma: number, box
   let sum = 0
   for (let i = -r; i <= r; i++) sum += k[i + r] = Math.exp(-(i * i) / (2 * sigma * sigma))
   for (let i = 0; i < k.length; i++) k[i] /= sum
-  const out = new Float32Array(w * h)
   const [bx0, by0, bx1, by1] = box
-  if (bx1 < bx0 || by1 < by0) return out
+  if (bx1 < bx0 || by1 < by0) return new Float32Array(w * h)
   const x0 = Math.max(0, bx0 - r), x1 = Math.min(w - 1, bx1 + r)
   const y0 = Math.max(0, by0 - r), y1 = Math.min(h - 1, by1 + r)
+  // The same blur by the chosen engine (blur-engines.ts), e.g. WebAssembly SIMD in the tracing worker.
+  const fast = engineBlur(src, w, h, k, r, x0, x1, y0, y1, by0, by1)
+  if (fast) return fast
+  const out = new Float32Array(w * h)
 
   // Rows outside the box are all 0 and blur to 0, so the horizontal pass only needs box rows.
   const tmp = new Float32Array(w * h)
