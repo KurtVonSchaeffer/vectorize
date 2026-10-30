@@ -13,7 +13,7 @@ import { buildDxf } from '../../../export/dxf'
 import { shapesFromSvg } from '../../../export/path'
 import { buildPdf } from '../../../export/pdf'
 import { assessFidelity } from '../../../quality/fidelity'
-import { useSimdBlur } from '../../../trace/simd-blur'
+import { blurEngines, useBlurEngine } from '../../../trace/blur-engines'
 import { runFlat } from '../../pipeline'
 import { circle, installImageData, paint, productionOptions, rect, regularPolygon, regularStar, renderSvg, type RGB } from './harness'
 
@@ -85,14 +85,15 @@ describe('processing results match main byte for byte', () => {
     }, 120_000)
 })
 
-// The tracing worker blurs in WebAssembly SIMD where the browser has it (src/trace/simd-blur.ts);
-// the same fixtures must give the same bytes that way too.
-describe('the WebAssembly blur gives the same bytes', () => {
-  beforeAll(async () => expect(await useSimdBlur(true, readFileSync(new URL('../../../../public/simd/blur-highway.wasm', import.meta.url)))).toBe(true))
-  afterAll(() => useSimdBlur(false))
-  for (const [name, make] of Object.entries(FIXTURES))
-    it(`${name}: SVG, knockout SVG, One-colour SVG, PDF and DXF`, () => expect(outputs(make())).toEqual(GOLDEN[name]), 120_000)
-})
+// The tracing worker blurs with an engine from trace/blur-engines.ts (WebAssembly SIMD by default);
+// the same fixtures must give the same bytes with every registered engine.
+for (const engine of blurEngines().filter((e) => e.file))
+  describe(`the ${engine.label} blur gives the same bytes`, () => {
+    beforeAll(async () => expect(await useBlurEngine(engine.id, readFileSync(new URL(`../../../../public/simd/${engine.file}`, import.meta.url)))).toBe(true))
+    afterAll(() => useBlurEngine('typescript'))
+    for (const [name, make] of Object.entries(FIXTURES))
+      it(`${name}: SVG, knockout SVG, One-colour SVG, PDF and DXF`, () => expect(outputs(make())).toEqual(GOLDEN[name]), 120_000)
+  })
 
 describe('outputs are pure vector (no raster shortcut)', () => {
   it('no SVG contains images, data URIs, filters, masks, patterns or clip paths; no PDF contains an image', () => {

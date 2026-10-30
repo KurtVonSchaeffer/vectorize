@@ -1,3 +1,4 @@
+import { BLUR_ENGINE } from '../quality/flags'
 import type { FlatRequest, FlatResponse } from './flat-worker'
 import type { FlatOptions, FlatResult } from './pipeline'
 import { CancelledError, JOB_TIMEOUT_MS, TimeoutError } from './tracer'
@@ -28,7 +29,7 @@ export class FlatTracer {
         this.pending.reject(new TimeoutError())
         this.reset()
       }, JOB_TIMEOUT_MS)
-      const req: FlatRequest = { id, pixels, width: image.width, height: image.height, options }
+      const req: FlatRequest = { id, pixels, width: image.width, height: image.height, options, blurEngine: BLUR_ENGINE }
       worker.postMessage(req, [pixels])
     })
   }

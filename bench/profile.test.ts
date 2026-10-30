@@ -1,11 +1,12 @@
 // CPU profile of the flat-colour pipeline: where does processing time go?
 // Runs only when asked:  PROFILE=1 npx vitest run bench/profile.test.ts
 // Prints self time per function (top entries) and per pipeline file for three typical images.
-// Blurs in WebAssembly SIMD, as the tracing worker does; SIMD_BLUR=0 measures the TypeScript blur.
+// Blurs with the default engine, as the tracing worker does; BLUR_ENGINE=<id> measures another
+// (src/trace/blur-engines.ts), e.g. BLUR_ENGINE=typescript.
 import { readFileSync } from 'node:fs'
 import { Session } from 'node:inspector/promises'
 import { it } from 'vitest'
-import { useSimdBlur } from '../src/trace/simd-blur'
+import { blurEngine, DEFAULT_BLUR_ENGINE, useBlurEngine } from '../src/trace/blur-engines'
 import { runFlat, type FlatOptions } from '../src/vectorize/pipeline'
 
 class FakeImageData {
@@ -57,8 +58,10 @@ const opts: FlatOptions = {
 }
 
 it.skipIf(!process.env.PROFILE)('profile runFlat', { timeout: 600000 }, async () => {
-  const simd = process.env.SIMD_BLUR !== '0' && (await useSimdBlur(true, readFileSync(new URL('../public/simd/blur-highway.wasm', import.meta.url))))
-  console.log(`PROFILE blur: ${simd ? 'WebAssembly SIMD' : 'TypeScript'}`)
+  const engine = blurEngine(process.env.BLUR_ENGINE ?? DEFAULT_BLUR_ENGINE)
+  if (!engine) throw new Error(`unknown BLUR_ENGINE ${process.env.BLUR_ENGINE}`)
+  const ok = await useBlurEngine(engine.id, engine.file ? readFileSync(new URL(`../public/simd/${engine.file}`, import.meta.url)) : undefined)
+  console.log(`PROFILE blur: ${ok ? engine.label : 'TypeScript (engine did not load)'}`)
   const session = new Session()
   session.connect()
   await session.post('Profiler.enable')

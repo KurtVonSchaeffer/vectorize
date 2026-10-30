@@ -43,3 +43,16 @@ export function fineDetailOn(search?: string, env: FlagEnv = { value: import.met
   return featureOn('fine-detail', env, search)
 }
 export const FINE_DETAIL = fineDetailOn()
+
+/**
+ * Which engine runs the tracer's blur (trace/blur-engines.ts): unset, the default (Highway).
+ * VITE_BLUR_ENGINE=<id> sets it for a build. The dev server, and a build with
+ * VITE_BLUR_ENGINE=preview, take ?blur=<id> instead, for comparing engines. Any other build,
+ * production included, ignores the address.
+ */
+export function blurEngineChoice(search = typeof location === 'undefined' ? '' : location.search, env: FlagEnv = { value: import.meta.env?.VITE_BLUR_ENGINE, dev }): string | undefined {
+  const address = env.dev || env.value === 'preview' ? new URLSearchParams(search).get('blur') : null
+  if (address) return address
+  return env.value && env.value !== 'preview' ? env.value : undefined
+}
+export const BLUR_ENGINE = blurEngineChoice()
